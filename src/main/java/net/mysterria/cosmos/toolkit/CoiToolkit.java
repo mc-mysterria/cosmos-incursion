@@ -3,6 +3,7 @@ package net.mysterria.cosmos.toolkit;
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.Map;
 import java.util.Optional;
@@ -10,6 +11,22 @@ import java.util.Optional;
 public class CoiToolkit {
 
     private static final CircleOfImaginationAPI coiApi = CosmosIncursion.getInstance().getCoiAPI();
+
+    public static boolean turnOffSafeMode(Player player) {
+        if (coiApi.isBeyonder(player)) {
+            return coiApi.setSafeMode(player, false);
+        }
+
+        return false;
+    }
+
+    public static boolean turnOnSafeMode(Player player) {
+        if (coiApi.isBeyonder(player)) {
+            return coiApi.setSafeMode(player, true);
+        }
+
+        return false;
+    }
 
     public static boolean isBeyonder(Player player) {
         return coiApi.isBeyonder(player);
@@ -79,5 +96,9 @@ public class CoiToolkit {
         }
 
         return Optional.empty();
+    }
+
+    public ItemStack getBeyonderChar(String pathway, int sequence) {
+        return coiApi.getIngredient("char-" + pathway + "-" + sequence);
     }
 }

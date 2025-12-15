@@ -1,7 +1,7 @@
 # Technical Task: The "Cosmos Incursion" System
 
 ## 1. Project Overview
-**Goal:** Implement a dynamic, high-stakes PvP event ("The Cosmos Incursion") to provide end-game content for Sequence 4 (Demigod) players while ensuring participation remains viable for Low-Sequence players.
+**Goal:** Implement a dynamic, high-stakes PvP event ("The Cosmos Incursion") to provide end-game content for Sequence 4 (Demigod) players while ensuring participation remains viable for Low-Sequence players and non-beyonders as well.
 **Core Concept:** A "Death Zone" that auto-deploys based on server population, featuring forced PvP risk (Sequence Regression on death), asymmetrical balancing, and Town-based territory control.
 **Dependencies:** Lord of The Mysteries (Core Plugin), HuskTowns, BlueMap, PlaceholderAPI.
 
@@ -11,14 +11,15 @@
 The event acts as a temporary "Incursion" rather than a permanently active region.
 
 ### A. Trigger Logic (State Machine)
-* **Activation Condition:** The event automatically starts if `Global Online Players >= 30`.
-* **Cooldown:** Enforce a strict cooldown (e.g., 4 hours) after an event finishes to prevent fatigue.
-* **Arena Selection:** The plugin should select one random region from a pre-defined list of "Incursion Zones" (WorldGuard regions or Coordinate sets) to activate.
+* **Activation Condition:** The event automatically starts if `Global Online Players >= 30` (should be configurable in the config)
+* **Cooldown:** Enforce a strict cooldown (e.g., 2 hours, probably configurable in the config) after an event finishes to prevent fatigue.
+* **Arena Selection:** The plugin should create several zones in different locations, based on the locations of towns to ensure zones are distanced fairly on the same distance between them.
+* **Town Protection:** Zone cannot be created on chunks claimed by the city to ensure Towns remain safe havens for those who don't want to participate.
 
 ### B. Visual Integration (BlueMap)
 * **API Hook:** Upon activation, hook into **BlueMap**.
 * **Indicator:** Draw a distinct **ShapeMarker** (e.g., Red Circle/Square) covering the active zone boundaries.
-* **Label:** Set marker label to: *"Cosmos Incursion (Active) - High Risk"*.
+* **Label:** Set marker label to: *"Cosmos Incursion (Active)"*.
 * **Cleanup:** Automatically remove the marker when the event ends or the zone deactivates.
 
 ---
@@ -27,8 +28,7 @@ The event acts as a temporary "Incursion" rather than a permanently active regio
 These rules apply immediately to any player entering the active Incursion Zone.
 
 ### A. "Safe Mode" Override
-* **Logic:** Hook into the LoTM plugin to detect entry.
-* **Action:** Force execute `/lotm safe-mode off` (or API equivalent).
+* **Action:** Force safe mode to the "false" using API.
 * **Restriction:** Block the ability to re-enable Safe Mode while inside the region boundaries.
 * **Feedback:** Display a Title/Action Bar warning: *"The barrier of reality dissolves..."*
 
@@ -53,13 +53,7 @@ Mechanics to bridge the power gap between Sequence 4 (Demigods) and Sequence 9 (
 * **Immunity:** 0% damage taken from the zone's environmental attrition.
 * **Utility:** Access to "Tactical Items" (see Section 7) that are unusable by High-Tiers.
 
-### C. Damage Mitigation (The Cap)
-* **Logic:** `EntityDamageByEntityEvent`
-* **Condition:** If `Attacker == Seq 4` AND `Victim <= Seq 6`:
-* **Action:** Cap maximum damage per hit to **50% of Victim's Max Health**.
-* **Goal:** Prevents one-shots, giving low-tier players a chance to react or use escape items.
-
-### D. Anti-Griefing (The Bounty)
+### C. Anti-Griefing (The Bounty)
 * **Condition:** If a High-Tier kills > 3 Low-Tiers (who are >3 sequences below them) within 10 minutes.
 * **Action:** Mark the killer as a "Corrupted Monster" on BlueMap/Global Chat to attract other High-Tiers to hunt them.
 * **Loot:** Killing players >3 Sequences lower than you yields **NO** rewards (No Keys, No Loot).
@@ -73,10 +67,10 @@ The core "High Stakes" loop.
 If a Sequence 4 player dies to PvP inside the zone:
 1.  **Sequence Regression:** Downgrade player to **Sequence 5** (100% Acting).
 2.  **Characteristic Drop:** Drop 1x **"Sequence 4 Beyonder Characteristic"** item at death location.
-3.  **Loot:** Killer receives 1x **"Cosmos Crate Key"**.
+3.  **Loot:** Killer receives 1x **"Cosmos Crate" via command or API**.
 
 ### B. The "Paper Angel" (Insurance)
-* **Item:** A high-value consumable item (`Material.PAPER`, CustomModelData/NBT: `paper_angel`).
+* **Item:** A high-value consumable item (`Material.PAPER`, PDC value: `paper_angel`).
 * **Check:** On death, check victim inventory for this item.
 * **Effect (If Found):**
     * Item is removed/consumed.
@@ -87,12 +81,11 @@ If a Sequence 4 player dies to PvP inside the zone:
 
 ---
 
-## 6. Objectives: Territory Control (HuskTowns)
+## 6. Objectives: Territory Control
 A "King of the Hill" system where player count matters more than individual power.
 
 ### A. Capture Logic
-* **Objects:** "Spirit Beacons" (defined regions/blocks within the zone).
-* **Integration:** Hook into `HuskTownsAPI` to identify the Town of players on the point.
+* **Objects:** "Spirit Beacons" (defined regions / blocks within the zone marked with activated Beacons).
 * **Weighting:** Capture speed is based on **Player Count**.
     * 1x Sequence 9 Player = 1 Point/sec.
     * 1x Sequence 4 Player = 1 Point/sec.
@@ -109,12 +102,5 @@ If a Town controls the Beacons when the event ends (or holds for X duration):
 ## 7. Custom Items & Rewards
 
 ### A. The "Cosmos Crate" (PvP Reward)
-* **Source:** Keys obtained by killing Sequence 4/5 players in the zone.
-* **YAML Config:** (Refer to saved Common Crate preferences).
-* **Contents:** Consumables (Acting Scripts), Sealed Artifact Materials, Cosmetic Titles, Currency.
-
-### B. Tactical Items
-* **Charm of Distortion:**
-    * *Effect:* AoE Blindness/Slowness (Radius 5, 3s) on use.
-    * *Restriction:* Unusable by Sequence 6+.
-    * *Use Case:* Escape tool for weak players.
+* **Source:** Crates are obtained by killing other players in the zone.
+* **How to grant:** Granted by a third-party command via command
