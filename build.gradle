@@ -10,6 +10,10 @@ repositories {
     mavenCentral()
 
     maven {
+        url = "https://repo.triumphteam.dev/snapshots/"
+    }
+
+    maven {
         name = "papermc-repo"
         url = "https://repo.papermc.io/repository/maven-public/"
     }
@@ -17,6 +21,8 @@ repositories {
     maven {
         url = "https://nexus.mysterria.net/repository/plugin-public/"
     }
+
+    maven { url = uri("https://repo.panda-lang.org/releases") }
 
     maven { url 'https://repo.william278.net/releases' }
 

@@ -43,7 +43,9 @@ public class CoiToolkit {
 
             if (primaryLowestPathway.isPresent()) {
                 coiApi.destroyBeyonder(player);
-                return coiApi.createBeyonder(player, primaryLowestPathway.get(), lowestSequence - 1);
+                // Regression means going to a higher sequence number (weaker)
+                // Seq 4 -> Seq 5, NOT Seq 4 -> Seq 3
+                return coiApi.createBeyonder(player, primaryLowestPathway.get(), lowestSequence + 1);
             } else {
                 return false;
             }
@@ -98,7 +100,7 @@ public class CoiToolkit {
         return Optional.empty();
     }
 
-    public ItemStack getBeyonderChar(String pathway, int sequence) {
+    public static ItemStack getBeyonderChar(String pathway, int sequence) {
         return coiApi.getIngredient("char-" + pathway + "-" + sequence);
     }
 }

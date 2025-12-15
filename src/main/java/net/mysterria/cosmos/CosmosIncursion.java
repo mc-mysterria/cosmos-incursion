@@ -1,11 +1,16 @@
 package net.mysterria.cosmos;
 
+import dev.rollczi.litecommands.LiteCommands;
+import dev.rollczi.litecommands.bukkit.LiteBukkitFactory;
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.mysterria.cosmos.command.CosmosCommand;
+import net.mysterria.cosmos.config.ConfigManager;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -20,22 +25,51 @@ public final class CosmosIncursion extends JavaPlugin {
     @Getter
     private HuskTownsAPI huskTownsAPI;
 
+    @Getter
+    private ConfigManager configManager;
+
+    private LiteCommands<CommandSender> liteCommands;
+
     @Override
     public void onEnable() {
         instance = this;
 
         log("Enabling Cosmos Incursion...");
-        log("Enablind COI API...");
+
+        // Load configuration
+        log("Loading configuration...");
+        configManager = new ConfigManager(this);
+        configManager.load();
+
+        // Enable API integrations
+        log("Enabling COI API...");
         enableCoiApi();
         log("Enabling HuskTowns API...");
         enableHuskTownsApi();
+
+        // Register commands
+        log("Registering commands...");
+        registerCommands();
+
         log("Cosmos Incursion enabled!");
     }
 
     @Override
     public void onDisable() {
         log("Disabling Cosmos Incursion...");
+
+        // Unregister commands
+        if (liteCommands != null) {
+            liteCommands.unregister();
+        }
+
         log("Cosmos Incursion disabled!");
+    }
+
+    private void registerCommands() {
+        this.liteCommands = LiteBukkitFactory.builder()
+                .commands(new CosmosCommand(this))
+                .build();
     }
 
     private void enableHuskTownsApi() {
