@@ -1,0 +1,103 @@
+# Cosmos Incursion Configuration
+
+event:
+  # Minimum players online to trigger event
+  min-players: 30
+
+  # Cooldown between events (in minutes)
+  cooldown-minutes: 120
+
+  # Event duration (in minutes)
+  duration-minutes: 30
+
+  # Countdown before event starts (in seconds)
+  countdown-seconds: 60
+
+zones:
+  # Number of zones to create
+  base-count: 2
+
+  # Additional zone per X players (e.g., 2 zones at 30, 3 zones at 50)
+  players-per-zone: 20
+
+  # Maximum zones regardless of player count
+  max-count: 5
+
+  # Zone radius in blocks
+  radius: 150
+
+  # Minimum distance from town claims (in blocks)
+  town-buffer: 50
+
+  # Minimum distance between zone centers
+  min-separation: 500
+
+balancing:
+  spirit-weight:
+    # Sequences affected by Spirit Weight (high-tier penalties)
+    min-sequence: 4
+    max-sequence: 5
+
+    # DOT damage per tick
+    dot-damage: 1.0
+
+    # Ticks between DOT damage (100 ticks = 5 seconds)
+    dot-interval-ticks: 100
+
+  anti-grief:
+    # Number of low-tier kills before marked as Corrupted Monster
+    kill-threshold: 3
+
+    # Time window for kill tracking (in seconds)
+    time-window-seconds: 600
+
+    # Sequence difference to count as "griefing"
+    sequence-difference: 3
+
+    # Duration of Corrupted Monster status (in minutes)
+    corrupted-duration-minutes: 15
+
+death:
+  # Sequence that triggers regression penalty
+  regression-sequence: 4
+
+  # Command to grant Cosmos Crate (placeholder: %player%)
+  crate-command: "crate give cosmos %player% 1"
+
+combat-log:
+  # How long Hollow Body NPC persists (in minutes)
+  npc-duration-minutes: 5
+
+  # NPC name format (placeholder: %player%)
+  npc-name-format: "Hollow Body of %player%"
+
+beacons:
+  # Capture radius around beacon
+  capture-radius: 20
+
+  # Points needed to fully capture
+  capture-points: 100
+
+  # Points per player per second
+  points-per-player: 1
+
+  # Decay rate when uncontested (points per second)
+  decay-rate: 0.5
+
+rewards:
+  # Acting speed multiplier for winning town (1.10 = 10% bonus)
+  acting-speed-bonus: 1.10
+
+  # Duration of buff (in hours)
+  buff-duration-hours: 24
+
+messages:
+  event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"
+  event-started: "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>"
+  event-ending: "<red>[Cosmos Incursion]</red> <white>The incursion is ending...</white>"
+  event-ended: "<red>[Cosmos Incursion]</red> <white>The incursion has concluded.</white>"
+  zone-entry: "<red>The barrier of reality dissolves...</red>"
+  zone-exit: "<green>You have left the incursion zone.</green>"
+  corrupted-monster: "<dark_red>%player% has become a Corrupted Monster!</dark_red>"
+  death-regression: "<red>Your sequence has regressed due to death in the incursion.</red>"
+  paper-angel-saved: "<green>Your Paper Angel has protected you from regression!</green>"
