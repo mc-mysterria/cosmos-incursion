@@ -1,0 +1,9 @@
+name: CosmosIncursion
+version: '1.0.0'
+main: net.mysterria.cosmos.CosmosIncursion
+api-version: '1.21'
+authors: [ ikeepcalm ]
+depend:
+  - HuskTowns
+  - CircleOfImagination
+  - BlueMap
