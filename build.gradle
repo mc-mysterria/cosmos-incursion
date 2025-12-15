@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id("xyz.jpenilla.run-paper") version "2.3.1"
+    id("io.github.goooler.shadow") version "8.1.8"
 }
 
 group = 'net.mysterria.cosmos'
@@ -27,11 +28,19 @@ repositories {
     maven { url 'https://repo.william278.net/releases' }
 
     maven { url 'https://repo.bluecolored.de/releases' }
+
+    maven {
+        name = "citizens-repo"
+        url 'https://maven.citizensnpcs.co/repo'
+    }
 }
 
+tasks.build.dependsOn tasks.shadowJar
+
 dependencies {
+    implementation "dev.rollczi:litecommands-bukkit:3.10.2"
+    implementation("net.citizensnpcs:citizensapi:2.0.41-SNAPSHOT")
     implementation("dev.triumphteam:triumph-gui-paper:3.1.13-SNAPSHOT")
-    implementation("dev.rollczi:litecommands-bukkit:3.9.7")
 
     compileOnly 'net.william278.husktowns:husktowns-bukkit:3.1'
     compileOnly 'de.bluecolored:bluemap-api:2.7.4'

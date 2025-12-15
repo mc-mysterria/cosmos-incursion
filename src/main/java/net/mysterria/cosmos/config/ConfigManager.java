@@ -1,12 +1,15 @@
 package net.mysterria.cosmos.config;
 
+import lombok.Getter;
 import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.configuration.file.FileConfiguration;
 
 public class ConfigManager {
 
     private final CosmosIncursion plugin;
-    private CosmosConfig config;
+
+    @Getter
+    private final CosmosConfig config;
 
     public ConfigManager(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -87,10 +90,6 @@ public class ConfigManager {
 
     public void reload() {
         load();
-    }
-
-    public CosmosConfig getConfig() {
-        return config;
     }
 
 }

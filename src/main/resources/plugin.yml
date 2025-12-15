@@ -7,3 +7,5 @@ depend:
   - HuskTowns
   - CircleOfImagination
   - BlueMap
+softdepend:
+  - Citizens

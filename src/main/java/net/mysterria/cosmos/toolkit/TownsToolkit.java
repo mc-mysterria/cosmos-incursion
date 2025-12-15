@@ -37,6 +37,22 @@ public class TownsToolkit {
         return Optional.empty();
     }
 
+    /**
+     * Alias for getTownByPlayer
+     */
+    public static Optional<Town> getPlayerTown(Player player) {
+        return getTownByPlayer(player);
+    }
+
+    /**
+     * Get a town by its UUID
+     */
+    public static Optional<Town> getTownById(int townId) {
+        return huskTownsApi.getTowns().stream()
+                .filter(town -> town.getId() == townId)
+                .findFirst();
+    }
+
     public static List<Location> getTownLocations() {
         List<Location> locations = new ArrayList<>();
         List<org.bukkit.World> worlds = Bukkit.getWorlds();
@@ -62,6 +78,54 @@ public class TownsToolkit {
         return locations;
     }
 
+    /**
+     * Check if a location is within a town claim
+     */
+    public static boolean isLocationInTownClaim(Location location) {
+        if (location.getWorld() == null) {
+            return false;
+        }
+
+        World huskWorld = World.of(
+                location.getWorld().getUID(),
+                location.getWorld().getName(),
+                location.getWorld().getEnvironment().toString()
+        );
+
+        int chunkX = location.getBlockX() >> 4;
+        int chunkZ = location.getBlockZ() >> 4;
+
+        Optional<TownClaim> claim = huskTownsApi.getClaimAt(
+                net.william278.husktowns.claim.Chunk.at(chunkX, chunkZ),
+                huskWorld
+        );
+
+        return claim.isPresent();
+    }
+
+    /**
+     * Get all claimed chunk positions for a specific world
+     */
+    public static Set<ChunkPosition> getClaimedChunks(org.bukkit.World world) {
+        Set<ChunkPosition> claimedChunks = new HashSet<>();
+
+        World huskWorld = World.of(
+                world.getUID(),
+                world.getName(),
+                world.getEnvironment().toString()
+        );
+
+        List<TownClaim> claims = huskTownsApi.getClaims(huskWorld);
+        for (TownClaim claim : claims) {
+            claimedChunks.add(new ChunkPosition(
+                    claim.claim().getChunk().getX(),
+                    claim.claim().getChunk().getZ()
+            ));
+        }
+
+        return claimedChunks;
+    }
+
     public List<Player> getMembers(Town town) {
         Map<UUID, Integer> membersList = town.getMembers();
         List<Player> members = new ArrayList<>();
@@ -71,6 +135,21 @@ public class TownsToolkit {
         }
 
         return members;
+    }
+
+    /**
+     * Simple record to hold chunk coordinates
+     */
+    public record ChunkPosition(int x, int z) {
+        public double distanceTo(double blockX, double blockZ) {
+            // Convert chunk to block coordinates (center of chunk)
+            double chunkCenterX = (x << 4) + 8;
+            double chunkCenterZ = (z << 4) + 8;
+
+            double dx = blockX - chunkCenterX;
+            double dz = blockZ - chunkCenterZ;
+            return Math.sqrt(dx * dx + dz * dz);
+        }
     }
 
 }

@@ -1,0 +1,31 @@
+# Spirit Beacons Configuration
+# Beacons are virtual capture points for territory control during events
+# Format:
+#   beacon-id:
+#     name: Display name for the beacon
+#     world: World name
+#     x: X coordinate
+#     y: Y coordinate (for display, not actual block)
+#     z: Z coordinate
+
+beacons:
+  beacon-alpha:
+    name: "Spirit Beacon Alpha"
+    world: "world"
+    x: 1500
+    y: 64
+    z: 2000
+
+  beacon-beta:
+    name: "Spirit Beacon Beta"
+    world: "world"
+    x: -1000
+    y: 64
+    z: 1500
+
+  beacon-gamma:
+    name: "Spirit Beacon Gamma"
+    world: "world"
+    x: 500
+    y: 64
+    z: -2500
