@@ -76,11 +76,7 @@ public class RewardHandler {
         }
 
         // Block rewards for griefing kills
-        if (isGriefingKill(killer, victim)) {
-            return false;
-        }
-
-        return true;
+        return !isGriefingKill(killer, victim);
     }
 
     /**

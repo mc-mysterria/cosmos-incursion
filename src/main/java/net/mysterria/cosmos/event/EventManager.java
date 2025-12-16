@@ -13,6 +13,7 @@ import net.mysterria.cosmos.zone.IncursionZone;
 import net.mysterria.cosmos.zone.ZoneManager;
 import net.mysterria.cosmos.zone.ZonePlacer;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 
 import java.util.List;
 
@@ -160,6 +161,7 @@ public class EventManager {
             // Remove BlueMap markers
             if (blueMapIntegration.isAvailable()) {
                 blueMapIntegration.removeAllZoneMarkers();
+                blueMapIntegration.removeAllBeaconMarkers();
             }
 
             // Stop beacon capture task
@@ -186,7 +188,13 @@ public class EventManager {
             }
 
             plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
-                    ", Deaths: " + activeEvent.getTotalDeaths());
+                       ", Deaths: " + activeEvent.getTotalDeaths());
+
+            // Clear auto-generated beacons
+            beaconManager.clearAllBeacons();
+
+            // Reset all consent states
+            plugin.getConsentGUI().resetAllConsents();
 
             activeEvent = null;
         }
@@ -228,6 +236,9 @@ public class EventManager {
             activeEvent.addZone(incursionZone);
         }
 
+        // Generate beacons automatically for all zones
+        beaconManager.generateBeaconsForZones(incursionZones);
+
         plugin.log("Event starting with " + incursionZones.size() + " zones, " + config.getCountdownSeconds() + "s countdown");
     }
 
@@ -246,12 +257,31 @@ public class EventManager {
             for (IncursionZone incursionZone : activeEvent.getIncursionZones()) {
                 blueMapIntegration.createZoneMarker(incursionZone);
             }
+
+            // Create BlueMap markers for all beacons
+            for (var beacon : beaconManager.getAllBeacons()) {
+                blueMapIntegration.createBeaconMarker(beacon);
+            }
         }
 
         // Broadcast event started
         String message = config.getMsgEventStarted()
                 .replace("%zones%", String.valueOf(activeEvent.getIncursionZones().size()));
         broadcastMessage(message);
+
+        // Broadcast zone coordinates
+        broadcastMessage("<red>[Cosmos Incursion]</red> <white>Zone Locations:</white>");
+        for (IncursionZone zone : activeEvent.getIncursionZones()) {
+            Location center = zone.getCenter();
+            String coordMessage = String.format(
+                    "<gray>• <yellow>%s</yellow>: X: <white>%.0f</white>, Y: <white>%.0f</white>, Z: <white>%.0f</white></gray>",
+                    zone.getName(),
+                    center.getX(),
+                    center.getY(),
+                    center.getZ()
+            );
+            broadcastMessage(coordMessage);
+        }
 
         // Initialize beacon capture states
         if (beaconManager.hasBeacons()) {

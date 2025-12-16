@@ -13,6 +13,7 @@ import net.mysterria.cosmos.config.ConfigManager;
 import net.mysterria.cosmos.effect.EffectManager;
 import net.mysterria.cosmos.effect.SpiritWeightTask;
 import net.mysterria.cosmos.event.EventManager;
+import net.mysterria.cosmos.gui.ConsentGUI;
 import net.mysterria.cosmos.integration.BlueMapIntegration;
 import net.mysterria.cosmos.integration.CitizensIntegration;
 import net.mysterria.cosmos.listener.*;
@@ -72,6 +73,9 @@ public final class CosmosIncursion extends JavaPlugin {
     @Getter
     private BuffManager buffManager;
 
+    @Getter
+    private net.mysterria.cosmos.gui.ConsentGUI consentGUI;
+
     private LiteCommands<CommandSender> liteCommands;
 
     @Override
@@ -117,10 +121,12 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing kill tracker...");
         killTracker = new KillTracker(this, blueMapIntegration);
 
-        // Initialize Citizens integration
+        // Initialize Citizens integration (delayed to ensure Citizens API is ready)
         log("Initializing Citizens integration...");
         citizensIntegration = new CitizensIntegration(this);
-        citizensIntegration.initialize();
+        getServer().getScheduler().runTaskLater(this, () -> {
+            citizensIntegration.initialize();
+        }, 1L);
 
         // Initialize combat log handler
         log("Initializing combat log handler...");
@@ -130,6 +136,10 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing buff manager...");
         buffManager = new BuffManager(this);
         buffManager.loadBuffData();
+
+        // Initialize consent GUI
+        log("Initializing consent GUI...");
+        consentGUI = new ConsentGUI(this);
 
         // Initialize event manager
         log("Initializing event manager...");
@@ -168,24 +178,16 @@ public final class CosmosIncursion extends JavaPlugin {
     }
 
     private void registerCommands() {
-        this.liteCommands = LiteBukkitFactory.builder()
-                .commands(new CosmosCommand(this))
-                .build();
+        this.liteCommands = LiteBukkitFactory.builder().commands(new CosmosCommand(this)).build();
     }
 
     private void registerListeners() {
-        getServer().getPluginManager().registerEvents(
-                new PlayerMoveListener(this, zoneManager, playerStateManager, effectManager), this);
-        getServer().getPluginManager().registerEvents(
-                new SafeModeListener(this, playerStateManager), this);
-        getServer().getPluginManager().registerEvents(
-                new PlayerDeathListener(this, playerStateManager, killTracker), this);
-        getServer().getPluginManager().registerEvents(
-                new PlayerQuitListener(combatLogHandler, buffManager), this);
-        getServer().getPluginManager().registerEvents(
-                new PlayerJoinListener(combatLogHandler, buffManager), this);
-        getServer().getPluginManager().registerEvents(
-                combatLogHandler, this);
+        getServer().getPluginManager().registerEvents(new PlayerMoveListener(this, zoneManager, playerStateManager, effectManager), this);
+        getServer().getPluginManager().registerEvents(new SafeModeListener(this, playerStateManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker), this);
+        getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
+        getServer().getPluginManager().registerEvents(combatLogHandler, this);
     }
 
     private void startTasks() {
@@ -194,8 +196,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
         // Spirit Weight task - runs based on config (default: every 5 seconds / 100 ticks)
         long dotInterval = configManager.getConfig().getDotIntervalTicks();
-        new SpiritWeightTask(this, playerStateManager, effectManager, eventManager)
-                .runTaskTimer(this, dotInterval, dotInterval);
+        new SpiritWeightTask(this, playerStateManager, effectManager, eventManager, zoneManager).runTaskTimer(this, dotInterval, dotInterval);
 
         // Hollow Body cleanup task - runs every 30 seconds
         if (citizensIntegration.isAvailable()) {

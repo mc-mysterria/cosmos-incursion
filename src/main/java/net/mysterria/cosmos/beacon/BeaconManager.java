@@ -1,6 +1,8 @@
 package net.mysterria.cosmos.beacon;
 
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.zone.IncursionZone;
+import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -66,7 +68,7 @@ public class BeaconManager {
                 SpiritBeacon beacon = new SpiritBeacon(beaconId, name, world, x, y, z);
                 beacons.put(beaconId, beacon);
 
-                plugin.log("Loaded beacon: " + beacon.toString());
+                plugin.log("Loaded beacon: " + beacon);
                 loadedCount++;
             } catch (Exception e) {
                 plugin.log("Error loading beacon " + beaconId + ": " + e.getMessage());
@@ -84,7 +86,7 @@ public class BeaconManager {
         captureStates.clear();
 
         for (SpiritBeacon beacon : beacons.values()) {
-            captureStates.put(beacon.getId(), new BeaconCapture(beacon));
+            captureStates.put(beacon.id(), new BeaconCapture(beacon));
         }
 
         plugin.log("Initialized capture states for " + captureStates.size() + " beacons");
@@ -125,7 +127,7 @@ public class BeaconManager {
      * Get capture state for a beacon
      */
     public BeaconCapture getCaptureState(SpiritBeacon beacon) {
-        return captureStates.get(beacon.getId());
+        return captureStates.get(beacon.id());
     }
 
     /**
@@ -198,6 +200,58 @@ public class BeaconManager {
      */
     public int getBeaconCount() {
         return beacons.size();
+    }
+
+    /**
+     * Generate beacons automatically for a list of incursion zones
+     * Creates 3 beacons per zone: center, north, and south
+     */
+    public void generateBeaconsForZones(List<IncursionZone> zones) {
+        // Clear existing beacons
+        beacons.clear();
+        captureStates.clear();
+
+        int beaconCounter = 0;
+        for (IncursionZone zone : zones) {
+            Location center = zone.getCenter();
+            double radius = zone.getRadius();
+
+            // Create beacons at strategic positions within the zone
+            // Beacon 1: Center
+            createBeaconForZone(zone, center, "center", beaconCounter++);
+
+            // Beacon 2: North (60% of radius from center)
+            Location north = center.clone().add(0, 0, -radius * 0.6);
+            createBeaconForZone(zone, north, "north", beaconCounter++);
+
+            // Beacon 3: South (60% of radius from center)
+            Location south = center.clone().add(0, 0, radius * 0.6);
+            createBeaconForZone(zone, south, "south", beaconCounter++);
+        }
+
+        plugin.log("Auto-generated " + beacons.size() + " beacons for " + zones.size() + " zones");
+    }
+
+    /**
+     * Create a single beacon for a zone
+     */
+    private void createBeaconForZone(IncursionZone zone, Location location, String position, int counter) {
+        String beaconId = "beacon_" + counter;
+        String beaconName = zone.getName() + " - " + position.substring(0, 1).toUpperCase() + position.substring(1);
+
+        SpiritBeacon beacon = new SpiritBeacon(beaconId, beaconName, location);
+        beacons.put(beaconId, beacon);
+
+        plugin.log("Generated beacon: " + beacon);
+    }
+
+    /**
+     * Clear all beacons and capture states
+     */
+    public void clearAllBeacons() {
+        beacons.clear();
+        captureStates.clear();
+        plugin.log("Cleared all beacons");
     }
 
 }

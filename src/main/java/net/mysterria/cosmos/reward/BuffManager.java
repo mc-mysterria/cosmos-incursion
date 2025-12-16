@@ -3,7 +3,6 @@ package net.mysterria.cosmos.reward;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
@@ -186,8 +185,8 @@ public class BuffManager {
         TownBuff buff = activeTownBuffs.get(townOpt.get().getId());
         if (buff != null && !buff.isExpired()) {
             // Reapply buff
-            applyBuffToPlayer(player, buff.getExpiryTime());
-            plugin.log("Reapplied Acting Speed buff to " + player.getName() + " (town: " + buff.getTownName() + ")");
+            applyBuffToPlayer(player, buff.expiryTime());
+            plugin.log("Reapplied Acting Speed buff to " + player.getName() + " (town: " + buff.townName() + ")");
         }
     }
 
@@ -208,7 +207,7 @@ public class BuffManager {
         activeTownBuffs.entrySet().removeIf(entry -> {
             TownBuff buff = entry.getValue();
             if (buff.isExpired()) {
-                plugin.log("Town buff expired for " + buff.getTownName());
+                plugin.log("Town buff expired for " + buff.townName());
 
                 // Remove buff from all online members
                 Optional<Town> townOpt = TownsToolkit.getTownById(entry.getKey());
@@ -259,23 +258,13 @@ public class BuffManager {
     }
 
     /**
-     * Data class for town buff tracking
-     */
-    @Getter
-    private static class TownBuff {
-        private final int townId;
-        private final String townName;
-        private final long expiryTime;
-
-        public TownBuff(int townId, String townName, long expiryTime) {
-            this.townId = townId;
-            this.townName = townName;
-            this.expiryTime = expiryTime;
-        }
+         * Data class for town buff tracking
+         */
+        private record TownBuff(int townId, String townName, long expiryTime) {
 
         public boolean isExpired() {
-            return System.currentTimeMillis() >= expiryTime;
+                return System.currentTimeMillis() >= expiryTime;
+            }
         }
-    }
 
 }

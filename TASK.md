@@ -13,14 +13,14 @@ The event acts as a temporary "Incursion" rather than a permanently active regio
 ### A. Trigger Logic (State Machine)
 * **Activation Condition:** The event automatically starts if `Global Online Players >= 30` (should be configurable in the config)
 * **Cooldown:** Enforce a strict cooldown (e.g., 2 hours, probably configurable in the config) after an event finishes to prevent fatigue.
-* **Arena Selection:** The plugin should create several zones in different locations, based on the locations of towns to ensure zones are distanced fairly on the same distance between them.
+* **Arena Selection:** The plugin should create several incursionZones in different locations, based on the locations of towns to ensure incursionZones are distanced fairly on the same distance between them.
 * **Town Protection:** Zone cannot be created on chunks claimed by the city to ensure Towns remain safe havens for those who don't want to participate.
 
 ### B. Visual Integration (BlueMap)
 * **API Hook:** Upon activation, hook into **BlueMap**.
-* **Indicator:** Draw a distinct **ShapeMarker** (e.g., Red Circle/Square) covering the active zone boundaries.
+* **Indicator:** Draw a distinct **ShapeMarker** (e.g., Red Circle/Square) covering the active incursionZone boundaries.
 * **Label:** Set marker label to: *"Cosmos Incursion (Active)"*.
-* **Cleanup:** Automatically remove the marker when the event ends or the zone deactivates.
+* **Cleanup:** Automatically remove the marker when the event ends or the incursionZone deactivates.
 
 ---
 
@@ -33,7 +33,7 @@ These rules apply immediately to any player entering the active Incursion Zone.
 * **Feedback:** Display a Title/Action Bar warning: *"The barrier of reality dissolves..."*
 
 ### B. Anti-Combat Logging
-* **Logic:** Listen for `PlayerQuitEvent` inside the zone.
+* **Logic:** Listen for `PlayerQuitEvent` inside the incursionZone.
 * **Action:** Spawn a temporary NPC ("Hollow Body") with the player's exact health and inventory.
 * **Consequence:** If the NPC is killed, the player is treated as "Dead" upon their next login, triggering all Death Zone penalties.
 
@@ -50,7 +50,7 @@ Mechanics to bridge the power gap between Sequence 4 (Demigods) and Sequence 9 (
 ### B. The "Insignificant" (Low-Tier Buffs)
 * **Target:** Sequence 9–6 and Non-Beyonders.
 * **Stealth:** No Glowing effect. Standard stealth mechanics apply.
-* **Immunity:** 0% damage taken from the zone's environmental attrition.
+* **Immunity:** 0% damage taken from the incursionZone's environmental attrition.
 * **Utility:** Access to "Tactical Items" (see Section 7) that are unusable by High-Tiers.
 
 ### C. Anti-Griefing (The Bounty)
@@ -64,7 +64,7 @@ Mechanics to bridge the power gap between Sequence 4 (Demigods) and Sequence 9 (
 The core "High Stakes" loop.
 
 ### A. Demigod Punishment (Seq 4)
-If a Sequence 4 player dies to PvP inside the zone:
+If a Sequence 4 player dies to PvP inside the incursionZone:
 1.  **Sequence Regression:** Downgrade player to **Sequence 5** (100% Acting).
 2.  **Characteristic Drop:** Drop 1x **"Sequence 4 Beyonder Characteristic"** item at death location.
 3.  **Loot:** Killer receives 1x **"Cosmos Crate" via command or API**.
@@ -85,7 +85,7 @@ If a Sequence 4 player dies to PvP inside the zone:
 A "King of the Hill" system where player count matters more than individual power.
 
 ### A. Capture Logic
-* **Objects:** "Spirit Beacons" (defined regions / blocks within the zone marked with activated Beacons).
+* **Objects:** "Spirit Beacons" (defined regions / blocks within the incursionZone marked with activated Beacons).
 * **Weighting:** Capture speed is based on **Player Count**.
     * 1x Sequence 9 Player = 1 Point/sec.
     * 1x Sequence 4 Player = 1 Point/sec.
@@ -102,5 +102,5 @@ If a Town controls the Beacons when the event ends (or holds for X duration):
 ## 7. Custom Items & Rewards
 
 ### A. The "Cosmos Crate" (PvP Reward)
-* **Source:** Crates are obtained by killing other players in the zone.
+* **Source:** Crates are obtained by killing other players in the incursionZone.
 * **How to grant:** Granted by a third-party command via command

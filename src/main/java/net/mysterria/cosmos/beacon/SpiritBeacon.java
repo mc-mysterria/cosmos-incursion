@@ -17,8 +17,7 @@ public class SpiritBeacon {
     private final Location location;
 
     public SpiritBeacon(String id, String name, String worldName, double x, double y, double z) {
-        this.id = id;
-        this.name = name;
+        this(id, name, new Location(world, x, y, z));
 
         // Get world
         World world = Bukkit.getWorld(worldName);
@@ -27,6 +26,15 @@ public class SpiritBeacon {
         }
 
         this.location = new Location(world, x, y, z);
+    }
+
+    /**
+     * Constructor with Location object (for auto-generated beacons)
+     */
+    public SpiritBeacon(String id, String name, Location location) {
+        this.id = id;
+        this.name = name;
+        this.location = location.clone();
     }
 
     /**
@@ -61,7 +69,7 @@ public class SpiritBeacon {
     @Override
     public String toString() {
         return name + " (" + id + ") at " +
-                String.format("%.0f, %.0f, %.0f", location.getX(), location.getY(), location.getZ());
+               String.format("%.0f, %.0f, %.0f", location.getX(), location.getY(), location.getZ());
     }
 
 }

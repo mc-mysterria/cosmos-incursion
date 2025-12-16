@@ -9,7 +9,10 @@ import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -94,7 +97,7 @@ public class KillTracker {
         // Check if difference exceeds threshold
         if (sequenceDifference >= config.getGriefSequenceDifference()) {
             plugin.log("Griefing kill detected: " + killer.getName() + " (Seq " + killerSequence +
-                    ") killed " + victim.getName() + " (Seq " + victimSequence + ")");
+                       ") killed " + victim.getName() + " (Seq " + victimSequence + ")");
             return true;
         }
 
@@ -121,7 +124,7 @@ public class KillTracker {
         corruptedMonsters.put(playerId, expiryTime);
 
         plugin.log("Marked " + player.getName() + " as Corrupted Monster for " +
-                config.getCorruptedDurationMinutes() + " minutes");
+                   config.getCorruptedDurationMinutes() + " minutes");
 
         // Broadcast to all players
         String message = config.getMsgCorruptedMonster().replace("%player%", player.getName());

@@ -26,10 +26,10 @@ public class ZoneManager {
         zones.put(incursionZone.getId(), incursionZone);
         plugin.log("Registered zone: " + incursionZone.getName() + " at " +
                    String.format("(%.0f, %.0f, %.0f) with radius %.0f",
-                        incursionZone.getCenter().getX(),
-                        incursionZone.getCenter().getY(),
-                        incursionZone.getCenter().getZ(),
-                        incursionZone.getRadius()));
+                           incursionZone.getCenter().getX(),
+                           incursionZone.getCenter().getY(),
+                           incursionZone.getCenter().getZ(),
+                           incursionZone.getRadius()));
     }
 
     /**
@@ -167,6 +167,16 @@ public class ZoneManager {
      */
     public int getTotalPlayersInZones() {
         return playerZoneMap.size();
+    }
+
+    /**
+     * Get the nearest active zone to a location
+     */
+    public IncursionZone getNearestZone(Location location) {
+        return zones.values().stream()
+                .filter(IncursionZone::isActive)
+                .min(Comparator.comparingDouble(zone -> zone.getDistanceFromCenter(location)))
+                .orElse(null);
     }
 
 }

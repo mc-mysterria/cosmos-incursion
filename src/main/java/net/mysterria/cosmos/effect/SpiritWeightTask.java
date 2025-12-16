@@ -7,8 +7,9 @@ import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.event.EventManager;
 import net.mysterria.cosmos.event.source.EventState;
 import net.mysterria.cosmos.player.PlayerStateManager;
-import net.mysterria.cosmos.player.source.PlayerTier;
 import net.mysterria.cosmos.player.PlayerZoneState;
+import net.mysterria.cosmos.player.source.PlayerTier;
+import net.mysterria.cosmos.zone.ZoneManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -23,14 +24,16 @@ public class SpiritWeightTask extends BukkitRunnable {
     private final PlayerStateManager playerStateManager;
     private final EffectManager effectManager;
     private final EventManager eventManager;
+    private final ZoneManager zoneManager;
     private final CosmosConfig config;
 
     public SpiritWeightTask(CosmosIncursion plugin, PlayerStateManager playerStateManager,
-                            EffectManager effectManager, EventManager eventManager) {
+                            EffectManager effectManager, EventManager eventManager, ZoneManager zoneManager) {
         this.plugin = plugin;
         this.playerStateManager = playerStateManager;
         this.effectManager = effectManager;
         this.eventManager = eventManager;
+        this.zoneManager = zoneManager;
         this.config = plugin.getConfigManager().getConfig();
     }
 
@@ -47,6 +50,16 @@ public class SpiritWeightTask extends BukkitRunnable {
                 Player player = Bukkit.getPlayer(state.getPlayerId());
 
                 if (player != null && player.isOnline()) {
+                    // Verify player is actually still in a zone
+                    if (zoneManager.getZoneAt(player.getLocation()) == null) {
+                        // Player is no longer in a zone (likely respawned outside)
+                        // Remove them from tracking and skip DOT damage
+                        playerStateManager.registerExit(player);
+                        effectManager.removeEffects(player);
+                        plugin.log("Removed player " + player.getName() + " from zone tracking (no longer in zone)");
+                        continue;
+                    }
+
                     // Apply DOT damage
                     applyDotDamage(player);
 

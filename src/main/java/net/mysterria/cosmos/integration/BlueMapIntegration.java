@@ -11,6 +11,7 @@ import de.bluecolored.bluemap.api.markers.ShapeMarker;
 import de.bluecolored.bluemap.api.math.Color;
 import de.bluecolored.bluemap.api.math.Shape;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.beacon.SpiritBeacon;
 import net.mysterria.cosmos.zone.IncursionZone;
 import org.bukkit.entity.Player;
 
@@ -24,6 +25,7 @@ public class BlueMapIntegration {
     private final CosmosIncursion plugin;
     private final Map<UUID, Marker> zoneMarkers;
     private final Map<UUID, Marker> corruptedMonsterMarkers;
+    private final Map<String, Marker> beaconMarkers;
     private BlueMapAPI api;
     private MarkerSet markerSet;
 
@@ -31,6 +33,7 @@ public class BlueMapIntegration {
         this.plugin = plugin;
         this.zoneMarkers = new HashMap<>();
         this.corruptedMonsterMarkers = new HashMap<>();
+        this.beaconMarkers = new HashMap<>();
     }
 
     /**
@@ -111,8 +114,8 @@ public class BlueMapIntegration {
             ShapeMarker marker = ShapeMarker.builder()
                     .label("Cosmos Incursion (Active) - " + incursionZone.getName())
                     .shape(shape, (float) incursionZone.getCenter().getY())
-                    .fillColor(new Color(255, 0, 0, 50))      // Transparent red fill
-                    .lineColor(new Color(255, 0, 0, 200))     // Solid red border
+                    .fillColor(new Color(255, 0, 0, 20))      // More transparent red fill
+                    .lineColor(new Color(255, 0, 0, 150))     // Semi-transparent red border
                     .lineWidth(3)
                     .depthTestEnabled(false)  // Show through terrain
                     .build();
@@ -245,6 +248,89 @@ public class BlueMapIntegration {
         }
 
         return points;
+    }
+
+    /**
+     * Create a beacon marker on the map
+     */
+    public void createBeaconMarker(SpiritBeacon beacon) {
+        if (api == null || markerSet == null) {
+            plugin.log("Warning: BlueMap API not available, cannot create beacon marker");
+            return;
+        }
+
+        try {
+            // Create POI marker at beacon location
+            POIMarker marker = POIMarker.builder()
+                    .label("\u26a1 " + beacon.name())  // Lightning bolt emoji
+                    .position(
+                            beacon.location().getX(),
+                            beacon.location().getY(),
+                            beacon.location().getZ()
+                    )
+                    .icon("assets/poi.svg", 0, 0)  // Default BlueMap POI icon
+                    .build();
+
+            // Add marker to the set
+            String markerId = "beacon_" + beacon.id();
+            markerSet.put(markerId, marker);
+            beaconMarkers.put(beacon.id(), marker);
+
+            plugin.log("Created BlueMap marker for beacon: " + beacon.name());
+        } catch (Exception e) {
+            plugin.log("Error creating beacon marker: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Remove a beacon marker from the map
+     */
+    public void removeBeaconMarker(SpiritBeacon beacon) {
+        removeBeaconMarker(beacon.id());
+    }
+
+    /**
+     * Remove a beacon marker by ID
+     */
+    public void removeBeaconMarker(String beaconId) {
+        if (markerSet == null) {
+            return;
+        }
+
+        try {
+            String markerId = "beacon_" + beaconId;
+            markerSet.remove(markerId);
+            beaconMarkers.remove(beaconId);
+
+            plugin.log("Removed BlueMap marker for beacon: " + beaconId);
+        } catch (Exception e) {
+            plugin.log("Error removing beacon marker: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Remove all beacon markers
+     */
+    public void removeAllBeaconMarkers() {
+        if (markerSet == null) {
+            return;
+        }
+
+        try {
+            // Remove all beacon markers
+            for (String beaconId : new HashSet<>(beaconMarkers.keySet())) {
+                String markerId = "beacon_" + beaconId;
+                markerSet.remove(markerId);
+            }
+            beaconMarkers.clear();
+
+            plugin.log("Removed all BlueMap beacon markers");
+        } catch (Exception e) {
+            plugin.log("Error removing all beacon markers: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**

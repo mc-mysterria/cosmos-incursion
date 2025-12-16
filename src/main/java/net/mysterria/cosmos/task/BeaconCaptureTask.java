@@ -120,7 +120,7 @@ public class BeaconCaptureTask extends BukkitRunnable {
         if (capture.isOwnedBy(townId) && capture.getCaptureProgress() >= config.getBeaconCapturePoints()) {
             // Beacon is now fully captured
             if (!capture.getOwningTownName().equals(town.getName())) {
-                plugin.log("Beacon " + capture.getBeacon().getName() + " captured by " + town.getName());
+                plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.getName());
             }
         }
     }
@@ -130,7 +130,7 @@ public class BeaconCaptureTask extends BukkitRunnable {
      */
     private void handleContested(BeaconCapture capture) {
         if (!capture.isContested()) {
-            plugin.log("Beacon " + capture.getBeacon().getName() + " is now contested");
+            plugin.log("Beacon " + capture.getBeacon().name() + " is now contested");
         }
         capture.setContested(true);
         // No progress change when contested

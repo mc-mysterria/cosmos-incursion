@@ -47,7 +47,7 @@ public class PlayerStateManager {
 
         if (state != null) {
             plugin.log("Player " + player.getName() + " exited zone after " +
-                    state.getTimeInZoneSeconds() + " seconds");
+                       state.getTimeInZoneSeconds() + " seconds");
         }
     }
 
@@ -117,7 +117,7 @@ public class PlayerStateManager {
 
         // Spirit Weight applies to sequences 4-5
         if (sequence >= config.getSpiritWeightMinSequence() &&
-                sequence <= config.getSpiritWeightMaxSequence()) {
+            sequence <= config.getSpiritWeightMaxSequence()) {
             return PlayerTier.SPIRIT_WEIGHT;
         }
 
