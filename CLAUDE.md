@@ -19,6 +19,20 @@ CosmosIncursion is a Minecraft Paper plugin (1.21+) that manages timed PvP event
 ./gradlew clean
 ```
 
+## Admin Commands
+
+```
+/cosmos status - Show current event status
+/cosmos admin reload - Reload configuration
+/cosmos admin start - Force start event
+/cosmos admin stop - Force stop event
+/cosmos admin give paperangel <player> [amount] - Give Paper Angel items
+/cosmos admin zone list - List all zones
+/cosmos admin zone add <name> - Create zone at your location
+/cosmos admin zone remove <name> - Remove a zone
+/cosmos admin zone tp <name> - Teleport to a zone
+```
+
 ## Core Architecture
 
 ### Event State Machine
@@ -70,8 +84,14 @@ During ACTIVE state:
 
 **Death in Zone:**
 - `PlayerDeathListener` → `DeathHandler.handleZoneDeath()`
-- Sequence 4+ players regress unless they have a "Paper Angel" item
-- Killer earns a Cosmos Crate
+- Sequence 4+ players regress unless they have a "Paper Angel" protection active
+- **Paper Angel System**:
+  - Given via `/cosmos admin give paperangel <player>`
+  - Right-click to activate (sets PDC: `paper_angel = true`)
+  - Protects from sequence regression on next zone death
+  - One-time use (PDC removed after saving player)
+  - Cannot activate if protection already active
+- Killer earns a Cosmos Crate (if not griefing)
 - Low-tier killers tracked by `KillTracker` for anti-grief (becomes "Corrupted Monster")
 
 **Combat Logging:**

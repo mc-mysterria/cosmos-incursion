@@ -194,6 +194,7 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
+        getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
     }
 
     private void startTasks() {
