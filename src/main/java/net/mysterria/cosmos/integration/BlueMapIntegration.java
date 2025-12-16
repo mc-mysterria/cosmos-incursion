@@ -114,8 +114,8 @@ public class BlueMapIntegration {
             ShapeMarker marker = ShapeMarker.builder()
                     .label("Cosmos Incursion (Active) - " + incursionZone.getName())
                     .shape(shape, (float) incursionZone.getCenter().getY())
-                    .fillColor(new Color(255, 0, 0, 20))      // More transparent red fill
-                    .lineColor(new Color(255, 0, 0, 150))     // Semi-transparent red border
+                    .fillColor(new Color(255, 0, 0, 0.15f))      // Very transparent red fill (5% opacity)
+                    .lineColor(new Color(255, 0, 0, 0.6f))     // Semi-transparent red border (60% opacity)
                     .lineWidth(3)
                     .depthTestEnabled(false)  // Show through terrain
                     .build();
@@ -251,32 +251,41 @@ public class BlueMapIntegration {
     }
 
     /**
-     * Create a beacon marker on the map
+     * Create a beacon marker on the map as a blue circle
      */
-    public void createBeaconMarker(SpiritBeacon beacon) {
+    public void createBeaconMarker(SpiritBeacon beacon, double captureRadius) {
         if (api == null || markerSet == null) {
             plugin.log("Warning: BlueMap API not available, cannot create beacon marker");
             return;
         }
 
         try {
-            // Create POI marker at beacon location
-            POIMarker marker = POIMarker.builder()
-                    .label("\u26a1 " + beacon.name())  // Lightning bolt emoji
-                    .position(
-                            beacon.location().getX(),
-                            beacon.location().getY(),
-                            beacon.location().getZ()
-                    )
-                    .icon("assets/poi.svg", 0, 0)  // Default BlueMap POI icon
+            // Create circle shape for beacon capture radius
+            List<Vector2d> circlePoints = createCirclePoints(
+                    beacon.getLocation().getX(),
+                    beacon.getLocation().getZ(),
+                    captureRadius,
+                    32  // Number of segments for smooth circle
+            );
+
+            Shape shape = new Shape(circlePoints);
+
+            // Create shape marker with blue color
+            ShapeMarker marker = ShapeMarker.builder()
+                    .label("⚡ " + beacon.getName())
+                    .shape(shape, (float) beacon.getLocation().getY())
+                    .fillColor(new Color(0, 100, 255, 0.25f))      // Blue fill (15% opacity)
+                    .lineColor(new Color(0, 150, 255, 0.8f))       // Bright blue border (80% opacity)
+                    .lineWidth(2)
+                    .depthTestEnabled(false)  // Show through terrain
                     .build();
 
             // Add marker to the set
-            String markerId = "beacon_" + beacon.id();
+            String markerId = "beacon_" + beacon.getId();
             markerSet.put(markerId, marker);
-            beaconMarkers.put(beacon.id(), marker);
+            beaconMarkers.put(beacon.getId(), marker);
 
-            plugin.log("Created BlueMap marker for beacon: " + beacon.name());
+            plugin.log("Created BlueMap marker for beacon: " + beacon.getName());
         } catch (Exception e) {
             plugin.log("Error creating beacon marker: " + e.getMessage());
             e.printStackTrace();
@@ -287,7 +296,7 @@ public class BlueMapIntegration {
      * Remove a beacon marker from the map
      */
     public void removeBeaconMarker(SpiritBeacon beacon) {
-        removeBeaconMarker(beacon.id());
+        removeBeaconMarker(beacon.getId());
     }
 
     /**

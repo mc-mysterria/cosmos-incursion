@@ -28,65 +28,13 @@ public class BeaconManager {
     }
 
     /**
-     * Load beacons from configuration file
-     */
-    public void loadBeacons() {
-        // Create beacons.yml if it doesn't exist
-        File beaconsFile = new File(plugin.getDataFolder(), "beacons.yml");
-        if (!beaconsFile.exists()) {
-            plugin.saveResource("beacons.yml", false);
-        }
-
-        // Load configuration
-        beaconsConfig = YamlConfiguration.loadConfiguration(beaconsFile);
-
-        // Clear existing beacons
-        beacons.clear();
-        captureStates.clear();
-
-        // Load beacons from config
-        ConfigurationSection beaconsSection = beaconsConfig.getConfigurationSection("beacons");
-        if (beaconsSection == null) {
-            plugin.log("No beacons defined in beacons.yml");
-            return;
-        }
-
-        int loadedCount = 0;
-        for (String beaconId : beaconsSection.getKeys(false)) {
-            try {
-                ConfigurationSection beaconSection = beaconsSection.getConfigurationSection(beaconId);
-                if (beaconSection == null) {
-                    continue;
-                }
-
-                String name = beaconSection.getString("name", "Unknown Beacon");
-                String world = beaconSection.getString("world", "world");
-                double x = beaconSection.getDouble("x", 0);
-                double y = beaconSection.getDouble("y", 64);
-                double z = beaconSection.getDouble("z", 0);
-
-                SpiritBeacon beacon = new SpiritBeacon(beaconId, name, world, x, y, z);
-                beacons.put(beaconId, beacon);
-
-                plugin.log("Loaded beacon: " + beacon);
-                loadedCount++;
-            } catch (Exception e) {
-                plugin.log("Error loading beacon " + beaconId + ": " + e.getMessage());
-                e.printStackTrace();
-            }
-        }
-
-        plugin.log("Loaded " + loadedCount + " Spirit Beacons");
-    }
-
-    /**
      * Initialize capture states for all beacons
      */
     public void initializeCaptureStates() {
         captureStates.clear();
 
         for (SpiritBeacon beacon : beacons.values()) {
-            captureStates.put(beacon.id(), new BeaconCapture(beacon));
+            captureStates.put(beacon.getId(), new BeaconCapture(beacon));
         }
 
         plugin.log("Initialized capture states for " + captureStates.size() + " beacons");
@@ -127,7 +75,7 @@ public class BeaconManager {
      * Get capture state for a beacon
      */
     public BeaconCapture getCaptureState(SpiritBeacon beacon) {
-        return captureStates.get(beacon.id());
+        return captureStates.get(beacon.getId());
     }
 
     /**
@@ -204,7 +152,7 @@ public class BeaconManager {
 
     /**
      * Generate beacons automatically for a list of incursion zones
-     * Creates 3 beacons per zone: center, north, and south
+     * Creates 1 beacon per zone at the center
      */
     public void generateBeaconsForZones(List<IncursionZone> zones) {
         // Clear existing beacons
@@ -214,19 +162,9 @@ public class BeaconManager {
         int beaconCounter = 0;
         for (IncursionZone zone : zones) {
             Location center = zone.getCenter();
-            double radius = zone.getRadius();
 
-            // Create beacons at strategic positions within the zone
-            // Beacon 1: Center
-            createBeaconForZone(zone, center, "center", beaconCounter++);
-
-            // Beacon 2: North (60% of radius from center)
-            Location north = center.clone().add(0, 0, -radius * 0.6);
-            createBeaconForZone(zone, north, "north", beaconCounter++);
-
-            // Beacon 3: South (60% of radius from center)
-            Location south = center.clone().add(0, 0, radius * 0.6);
-            createBeaconForZone(zone, south, "south", beaconCounter++);
+            // Create one beacon at the center of the zone
+            createBeaconForZone(zone, center, beaconCounter++);
         }
 
         plugin.log("Auto-generated " + beacons.size() + " beacons for " + zones.size() + " zones");
@@ -235,9 +173,9 @@ public class BeaconManager {
     /**
      * Create a single beacon for a zone
      */
-    private void createBeaconForZone(IncursionZone zone, Location location, String position, int counter) {
+    private void createBeaconForZone(IncursionZone zone, Location location, int counter) {
         String beaconId = "beacon_" + counter;
-        String beaconName = zone.getName() + " - " + position.substring(0, 1).toUpperCase() + position.substring(1);
+        String beaconName = zone.getName() + " - Beacon";
 
         SpiritBeacon beacon = new SpiritBeacon(beaconId, beaconName, location);
         beacons.put(beaconId, beacon);

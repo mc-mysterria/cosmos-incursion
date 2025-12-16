@@ -1,4 +1,4 @@
-package net.mysterria.cosmos.listener;
+package net.mysterria.cosmos.task;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -7,98 +7,117 @@ import net.kyori.adventure.title.Title;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.effect.EffectManager;
+import net.mysterria.cosmos.event.EventManager;
+import net.mysterria.cosmos.event.source.EventState;
 import net.mysterria.cosmos.gui.ConsentGUI;
 import net.mysterria.cosmos.player.PlayerStateManager;
 import net.mysterria.cosmos.player.source.PlayerTier;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import net.mysterria.cosmos.zone.IncursionZone;
 import net.mysterria.cosmos.zone.ZoneManager;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class PlayerMoveListener implements Listener {
+/**
+ * Checks all online players every N ticks to detect zone entry/exit
+ * More reliable than PlayerMoveEvent for handling edge cases
+ */
+public class ZoneCheckTask extends BukkitRunnable {
 
-    private static final double CONSENT_DISTANCE = 10.0; // Show GUI when within 10 blocks of zone
-    private static final long CONSENT_PROMPT_COOLDOWN = 5000; // 5 seconds cooldown between prompts
     private final CosmosIncursion plugin;
     private final ZoneManager zoneManager;
     private final PlayerStateManager playerStateManager;
     private final EffectManager effectManager;
+    private final EventManager eventManager;
     private final ConsentGUI consentGUI;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final Map<UUID, Long> lastConsentPrompt;
 
-    public PlayerMoveListener(CosmosIncursion plugin, ZoneManager zoneManager,
-                              PlayerStateManager playerStateManager, EffectManager effectManager) {
+    private static final double CONSENT_DISTANCE = 10.0; // Show GUI when within 10 blocks of zone
+    private static final long CONSENT_PROMPT_COOLDOWN = 5000; // 5 seconds cooldown between prompts
+
+    public ZoneCheckTask(CosmosIncursion plugin, ZoneManager zoneManager,
+                         PlayerStateManager playerStateManager, EffectManager effectManager,
+                         EventManager eventManager, ConsentGUI consentGUI) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.playerStateManager = playerStateManager;
         this.effectManager = effectManager;
-        this.consentGUI = plugin.getConsentGUI();
+        this.eventManager = eventManager;
+        this.consentGUI = consentGUI;
         this.config = plugin.getConfigManager().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.lastConsentPrompt = new HashMap<>();
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        // Optimization: Only check on block position change
-        if (event.getFrom().getBlockX() == event.getTo().getBlockX() &&
-            event.getFrom().getBlockY() == event.getTo().getBlockY() &&
-            event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
+    @Override
+    public void run() {
+        // Only check when event is active
+        if (eventManager.getState() != EventState.ACTIVE) {
             return;
         }
 
-        Player player = event.getPlayer();
-        IncursionZone fromIncursionZone = zoneManager.getZoneAt(event.getFrom());
-        IncursionZone toIncursionZone = zoneManager.getZoneAt(event.getTo());
+        try {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                checkPlayerZone(player);
+            }
+        } catch (Exception e) {
+            plugin.log("Error in ZoneCheckTask: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 
-        // Check if player is near a zone (but not in it) to show consent GUI
-        if (fromIncursionZone == null && toIncursionZone == null) {
+    /**
+     * Check if a player should be in a zone or not
+     */
+    private void checkPlayerZone(Player player) {
+        IncursionZone currentZone = zoneManager.getZoneAt(player.getLocation());
+        boolean isTracked = playerStateManager.isInZone(player);
+
+        // Check if player is near a zone and show consent GUI if needed
+        if (currentZone == null && !isTracked) {
             checkNearZone(player);
         }
 
-        // No change in zone status
-        if (fromIncursionZone == toIncursionZone) {
-            return;
-        }
+        // Player is in a zone but not tracked
+        if (currentZone != null && !isTracked) {
+            // Check consent
+            if (!consentGUI.hasConsented(player)) {
+                // Push player out of zone
+                player.teleport(player.getLocation().add(0, 0.5, 0)); // Small upward bump
+                player.setVelocity(player.getLocation().toVector()
+                        .subtract(currentZone.getCenter().toVector())
+                        .normalize()
+                        .multiply(0.5)
+                        .setY(0.2));
+                player.sendMessage(Component.text("You must agree to the zone rules before entering!", NamedTextColor.RED));
 
-        // Entering a zone
-        if (fromIncursionZone == null && toIncursionZone != null) {
-            // Check if player has consented
-            if (!consentGUI.hasConsented(player)) {
-                // Cancel entry and show consent GUI
-                event.setCancelled(true);
-                player.sendMessage(Component.text("You must agree to the zone rules before entering!", NamedTextColor.RED));
+                // Show consent GUI
                 showConsentGUI(player);
                 return;
             }
-            onZoneEntry(player, toIncursionZone);
+
+            // Player has consented, register entry
+            onZoneEntry(player, currentZone);
         }
-        // Exiting a zone
-        else if (fromIncursionZone != null && toIncursionZone == null) {
-            onZoneExit(player, fromIncursionZone);
+        // Player is tracked but not in a zone
+        else if (currentZone == null && isTracked) {
+            onZoneExit(player);
         }
-        // Moving between zones (rare, but possible if zones overlap)
-        else if (!fromIncursionZone.equals(toIncursionZone)) {
-            onZoneExit(player, fromIncursionZone);
-            // Check consent for new zone
-            if (!consentGUI.hasConsented(player)) {
-                event.setCancelled(true);
-                player.sendMessage(Component.text("You must agree to the zone rules before entering!", NamedTextColor.RED));
-                showConsentGUI(player);
-                return;
+        // Player is in a different zone than tracked (rare but possible)
+        else if (currentZone != null) {
+            IncursionZone trackedZone = playerStateManager.getState(player).getIncursionZone();
+            if (!currentZone.equals(trackedZone)) {
+                onZoneExit(player);
+                onZoneEntry(player, currentZone);
             }
-            onZoneEntry(player, toIncursionZone);
         }
     }
 
@@ -178,7 +197,9 @@ public class PlayerMoveListener implements Listener {
         plugin.log("Player " + player.getName() + " entered zone: " + incursionZone.getName() + " (" + tier + ")");
     }
 
-    private void onZoneExit(Player player, IncursionZone incursionZone) {
+    private void onZoneExit(Player player) {
+        IncursionZone exitedZone = playerStateManager.getState(player).getIncursionZone();
+
         // Remove all zone effects
         effectManager.removeEffects(player);
 
@@ -196,7 +217,9 @@ public class PlayerMoveListener implements Listener {
                 "<green>✓ You are now safe - Safe mode restrictions removed</green>"
         ));
 
-        plugin.log("Player " + player.getName() + " exited zone: " + incursionZone.getName());
+        if (exitedZone != null) {
+            plugin.log("Player " + player.getName() + " exited zone: " + exitedZone.getName());
+        }
     }
 
 }

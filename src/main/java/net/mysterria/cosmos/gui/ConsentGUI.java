@@ -1,6 +1,5 @@
 package net.mysterria.cosmos.gui;
 
-import dev.triumphteam.gui.builder.item.ItemBuilder;
 import dev.triumphteam.gui.guis.Gui;
 import dev.triumphteam.gui.guis.GuiItem;
 import net.kyori.adventure.text.Component;
@@ -10,9 +9,14 @@ import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,13 +37,19 @@ public class ConsentGUI {
      * Show the consent GUI to a player
      */
     public void showConsent(Player player) {
+        ConsentState state = playerConsents.computeIfAbsent(player.getUniqueId(), k -> new ConsentState());
+
+        // Reset cancelled flag when showing GUI (in case they try to enter again)
+        state.cancelled = false;
+
         Gui gui = Gui.gui()
                 .title(Component.text("Cosmos Incursion - Zone Entry", NamedTextColor.RED, TextDecoration.BOLD))
                 .rows(3)
                 .disableAllInteractions()
                 .create();
 
-        ConsentState state = playerConsents.computeIfAbsent(player.getUniqueId(), k -> new ConsentState());
+        // Note: No close handler - players can close freely
+        // Zone entry is already protected by consent checks in ZoneCheckTask
 
         // Create checkbox items
         GuiItem pvpConsent = createCheckbox(
@@ -92,8 +102,9 @@ public class ConsentGUI {
 
         // Add cancel button
         GuiItem cancelButton = createCancelButton(() -> {
+            state.cancelled = true;
             player.closeInventory();
-            player.sendMessage(Component.text("You must agree to all terms to enter the incursion zone.", NamedTextColor.RED));
+            player.sendMessage(Component.text("You can close this GUI anytime. You won't be able to enter without consenting.", NamedTextColor.YELLOW));
         });
         gui.setItem(18, cancelButton);
 
@@ -107,10 +118,16 @@ public class ConsentGUI {
         Material material = checked ? Material.LIME_WOOL : Material.RED_WOOL;
         String checkMark = checked ? "✓" : "✗";
 
-        ItemStack item = ItemBuilder.from(material)
-                .name(Component.text(checkMark + " " + title, checked ? NamedTextColor.GREEN : NamedTextColor.RED, TextDecoration.BOLD))
-                .lore(Component.text(description, NamedTextColor.GRAY))
-                .build();
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(checkMark + " " + title, checked ? NamedTextColor.GREEN : NamedTextColor.RED, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text(description, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+        }
 
         return new GuiItem(item, event -> {
             event.setCancelled(true);
@@ -122,10 +139,17 @@ public class ConsentGUI {
      * Create confirm button
      */
     private GuiItem createConfirmButton(Runnable onClick) {
-        ItemStack item = ItemBuilder.from(Material.EMERALD)
-                .name(Component.text("Confirm & Enter", NamedTextColor.GREEN, TextDecoration.BOLD))
-                .lore(Component.text("Click to enter the incursion zone", NamedTextColor.GRAY))
-                .build();
+        ItemStack item = new ItemStack(Material.EMERALD);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("Confirm & Enter", NamedTextColor.GREEN, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text("Click to enter the incursion zone", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+        }
 
         return new GuiItem(item, event -> {
             event.setCancelled(true);
@@ -137,10 +161,17 @@ public class ConsentGUI {
      * Create disabled confirm button
      */
     private GuiItem createDisabledConfirmButton() {
-        ItemStack item = ItemBuilder.from(Material.BARRIER)
-                .name(Component.text("Confirm & Enter", NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
-                .lore(Component.text("You must agree to all terms first", NamedTextColor.GRAY))
-                .build();
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("Confirm & Enter", NamedTextColor.DARK_GRAY, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text("You must agree to all terms first", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+        }
 
         return new GuiItem(item, event -> event.setCancelled(true));
     }
@@ -149,10 +180,17 @@ public class ConsentGUI {
      * Create cancel button
      */
     private GuiItem createCancelButton(Runnable onClick) {
-        ItemStack item = ItemBuilder.from(Material.REDSTONE_BLOCK)
-                .name(Component.text("Cancel", NamedTextColor.RED, TextDecoration.BOLD))
-                .lore(Component.text("Do not enter the zone", NamedTextColor.GRAY))
-                .build();
+        ItemStack item = new ItemStack(Material.REDSTONE_BLOCK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("Cancel", NamedTextColor.RED, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text("Do not enter the zone", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+        }
 
         return new GuiItem(item, event -> {
             event.setCancelled(true);
@@ -190,6 +228,7 @@ public class ConsentGUI {
         boolean lootAgreed = false;
         boolean sequenceAgreed = false;
         boolean confirmed = false;
+        boolean cancelled = false;
 
         boolean hasAgreedToAll() {
             return pvpAgreed && lootAgreed && sequenceAgreed;

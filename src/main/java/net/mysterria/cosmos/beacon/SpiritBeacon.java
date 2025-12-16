@@ -16,18 +16,6 @@ public class SpiritBeacon {
     private final String name;
     private final Location location;
 
-    public SpiritBeacon(String id, String name, String worldName, double x, double y, double z) {
-        this(id, name, new Location(world, x, y, z));
-
-        // Get world
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            throw new IllegalArgumentException("World not found: " + worldName);
-        }
-
-        this.location = new Location(world, x, y, z);
-    }
-
     /**
      * Constructor with Location object (for auto-generated beacons)
      */

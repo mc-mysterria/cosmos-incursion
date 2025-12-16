@@ -102,7 +102,6 @@ public final class CosmosIncursion extends JavaPlugin {
         // Initialize beacon manager
         log("Initializing beacon manager...");
         beaconManager = new BeaconManager(this);
-        beaconManager.loadBeacons();
 
         // Initialize player state manager
         log("Initializing player state manager...");
@@ -182,7 +181,7 @@ public final class CosmosIncursion extends JavaPlugin {
     }
 
     private void registerListeners() {
-        getServer().getPluginManager().registerEvents(new PlayerMoveListener(this, zoneManager, playerStateManager, effectManager), this);
+        // PlayerMoveListener removed - using tick-based ZoneCheckTask instead for better reliability
         getServer().getPluginManager().registerEvents(new SafeModeListener(this, playerStateManager), this);
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager), this);
@@ -193,6 +192,10 @@ public final class CosmosIncursion extends JavaPlugin {
     private void startTasks() {
         // Event check task - runs every second
         new EventCheckTask(eventManager).runTaskTimer(this, 0L, 20L);
+
+        // Zone check task - runs every 5 ticks (4 times per second) for reliable zone detection
+        new net.mysterria.cosmos.task.ZoneCheckTask(this, zoneManager, playerStateManager, effectManager, eventManager, consentGUI)
+                .runTaskTimer(this, 0L, 5L);
 
         // Spirit Weight task - runs based on config (default: every 5 seconds / 100 ticks)
         long dotInterval = configManager.getConfig().getDotIntervalTicks();

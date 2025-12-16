@@ -252,6 +252,9 @@ public class EventManager {
         // Activate all zones
         zoneManager.activateAllZones();
 
+        // Handle players who are already inside zones when event starts
+        handleExistingPlayersInZones();
+
         // Create BlueMap markers for all zones
         if (blueMapIntegration.isAvailable()) {
             for (IncursionZone incursionZone : activeEvent.getIncursionZones()) {
@@ -259,8 +262,9 @@ public class EventManager {
             }
 
             // Create BlueMap markers for all beacons
+            double captureRadius = config.getBeaconCaptureRadius();
             for (var beacon : beaconManager.getAllBeacons()) {
-                blueMapIntegration.createBeaconMarker(beacon);
+                blueMapIntegration.createBeaconMarker(beacon, captureRadius);
             }
         }
 
@@ -361,6 +365,75 @@ public class EventManager {
         broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event has been force-stopped by an administrator</white>");
         transitionTo(EventState.ENDING);
         return true;
+    }
+
+    /**
+     * Handle players who are already inside zones when the event activates
+     */
+    private void handleExistingPlayersInZones() {
+        for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
+            IncursionZone zone = zoneManager.getZoneAt(player.getLocation());
+
+            if (zone != null) {
+                // Player is inside a zone that just activated
+                // Teleport them just outside the zone boundary
+                Location safeLocation = findSafeLocationOutsideZone(player.getLocation(), zone);
+
+                if (safeLocation != null) {
+                    player.teleport(safeLocation);
+                    player.sendMessage(miniMessage.deserialize(
+                        "<red>[Cosmos Incursion]</red> <white>An incursion zone has appeared! You've been moved to safety.</white>"
+                    ));
+                    player.sendMessage(miniMessage.deserialize(
+                        "<gray>You must consent to the zone rules before entering. Approach the zone to see the agreement.</gray>"
+                    ));
+                }
+            }
+        }
+    }
+
+    /**
+     * Find a safe location just outside a zone boundary
+     */
+    private Location findSafeLocationOutsideZone(Location playerLoc, IncursionZone zone) {
+        Location center = zone.getCenter();
+        double radius = zone.getRadius();
+
+        // Calculate direction vector from center to player
+        double dx = playerLoc.getX() - center.getX();
+        double dz = playerLoc.getZ() - center.getZ();
+
+        // Normalize and scale to just outside the radius
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < 0.1) {
+            // Player is at center, push them north
+            dx = 0;
+            dz = -(radius + 5);
+        } else {
+            double scale = (radius + 5) / distance; // 5 blocks outside the radius
+            dx *= scale;
+            dz *= scale;
+        }
+
+        // Create safe location
+        Location safeLoc = center.clone().add(dx, 0, dz);
+        safeLoc.setY(playerLoc.getY());
+
+        // Find safe ground
+        org.bukkit.World world = safeLoc.getWorld();
+        if (world != null) {
+            // Move up if in ground
+            while (safeLoc.getY() < 256 && !world.getBlockAt(safeLoc).isPassable()) {
+                safeLoc.add(0, 1, 0);
+            }
+
+            // Move down if in air
+            while (safeLoc.getY() > 0 && world.getBlockAt(safeLoc.clone().subtract(0, 1, 0)).isPassable()) {
+                safeLoc.subtract(0, 1, 0);
+            }
+        }
+
+        return safeLoc;
     }
 
     /**
