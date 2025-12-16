@@ -69,8 +69,11 @@ public class CombatLogHandler implements Listener {
             return;
         }
 
-        // Mark as killed
-        citizensIntegration.markNPCKilled(npcId);
+        // Get the death location
+        org.bukkit.Location deathLocation = event.getNPC().getStoredLocation();
+
+        // Mark as killed and handle item drops
+        citizensIntegration.markNPCKilled(npcId, deathLocation);
     }
 
     /**
@@ -86,11 +89,23 @@ public class CombatLogHandler implements Listener {
 
         if (hollowBody != null) {
             if (hollowBody.isWasKilled()) {
-                plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying penalty");
+                plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
-                // Use DeathHandler to apply penalty
-                DeathHandler deathHandler = new DeathHandler(plugin, playerStateManager, killTracker);
-                deathHandler.handleZoneDeath(player, null, hollowBody.getSpawnLocation());
+                // Clear player's inventory (they lost everything when the NPC died)
+                player.getInventory().clear();
+                player.getInventory().setArmorContents(null);
+
+                // Teleport player to death location
+                if (hollowBody.getDeathLocation() != null) {
+                    player.teleport(hollowBody.getDeathLocation());
+                }
+
+                // Kill the player to apply death mechanics and sequence regression
+                // Delay by 1 tick to ensure player is fully loaded
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    player.setHealth(0);
+                    plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
+                }, 1L);
             } else {
                 plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived");
             }

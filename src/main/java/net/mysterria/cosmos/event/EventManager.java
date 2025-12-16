@@ -32,6 +32,8 @@ public class EventManager {
     private IncursionEvent activeEvent;
     private long cooldownEndTime;
     private BeaconCaptureTask beaconCaptureTask;
+    private net.mysterria.cosmos.task.ZoneBoundaryParticleTask boundaryParticleTask;
+    private final java.util.Set<Integer> announcedMinutes;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffManager buffManager, BlueMapIntegration blueMapIntegration,
@@ -47,6 +49,8 @@ public class EventManager {
         this.currentState = EventState.IDLE;
         this.cooldownEndTime = 0;
         this.beaconCaptureTask = null;
+        this.boundaryParticleTask = null;
+        this.announcedMinutes = new java.util.HashSet<>();
     }
 
     /**
@@ -113,6 +117,9 @@ public class EventManager {
             return;
         }
 
+        // Announce time remaining at intervals
+        announceTimeRemaining();
+
         // Check if event duration has elapsed
         if (activeEvent.shouldEnd()) {
             endEvent();
@@ -123,6 +130,37 @@ public class EventManager {
         if (onlinePlayers < config.getMinPlayers()) {
             plugin.log("Player count dropped below minimum, ending event");
             endEvent();
+        }
+    }
+
+    /**
+     * Announce time remaining at specific intervals
+     */
+    private void announceTimeRemaining() {
+        long remainingMillis = activeEvent.getRemainingTime();
+        int remainingMinutes = (int) (remainingMillis / 60_000L);
+        int remainingSeconds = (int) ((remainingMillis % 60_000L) / 1000L);
+
+        // Announce at: 25, 20, 15, 10, 5, 3, 2, 1 minutes
+        int[] minuteThresholds = {25, 20, 15, 10, 5, 3, 2, 1};
+
+        for (int threshold : minuteThresholds) {
+            if (remainingMinutes == threshold && remainingSeconds >= 58 && !announcedMinutes.contains(threshold)) {
+                String message = config.getMsgEventTimeRemaining()
+                        .replace("%minutes%", String.valueOf(threshold));
+                broadcastMessage(message);
+                announcedMinutes.add(threshold);
+                return;
+            }
+        }
+
+        // Announce at 30 seconds
+        if (remainingMinutes == 0 && remainingSeconds == 30 && !announcedMinutes.contains(0)) {
+            String message = config.getMsgEventTimeRemaining()
+                    .replace("%minutes%", "0")
+                    .replace("minutes", "30 seconds");
+            broadcastMessage(message);
+            announcedMinutes.add(0);
         }
     }
 
@@ -158,6 +196,18 @@ public class EventManager {
     private void onEnterIdle(EventState fromState) {
         // Cleanup from previous event
         if (activeEvent != null) {
+            // Remove effects from all players still in zones before cleanup
+            plugin.getPlayerStateManager().getAllStates().forEach(state -> {
+                org.bukkit.entity.Player player = plugin.getServer().getPlayer(state.getPlayerId());
+                if (player != null && player.isOnline()) {
+                    plugin.getEffectManager().removeEffects(player);
+                    plugin.log("Removed zone effects from player: " + player.getName());
+                }
+            });
+
+            // Clear player states
+            plugin.getPlayerStateManager().clearAll();
+
             // Deactivate all zones
             zoneManager.deactivateAllZones();
 
@@ -172,6 +222,13 @@ public class EventManager {
                 beaconCaptureTask.cancel();
                 beaconCaptureTask = null;
                 plugin.log("Stopped beacon capture task");
+            }
+
+            // Stop boundary particle task
+            if (boundaryParticleTask != null) {
+                boundaryParticleTask.cancel();
+                boundaryParticleTask = null;
+                plugin.log("Stopped boundary particle task");
             }
 
             // Cleanup all UI elements
@@ -255,6 +312,9 @@ public class EventManager {
             return;
         }
 
+        // Clear announcement tracking for new event
+        announcedMinutes.clear();
+
         // Activate all zones
         zoneManager.activateAllZones();
 
@@ -312,6 +372,14 @@ public class EventManager {
             }
         }
 
+        // Start zone boundary particle task
+        if (config.isZoneBoundaryParticlesEnabled()) {
+            long particleInterval = config.getZoneBoundaryParticleUpdateTicks();
+            boundaryParticleTask = new net.mysterria.cosmos.task.ZoneBoundaryParticleTask(plugin, zoneManager);
+            boundaryParticleTask.runTaskTimer(plugin, 0L, particleInterval);
+            plugin.log("Started zone boundary particle task");
+        }
+
         plugin.log("Event is now ACTIVE");
     }
 
@@ -319,8 +387,14 @@ public class EventManager {
         // Broadcast ending message
         broadcastMessage(config.getMsgEventEnding());
 
-        // TODO: Session 8 - Despawn all Hollow Body NPCs
-        // TODO: Session 11 - Calculate territory rewards
+        // Despawn all remaining Hollow Body NPCs
+        if (plugin.getCitizensIntegration() != null && plugin.getCitizensIntegration().isAvailable()) {
+            plugin.getCitizensIntegration().despawnAllHollowBodies();
+            plugin.log("Despawned all remaining Hollow Body NPCs");
+        }
+
+        // Territory rewards are handled via beacon ownership in onEnterIdle()
+        // The winning town (most beacon control time) receives the Acting Speed buff
 
         plugin.log("Event is ending...");
     }

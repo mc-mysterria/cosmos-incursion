@@ -87,10 +87,11 @@ public class ZonePlacer {
     }
 
     /**
-     * Generate candidate locations around towns
+     * Generate candidate locations around towns with randomness
      */
     private List<Location> generateCandidateLocations(World world, List<Location> townLocations, int count) {
         List<Location> candidates = new ArrayList<>();
+        java.util.Random random = new java.util.Random();
 
         // Calculate center point of all towns
         double centerX = townLocations.stream().mapToDouble(Location::getX).average().orElse(0);
@@ -106,14 +107,26 @@ public class ZonePlacer {
                 .average()
                 .orElse(1000.0);
 
-        // Generate candidates in a circle around the center, between towns
-        double radius = avgDistance * 0.7; // Place zones 70% of the way from center to towns
-        int candidateCount = count * 4; // Generate more candidates than needed
+        // Generate candidates with randomness
+        int candidateCount = count * 8; // Generate more candidates for better variety
+        double minRadius = avgDistance * 0.5; // Minimum 50% of distance to towns
+        double maxRadius = avgDistance * 0.9; // Maximum 90% of distance to towns
 
         for (int i = 0; i < candidateCount; i++) {
-            double angle = (2 * Math.PI * i) / candidateCount;
+            // Random angle instead of evenly distributed
+            double angle = random.nextDouble() * 2 * Math.PI;
+
+            // Random radius within range
+            double radius = minRadius + random.nextDouble() * (maxRadius - minRadius);
+
+            // Calculate base position
             double x = centerX + radius * Math.cos(angle);
             double z = centerZ + radius * Math.sin(angle);
+
+            // Add additional random offset (±100 blocks)
+            x += (random.nextDouble() - 0.5) * 200;
+            z += (random.nextDouble() - 0.5) * 200;
+
             int y = world.getHighestBlockYAt((int) x, (int) z);
 
             candidates.add(new Location(world, x, y, z));

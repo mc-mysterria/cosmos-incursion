@@ -32,6 +32,11 @@ zones:
   # Minimum distance between zone centers
   min-separation: 500
 
+  # Zone boundary particles
+  boundary-particles-enabled: true
+  boundary-particle-update-ticks: 40  # How often to spawn particles (40 ticks = 2 seconds)
+  boundary-particle-view-distance: 50.0  # How close players need to be to see particles
+
 balancing:
   spirit-weight:
     # Sequences affected by Spirit Weight (high-tier penalties)
@@ -59,7 +64,7 @@ balancing:
 
 death:
   # Sequence that triggers regression penalty
-  regression-sequence: 4
+  regression-sequence: 6
 
   # Command to grant Cosmos Crate (placeholder: %player%)
   crate-command: "crate give cosmos %player% 1"
@@ -69,7 +74,7 @@ combat-log:
   npc-duration-minutes: 5
 
   # NPC name format (placeholder: %player%)
-  npc-name-format: "Hollow Body of %player%"
+  npc-name-format: "Hollow %player%"
 
 beacons:
   # Capture radius around beacon
@@ -94,6 +99,7 @@ rewards:
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"
   event-started: "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>"
+  event-time-remaining: "<red>[Cosmos Incursion]</red> <yellow>%minutes% minutes remaining!</yellow> <gray>Contest the beacons while you can!</gray>"
   event-ending: "<red>[Cosmos Incursion]</red> <white>The incursion is ending...</white>"
   event-ended: "<red>[Cosmos Incursion]</red> <white>The incursion has concluded.</white>"
   zone-entry: "<red>The barrier of reality dissolves...</red>"

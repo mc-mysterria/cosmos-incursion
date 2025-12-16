@@ -61,6 +61,11 @@ public class ConfigManager {
         config.setPointsPerPlayer(fileConfig.getDouble("beacons.points-per-player", 1.0));
         config.setDecayRate(fileConfig.getDouble("beacons.decay-rate", 0.5));
 
+        // Zone boundary particles
+        config.setZoneBoundaryParticlesEnabled(fileConfig.getBoolean("zones.boundary-particles-enabled", true));
+        config.setZoneBoundaryParticleUpdateTicks(fileConfig.getInt("zones.boundary-particle-update-ticks", 40));
+        config.setZoneBoundaryParticleViewDistance(fileConfig.getDouble("zones.boundary-particle-view-distance", 50.0));
+
         // Rewards
         config.setActingSpeedBonus(fileConfig.getDouble("rewards.acting-speed-bonus", 1.10));
         config.setBuffDurationHours(fileConfig.getInt("rewards.buff-duration-hours", 24));
@@ -70,6 +75,8 @@ public class ConfigManager {
                 "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"));
         config.setMsgEventStarted(fileConfig.getString("messages.event-started",
                 "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>"));
+        config.setMsgEventTimeRemaining(fileConfig.getString("messages.event-time-remaining",
+                "<red>[Cosmos Incursion]</red> <yellow>%minutes% minutes remaining!</yellow> <gray>Contest the beacons while you can!</gray>"));
         config.setMsgEventEnding(fileConfig.getString("messages.event-ending",
                 "<red>[Cosmos Incursion]</red> <white>The incursion is ending...</white>"));
         config.setMsgEventEnded(fileConfig.getString("messages.event-ended",

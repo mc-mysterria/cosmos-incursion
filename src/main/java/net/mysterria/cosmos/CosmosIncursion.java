@@ -128,12 +128,10 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing kill tracker...");
         killTracker = new KillTracker(this, blueMapIntegration);
 
-        // Initialize Citizens integration (delayed to ensure Citizens API is ready)
+        // Initialize Citizens integration (retry mechanism for API initialization)
         log("Initializing Citizens integration...");
         citizensIntegration = new CitizensIntegration(this);
-        getServer().getScheduler().runTaskLater(this, () -> {
-            citizensIntegration.initialize();
-        }, 1L);
+        initializeCitizensWithRetry(0);
 
         // Initialize combat log handler
         log("Initializing combat log handler...");
@@ -226,6 +224,26 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, () -> {
             buffManager.cleanupExpired();
         }, 6000L, 6000L);  // 5 minutes = 6000 ticks
+    }
+
+    /**
+     * Initialize Citizens integration with retry mechanism
+     * @param attempt Current attempt number (0-based)
+     */
+    private void initializeCitizensWithRetry(int attempt) {
+        final int maxAttempts = 10;
+        final long delayTicks = 20L; // 1 second between attempts
+
+        getServer().getScheduler().runTaskLater(this, () -> {
+            boolean success = citizensIntegration.initialize();
+
+            if (!success && attempt < maxAttempts - 1) {
+                log("Citizens API not ready yet, retrying in 1 second... (attempt " + (attempt + 2) + "/" + maxAttempts + ")");
+                initializeCitizensWithRetry(attempt + 1);
+            } else if (!success) {
+                log("Failed to initialize Citizens after " + maxAttempts + " attempts - Hollow Body NPCs will be disabled");
+            }
+        }, delayTicks);
     }
 
     private void enableHuskTownsApi() {

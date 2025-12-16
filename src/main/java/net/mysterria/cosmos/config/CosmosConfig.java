@@ -56,6 +56,11 @@ public class CosmosConfig {
     private int beaconScoreboardUpdateTicks = 40;  // 2 seconds
     private int beaconParticleUpdateTicks = 10;  // 0.5 seconds
 
+    // Zone boundary particles
+    private boolean zoneBoundaryParticlesEnabled = true;
+    private int zoneBoundaryParticleUpdateTicks = 40;  // 2 seconds
+    private double zoneBoundaryParticleViewDistance = 50.0;  // Distance from boundary to show particles
+
     // Rewards
     private double actingSpeedBonus = 1.10;
     private int buffDurationHours = 24;
@@ -63,6 +68,7 @@ public class CosmosConfig {
     // Messages
     private String msgEventStarting = "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>";
     private String msgEventStarted = "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>";
+    private String msgEventTimeRemaining = "<red>[Cosmos Incursion]</red> <yellow>%minutes% minutes remaining!</yellow> <gray>Contest the beacons while you can!</gray>";
     private String msgEventEnding = "<red>[Cosmos Incursion]</red> <white>The incursion is ending...</white>";
     private String msgEventEnded = "<red>[Cosmos Incursion]</red> <white>The incursion has concluded.</white>";
     private String msgZoneEntry = "<red>The barrier of reality dissolves...</red>";

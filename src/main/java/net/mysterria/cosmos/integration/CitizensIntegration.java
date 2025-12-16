@@ -3,6 +3,7 @@ package net.mysterria.cosmos.integration;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.api.npc.NPCRegistry;
+import net.citizensnpcs.trait.SkinTrait;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.combat.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
@@ -38,20 +39,24 @@ public class CitizensIntegration {
      */
     public boolean initialize() {
         if (!plugin.getServer().getPluginManager().isPluginEnabled("Citizens")) {
-            plugin.log("Citizens plugin not found - Hollow Body NPCs disabled");
-            return false;
+            return false; // Silent fail if plugin not present
         }
 
         try {
-            this.registry = CitizensAPI.getNamedNPCRegistry("CosmosIncursion");
+            // Use the default registry instead of creating a named one
+            // Temporary NPCs like Hollow Bodies don't need a separate registry with persistence
+            this.registry = CitizensAPI.getNPCRegistry();
             if (this.registry == null) {
-                this.registry = CitizensAPI.createNamedNPCRegistry("CosmosIncursion", null);
+                plugin.log("Citizens registry is null - API not ready");
+                return false;
             }
             plugin.log("Citizens integration enabled - Hollow Body NPCs active");
             return true;
+        } catch (IllegalStateException e) {
+            // Citizens API not ready yet
+            return false;
         } catch (Exception e) {
             plugin.log("Failed to initialize Citizens integration: " + e.getMessage());
-            e.printStackTrace();
             return false;
         }
     }
@@ -66,30 +71,41 @@ public class CitizensIntegration {
         }
 
         try {
+            // Capture player inventory before creating NPC
+            org.bukkit.inventory.ItemStack[] inventory = player.getInventory().getContents().clone();
+            org.bukkit.inventory.ItemStack[] armor = player.getInventory().getArmorContents().clone();
+
             // Create NPC name from config
             String npcName = config.getNpcNameFormat().replace("%player%", player.getName());
 
             // Create NPC
             NPC npc = registry.createNPC(EntityType.PLAYER, npcName);
-            npc.spawn(location);
+
+            // Make NPC vulnerable (can be killed)
+            npc.setProtected(false);
 
             // Copy player appearance
             npc.data().setPersistent(NPC.Metadata.NAMEPLATE_VISIBLE, true);
             npc.data().setPersistent(NPC.Metadata.ALWAYS_USE_NAME_HOLOGRAM, false);
+            npc.data().set(NPC.Metadata.DEFAULT_PROTECTED, false);
 
             // Set skin to match player
-//            npc.getOrAddTrait(SkinTrait.class).setSkinName(player.getName());
+            npc.getOrAddTrait(SkinTrait.class).setSkinName(player.getName());
+
+            npc.spawn(location);
 
             // Calculate duration
             long durationMillis = config.getNpcDurationMinutes() * 60_000L;
 
-            // Create HollowBody wrapper
+            // Create HollowBody wrapper with inventory
             HollowBody hollowBody = new HollowBody(
                     player.getUniqueId(),
                     player.getName(),
                     npc.getId(),
                     location,
-                    durationMillis
+                    durationMillis,
+                    inventory,
+                    armor
             );
 
             // Store mappings
@@ -136,17 +152,56 @@ public class CitizensIntegration {
     }
 
     /**
-     * Mark an NPC as killed
+     * Mark an NPC as killed and drop its inventory
      */
-    public void markNPCKilled(int npcId) {
+    public void markNPCKilled(int npcId, org.bukkit.Location deathLocation) {
         UUID playerId = npcIdToPlayerId.get(npcId);
         if (playerId != null) {
             HollowBody hollowBody = hollowBodies.get(playerId);
             if (hollowBody != null) {
-                hollowBody.markKilled();
-                plugin.log("Hollow Body NPC " + npcId + " was killed (player: " + playerId + ")");
+                hollowBody.markKilled(deathLocation);
+
+                // Drop the player's inventory at death location
+                dropInventory(hollowBody, deathLocation);
+
+                plugin.log("Hollow Body NPC " + npcId + " was killed (player: " + playerId + ") - items dropped");
             }
         }
+    }
+
+    /**
+     * Drop a Hollow Body's stored inventory at a location
+     */
+    private void dropInventory(HollowBody hollowBody, org.bukkit.Location location) {
+        if (location == null || location.getWorld() == null) {
+            plugin.log("Cannot drop inventory - invalid location");
+            return;
+        }
+
+        org.bukkit.World world = location.getWorld();
+        int droppedItems = 0;
+
+        // Drop main inventory items
+        if (hollowBody.getInventory() != null) {
+            for (org.bukkit.inventory.ItemStack item : hollowBody.getInventory()) {
+                if (item != null && item.getType() != org.bukkit.Material.AIR) {
+                    world.dropItemNaturally(location, item);
+                    droppedItems++;
+                }
+            }
+        }
+
+        // Drop armor items
+        if (hollowBody.getArmor() != null) {
+            for (org.bukkit.inventory.ItemStack item : hollowBody.getArmor()) {
+                if (item != null && item.getType() != org.bukkit.Material.AIR) {
+                    world.dropItemNaturally(location, item);
+                    droppedItems++;
+                }
+            }
+        }
+
+        plugin.log("Dropped " + droppedItems + " items from " + hollowBody.getPlayerName() + "'s Hollow Body");
     }
 
     /**
@@ -181,6 +236,25 @@ public class CitizensIntegration {
             }
             return false;
         });
+    }
+
+    /**
+     * Despawn all remaining Hollow Body NPCs (called when event ends)
+     */
+    public void despawnAllHollowBodies() {
+        if (registry == null) {
+            return;
+        }
+
+        int despawnedCount = 0;
+        for (HollowBody hollowBody : new java.util.ArrayList<>(hollowBodies.values())) {
+            removeNPC(hollowBody.getNpcId());
+            npcIdToPlayerId.remove(hollowBody.getNpcId());
+            despawnedCount++;
+        }
+
+        hollowBodies.clear();
+        plugin.log("Force-despawned " + despawnedCount + " Hollow Body NPCs due to event end");
     }
 
     /**

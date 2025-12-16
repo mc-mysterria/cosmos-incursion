@@ -62,9 +62,9 @@ public class DeathHandler {
         int victimSequence = CoiToolkit.getBeyonderSequence(victim);
 
         // Check if sequence qualifies for regression (Seq 4 by default)
-        if (victimSequence != config.getRegressionSequence()) {
+        if (victimSequence > config.getRegressionSequence()) {
             plugin.log("Victim sequence " + victimSequence + " does not trigger regression (requires Seq " +
-                       config.getRegressionSequence() + ")");
+                       config.getRegressionSequence() + " or lower)");
             return;
         }
 
