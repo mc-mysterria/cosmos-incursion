@@ -5,7 +5,6 @@ import dev.triumphteam.gui.guis.GuiItem;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -13,10 +12,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -25,11 +22,9 @@ import java.util.UUID;
  */
 public class ConsentGUI {
 
-    private final CosmosIncursion plugin;
     private final Map<UUID, ConsentState> playerConsents;
 
-    public ConsentGUI(CosmosIncursion plugin) {
-        this.plugin = plugin;
+    public ConsentGUI() {
         this.playerConsents = new HashMap<>();
     }
 

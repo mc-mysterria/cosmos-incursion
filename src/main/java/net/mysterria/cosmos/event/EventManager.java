@@ -24,6 +24,7 @@ public class EventManager {
     private final BeaconManager beaconManager;
     private final BuffManager buffManager;
     private final BlueMapIntegration blueMapIntegration;
+    private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
 
@@ -33,12 +34,14 @@ public class EventManager {
     private BeaconCaptureTask beaconCaptureTask;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
-                        BuffManager buffManager, BlueMapIntegration blueMapIntegration) {
+                        BuffManager buffManager, BlueMapIntegration blueMapIntegration,
+                        net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.beaconManager = beaconManager;
         this.buffManager = buffManager;
         this.blueMapIntegration = blueMapIntegration;
+        this.beaconUIManager = beaconUIManager;
         this.config = plugin.getConfigManager().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.currentState = EventState.IDLE;
@@ -171,6 +174,9 @@ public class EventManager {
                 plugin.log("Stopped beacon capture task");
             }
 
+            // Cleanup all UI elements
+            beaconUIManager.cleanupAllUI();
+
             // Calculate winning town from beacon ownership
             if (beaconManager.hasBeacons()) {
                 int winningTownId = beaconManager.getWinningTown();
@@ -292,10 +298,18 @@ public class EventManager {
             beaconManager.initializeCaptureStates();
 
             // Start beacon capture task (runs every second)
-            beaconCaptureTask = new BeaconCaptureTask(plugin, beaconManager);
+            beaconCaptureTask = new BeaconCaptureTask(plugin, beaconManager, beaconUIManager);
             beaconCaptureTask.runTaskTimer(plugin, 0L, 20L);
 
             plugin.log("Started beacon capture task for " + beaconManager.getBeaconCount() + " beacons");
+
+            // Initialize UI systems
+            beaconUIManager.initializeEventUI();
+
+            // Create physical beacons
+            for (var beacon : beaconManager.getAllBeacons()) {
+                beaconUIManager.createPhysicalBeacon(beacon);
+            }
         }
 
         plugin.log("Event is now ACTIVE");

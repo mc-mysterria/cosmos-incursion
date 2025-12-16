@@ -47,6 +47,15 @@ public class CosmosConfig {
     private double pointsPerPlayer = 1.0;
     private double decayRate = 0.5;
 
+    // Beacon UI/UX
+    private boolean beaconUIEnabled = true;
+    private boolean beaconSoundsEnabled = true;
+    private boolean beaconParticlesEnabled = true;
+    private boolean beaconPhysicalEnabled = true;
+    private double beaconUIRadius = 30.0;
+    private int beaconScoreboardUpdateTicks = 40;  // 2 seconds
+    private int beaconParticleUpdateTicks = 10;  // 0.5 seconds
+
     // Rewards
     private double actingSpeedBonus = 1.10;
     private int buffDurationHours = 24;

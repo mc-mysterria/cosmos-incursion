@@ -54,7 +54,7 @@ public class BuffManager {
         }
 
         try (FileReader reader = new FileReader(buffDataFile)) {
-            Type type = new TypeToken<Map<UUID, TownBuff>>() {
+            Type type = new TypeToken<Map<Integer, TownBuff>>() {
             }.getType();
             Map<Integer, TownBuff> loadedBuffs = gson.fromJson(reader, type);
 
@@ -239,14 +239,6 @@ public class BuffManager {
 
         // Save if anything was removed
         saveBuffData();
-    }
-
-    /**
-     * Check if a town has an active buff
-     */
-    public boolean hasTownBuff(UUID townId) {
-        TownBuff buff = activeTownBuffs.get(townId);
-        return buff != null && !buff.isExpired();
     }
 
     /**

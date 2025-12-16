@@ -7,6 +7,7 @@ import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.beacon.BeaconManager;
+import net.mysterria.cosmos.beacon.ui.BeaconUIManager;
 import net.mysterria.cosmos.combat.CombatLogHandler;
 import net.mysterria.cosmos.command.CosmosCommand;
 import net.mysterria.cosmos.config.ConfigManager;
@@ -76,6 +77,9 @@ public final class CosmosIncursion extends JavaPlugin {
     @Getter
     private net.mysterria.cosmos.gui.ConsentGUI consentGUI;
 
+    @Getter
+    private net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
+
     private LiteCommands<CommandSender> liteCommands;
 
     @Override
@@ -111,6 +115,10 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing effect manager...");
         effectManager = new EffectManager(this);
 
+        // Initialize beacon UI manager
+        log("Initializing beacon UI manager...");
+        beaconUIManager = new BeaconUIManager(this, beaconManager);
+
         // Initialize BlueMap integration
         log("Initializing BlueMap integration...");
         blueMapIntegration = new BlueMapIntegration(this);
@@ -138,11 +146,11 @@ public final class CosmosIncursion extends JavaPlugin {
 
         // Initialize consent GUI
         log("Initializing consent GUI...");
-        consentGUI = new ConsentGUI(this);
+        consentGUI = new ConsentGUI();
 
         // Initialize event manager
         log("Initializing event manager...");
-        eventManager = new EventManager(this, zoneManager, beaconManager, buffManager, blueMapIntegration);
+        eventManager = new EventManager(this, zoneManager, beaconManager, buffManager, blueMapIntegration, beaconUIManager);
 
         // Register commands
         log("Registering commands...");
@@ -184,9 +192,10 @@ public final class CosmosIncursion extends JavaPlugin {
         // PlayerMoveListener removed - using tick-based ZoneCheckTask instead for better reliability
         getServer().getPluginManager().registerEvents(new SafeModeListener(this, playerStateManager), this);
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker), this);
-        getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager, beaconUIManager), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
+        getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
     }
 
     private void startTasks() {

@@ -17,10 +17,13 @@ public class PlayerQuitListener implements Listener {
 
     private final CombatLogHandler combatLogHandler;
     private final BuffManager buffManager;
+    private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
 
-    public PlayerQuitListener(CombatLogHandler combatLogHandler, BuffManager buffManager) {
+    public PlayerQuitListener(CombatLogHandler combatLogHandler, BuffManager buffManager,
+                              net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager) {
         this.combatLogHandler = combatLogHandler;
         this.buffManager = buffManager;
+        this.beaconUIManager = beaconUIManager;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -32,6 +35,9 @@ public class PlayerQuitListener implements Listener {
 
         // Clean up buff tracking
         buffManager.handlePlayerQuit(player);
+
+        // Clean up beacon UI
+        beaconUIManager.handlePlayerQuit(player);
     }
 
 }

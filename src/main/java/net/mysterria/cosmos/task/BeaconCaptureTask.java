@@ -25,11 +25,14 @@ public class BeaconCaptureTask extends BukkitRunnable {
 
     private final CosmosIncursion plugin;
     private final BeaconManager beaconManager;
+    private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
     private final CosmosConfig config;
 
-    public BeaconCaptureTask(CosmosIncursion plugin, BeaconManager beaconManager) {
+    public BeaconCaptureTask(CosmosIncursion plugin, BeaconManager beaconManager,
+                             net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager) {
         this.plugin = plugin;
         this.beaconManager = beaconManager;
+        this.beaconUIManager = beaconUIManager;
         this.config = plugin.getConfigManager().getConfig();
     }
 
@@ -67,6 +70,9 @@ public class BeaconCaptureTask extends BukkitRunnable {
             // Multiple towns - contested
             handleContested(capture);
         }
+
+        // Update UI for all nearby players
+        beaconUIManager.updateBeaconUI(capture, beacon);
     }
 
     /**
