@@ -7,6 +7,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.toolkit.CoiToolkit;
 import net.mysterria.cosmos.toolkit.TownsToolkit;
 import net.william278.husktowns.town.Town;
 import org.bukkit.Bukkit;
@@ -133,16 +134,7 @@ public class BuffManager {
      * Apply Acting Speed buff to a player
      */
     private void applyBuffToPlayer(Player player, long expiryTime) {
-        // TODO: Implement actual Acting Speed buff application
-        // This needs to interact with CircleOfImagination API to modify acting speed multiplier
-        // The config value is: acting-speed-bonus (e.g., 1.10 = 10% bonus)
-        //
-        // Possible approaches:
-        // 1. Check if COI API has a method like setActingSpeedMultiplier(player, multiplier)
-        // 2. Apply a potion effect with custom NBT data
-        // 3. Use a custom attribute modifier
-        //
-        // For now, this is a placeholder that tracks the buff but doesn't apply the actual effect
+        CoiToolkit.setActingSpeedMultiplier(player, config.getActingSpeedBonus(), expiryTime);
 
         activePlayerBuffs.put(player.getUniqueId(), expiryTime);
 
@@ -159,8 +151,10 @@ public class BuffManager {
      * Remove Acting Speed buff from a player
      */
     private void removeBuffFromPlayer(Player player) {
-        // TODO: Implement actual Acting Speed buff removal
-        // This should reverse whatever was done in applyBuffToPlayer()
+        if (CoiToolkit.getActingMultiplierPercentageNamespacedKey() != null && CoiToolkit.getActingMultiplierExpiryNamespacedKey() != null) {
+            player.getPersistentDataContainer().remove(CoiToolkit.getActingMultiplierExpiryNamespacedKey());
+            player.getPersistentDataContainer().remove(CoiToolkit.getActingMultiplierPercentageNamespacedKey());
+        }
 
         activePlayerBuffs.remove(player.getUniqueId());
 
@@ -250,13 +244,13 @@ public class BuffManager {
     }
 
     /**
-         * Data class for town buff tracking
-         */
-        private record TownBuff(int townId, String townName, long expiryTime) {
+     * Data class for town buff tracking
+     */
+    private record TownBuff(int townId, String townName, long expiryTime) {
 
         public boolean isExpired() {
-                return System.currentTimeMillis() >= expiryTime;
-            }
+            return System.currentTimeMillis() >= expiryTime;
         }
+    }
 
 }

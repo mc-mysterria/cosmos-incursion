@@ -2,15 +2,37 @@ package net.mysterria.cosmos.toolkit;
 
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import net.mysterria.cosmos.CosmosIncursion;
+import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
 
+import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
 
 public class CoiToolkit {
 
     private static final CircleOfImaginationAPI coiApi = CosmosIncursion.getInstance().getCoiAPI();
+
+    public static @Nullable NamespacedKey getActingMultiplierExpiryNamespacedKey() {
+        Plugin plugin = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
+        if (plugin != null) {
+            return new NamespacedKey(plugin, "growth_expiry");
+        }
+
+        return null;
+    }
+
+    public static @Nullable NamespacedKey getActingMultiplierPercentageNamespacedKey() {
+        Plugin plugin = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
+        if (plugin != null) {
+            return new NamespacedKey(plugin, "growth_percentage");
+        }
+
+        return null;
+    }
 
     public static boolean turnOffSafeMode(Player player) {
         if (coiApi.isBeyonder(player)) {
@@ -98,6 +120,14 @@ public class CoiToolkit {
         }
 
         return Optional.empty();
+    }
+
+    public static void setActingSpeedMultiplier(Player player, double multiplier, long durationMillis) {
+        if (coiApi.isBeyonder(player)) {
+            if (coiApi.getActingSpeedMultiplier(player) < multiplier) {
+                coiApi.setActingSpeedMultiplier(player, multiplier, durationMillis);
+            }
+        }
     }
 
     public static ItemStack getBeyonderChar(String pathway, int sequence) {
