@@ -31,20 +31,16 @@ public class BeaconUIManager {
     private final BeaconManager beaconManager;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
-
+    private final Map<String, BeaconVisuals> physicalBeacons;
+    // Per-player UI state tracking
+    private final Map<UUID, PlayerBeaconUIState> playerStates;
+    // Boss bars per beacon
+    private final Map<String, BossBar> beaconBossBars;
+    // Town color cache
+    private final Map<Integer, String> townColorCache;
     // UI component managers
     private BeaconSoundManager soundManager;
     private BeaconParticleTask particleTask;
-    private final Map<String, BeaconVisuals> physicalBeacons;
-
-    // Per-player UI state tracking
-    private final Map<UUID, PlayerBeaconUIState> playerStates;
-
-    // Boss bars per beacon
-    private final Map<String, BossBar> beaconBossBars;
-
-    // Town color cache
-    private final Map<Integer, String> townColorCache;
 
     public BeaconUIManager(CosmosIncursion plugin, BeaconManager beaconManager) {
         this.plugin = plugin;
@@ -68,7 +64,7 @@ public class BeaconUIManager {
 
         // Initialize sound manager
         if (config.isBeaconSoundsEnabled()) {
-            soundManager = new BeaconSoundManager(plugin, this, beaconManager, config);
+            soundManager = new BeaconSoundManager(config);
         }
 
         // Start particle task
@@ -90,8 +86,8 @@ public class BeaconUIManager {
             return;
         }
 
-        String beaconId = beacon.getId();
-        List<Player> nearbyPlayers = getNearbyPlayers(beacon.getLocation(), config.getBeaconUIRadius());
+        String beaconId = beacon.id();
+        List<Player> nearbyPlayers = getNearbyPlayers(beacon.location(), config.getBeaconUIRadius());
 
         for (Player player : nearbyPlayers) {
             PlayerBeaconUIState state = getOrCreatePlayerState(player);
@@ -146,14 +142,14 @@ public class BeaconUIManager {
      */
     private String buildObserverActionBar(BeaconCapture capture, SpiritBeacon beacon) {
         if (capture.isContested()) {
-            return "<gray>Observing: " + beacon.getName() + " - <yellow>CONTESTED</yellow></gray>";
+            return "<gray>Observing: " + beacon.name() + " - <yellow>CONTESTED</yellow></gray>";
         } else if (capture.getOwningTownId() != 0) {
             return String.format("<gray>Observing: %s - <white>%s</white> (%.0f%%)</gray>",
-                    beacon.getName(),
+                    beacon.name(),
                     capture.getOwningTownName(),
                     (capture.getCaptureProgress() / config.getBeaconCapturePoints()) * 100);
         } else {
-            return "<gray>Observing: " + beacon.getName() + " - <white>Neutral</white></gray>";
+            return "<gray>Observing: " + beacon.name() + " - <white>Neutral</white></gray>";
         }
     }
 
@@ -165,15 +161,15 @@ public class BeaconUIManager {
         int percent = (int) ((capture.getCaptureProgress() / config.getBeaconCapturePoints()) * 100);
 
         if (capture.isContested()) {
-            return "<red>⚠ CONTESTED - " + beacon.getName() + "</red>";
+            return "<red>⚠ CONTESTED - " + beacon.name() + "</red>";
         } else if (isOwnedByPlayer && percent >= 100) {
-            return "<green>✓ Beacon Secured - " + beacon.getName() + "</green>";
+            return "<green>✓ Beacon Secured - " + beacon.name() + "</green>";
         } else if (isOwnedByPlayer) {
-            return buildProgressBar(beacon.getName(), percent, "gold");
+            return buildProgressBar(beacon.name(), percent, "gold");
         } else if (capture.getOwningTownId() != 0) {
-            return "<red>Enemy Beacon - " + beacon.getName() + " (" + capture.getOwningTownName() + ")</red>";
+            return "<red>Enemy Beacon - " + beacon.name() + " (" + capture.getOwningTownName() + ")</red>";
         } else {
-            return buildProgressBar(beacon.getName(), percent, "yellow");
+            return buildProgressBar(beacon.name(), percent, "yellow");
         }
     }
 
@@ -184,20 +180,19 @@ public class BeaconUIManager {
         int filledBars = percent / 10;
         int emptyBars = 10 - filledBars;
 
-        StringBuilder bar = new StringBuilder();
-        bar.append("<").append(color).append(">⚡ Capturing ").append(beaconName).append("... [");
-        bar.append("█".repeat(Math.max(0, filledBars)));
-        bar.append("░".repeat(Math.max(0, emptyBars)));
-        bar.append("] ").append(percent).append("%</").append(color).append(">");
+        String bar = "<" + color + ">⚡ Capturing " + beaconName + "... [" +
+                     "█".repeat(Math.max(0, filledBars)) +
+                     "░".repeat(Math.max(0, emptyBars)) +
+                     "] " + percent + "%</" + color + ">";
 
-        return bar.toString();
+        return bar;
     }
 
     /**
      * Update bossbar for a player
      */
     private void updateBossBar(Player player, BeaconCapture capture, SpiritBeacon beacon, PlayerBeaconUIState state) {
-        String beaconId = beacon.getId();
+        String beaconId = beacon.id();
         BossBar bossBar = beaconBossBars.computeIfAbsent(beaconId, id -> createBossBar());
 
         // Update bossbar properties
@@ -224,9 +219,9 @@ public class BeaconUIManager {
         // Update title
         String title;
         if (capture.getOwningTownId() != 0) {
-            title = beacon.getName() + " - Owner: " + capture.getOwningTownName();
+            title = beacon.name() + " - Owner: " + capture.getOwningTownName();
         } else {
-            title = beacon.getName() + " - Neutral";
+            title = beacon.name() + " - Neutral";
         }
         bossBar.setTitle(title);
 
@@ -317,7 +312,7 @@ public class BeaconUIManager {
      */
     private void buildScoreboardLine(Team team, BeaconCapture capture, SpiritBeacon beacon, Optional<Town> playerTown) {
         // Extract short identifier from beacon name
-        String beaconName = extractShortBeaconName(beacon.getName());
+        String beaconName = extractShortBeaconName(beacon.name());
         int percent = (int) ((capture.getCaptureProgress() / config.getBeaconCapturePoints()) * 100);
 
         if (capture.isContested()) {
@@ -359,10 +354,10 @@ public class BeaconUIManager {
     private String extractShortBeaconName(String fullName) {
         // Remove common prefixes/suffixes
         String name = fullName.replace("Zone ", "")
-                             .replace(" Zone", "")
-                             .replace(" - Beacon", "")
-                             .replace("Beacon ", "")
-                             .trim();
+                .replace(" Zone", "")
+                .replace(" - Beacon", "")
+                .replace("Beacon ", "")
+                .trim();
 
         // If still too long, take first word only
         if (name.length() > 10) {
@@ -384,7 +379,7 @@ public class BeaconUIManager {
      * Send title message on important state changes
      */
     private void sendBeaconTitle(Player player, BeaconCapture capture, SpiritBeacon beacon, PlayerBeaconUIState state) {
-        String beaconId = beacon.getId();
+        String beaconId = beacon.id();
         Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
 
         // Minimum cooldown between titles (10 seconds)
@@ -469,9 +464,9 @@ public class BeaconUIManager {
         Component subtitle;
 
         if (hasTown) {
-            subtitle = miniMessage.deserialize("<white>Help your town capture " + beacon.getName() + "!</white>");
+            subtitle = miniMessage.deserialize("<white>Help your town capture " + beacon.name() + "!</white>");
         } else {
-            subtitle = miniMessage.deserialize("<gray>Observing " + beacon.getName() + "</gray>");
+            subtitle = miniMessage.deserialize("<gray>Observing " + beacon.name() + "</gray>");
         }
 
         Title.Times times = Title.Times.times(
@@ -488,7 +483,7 @@ public class BeaconUIManager {
      */
     private void sendCapturedTitle(Player player, SpiritBeacon beacon) {
         Component title = miniMessage.deserialize("<green>✓ BEACON CAPTURED!</green>");
-        Component subtitle = miniMessage.deserialize("<white>Your town now controls " + beacon.getName() + "</white>");
+        Component subtitle = miniMessage.deserialize("<white>Your town now controls " + beacon.name() + "</white>");
 
         Title.Times times = Title.Times.times(
                 Duration.ofMillis(300),   // fade in
@@ -504,7 +499,7 @@ public class BeaconUIManager {
      */
     private void sendLostTitle(Player player, SpiritBeacon beacon, String enemyTown) {
         Component title = miniMessage.deserialize("<red>⚠ BEACON LOST!</red>");
-        Component subtitle = miniMessage.deserialize("<white>" + enemyTown + " has taken " + beacon.getName() + "</white>");
+        Component subtitle = miniMessage.deserialize("<white>" + enemyTown + " has taken " + beacon.name() + "</white>");
 
         Title.Times times = Title.Times.times(
                 Duration.ofMillis(300),   // fade in
@@ -520,7 +515,7 @@ public class BeaconUIManager {
      */
     private void sendContestedTitle(Player player, SpiritBeacon beacon) {
         Component title = miniMessage.deserialize("<yellow>⚔ CONTESTED!</yellow>");
-        Component subtitle = miniMessage.deserialize("<white>Enemy forces detected at " + beacon.getName() + "</white>");
+        Component subtitle = miniMessage.deserialize("<white>Enemy forces detected at " + beacon.name() + "</white>");
 
         Title.Times times = Title.Times.times(
                 Duration.ofMillis(300),   // fade in
@@ -542,7 +537,7 @@ public class BeaconUIManager {
 
         BeaconVisuals visuals = new BeaconVisuals(plugin, beacon);
         visuals.createBeacon();
-        physicalBeacons.put(beacon.getId(), visuals);
+        physicalBeacons.put(beacon.id(), visuals);
     }
 
     /**

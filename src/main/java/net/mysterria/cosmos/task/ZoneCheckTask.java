@@ -30,6 +30,8 @@ import java.util.UUID;
  */
 public class ZoneCheckTask extends BukkitRunnable {
 
+    private static final double CONSENT_DISTANCE = 10.0; // Show GUI when within 10 blocks of zone
+    private static final long CONSENT_PROMPT_COOLDOWN = 5000; // 5 seconds cooldown between prompts
     private final CosmosIncursion plugin;
     private final ZoneManager zoneManager;
     private final PlayerStateManager playerStateManager;
@@ -39,9 +41,6 @@ public class ZoneCheckTask extends BukkitRunnable {
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final Map<UUID, Long> lastConsentPrompt;
-
-    private static final double CONSENT_DISTANCE = 10.0; // Show GUI when within 10 blocks of zone
-    private static final long CONSENT_PROMPT_COOLDOWN = 5000; // 5 seconds cooldown between prompts
 
     public ZoneCheckTask(CosmosIncursion plugin, ZoneManager zoneManager,
                          PlayerStateManager playerStateManager, EffectManager effectManager,

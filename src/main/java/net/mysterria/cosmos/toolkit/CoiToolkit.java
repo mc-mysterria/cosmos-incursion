@@ -59,37 +59,50 @@ public class CoiToolkit {
         return coiApi.getLowestSequence(player);
     }
 
+    /**
+     * Apply death penalty to player - either acting loss or sequence regression
+     * @param player The player to penalize
+     * @return true if player regressed to lower sequence (drops char), false if only lost acting (no char drop)
+     */
     public static boolean lowerByOneSequence(Player player) {
         if (coiApi.isBeyonder(player)) {
             Optional<String> primaryLowestPathway = getPrimaryPathway(player);
             int lowestSequence = coiApi.getLowestSequence(player);
 
             if (primaryLowestPathway.isPresent()) {
+                String pathway = primaryLowestPathway.get();
+
+                // Get current acting and needed acting
+                int currentActing = coiApi.getActing(player, pathway);
                 BeyonderData beyonderData = coiApi.getBeyonderData(player);
-                double actingPercentage = beyonderData.getPathway(primaryLowestPathway.get()).getActingPercentage();
-                double actingBefore = beyonderData.getPathway(primaryLowestPathway.get()).neededActing();
+                int neededActing = beyonderData.getPathway(pathway).neededActing();
 
                 // Get config values
                 var config = CosmosIncursion.getInstance().getConfigManager().getConfig();
-                int threshold = config.getRegressionActingThreshold();
                 double restoredPercentage = config.getRegressionActingRestored();
                 double penaltyPercentage = config.getRegressionActingPenalty();
 
-                if (actingPercentage < threshold) {
-                    // Full sequence regression
+                // Calculate acting penalty amount
+                int penaltyAmount = (int) (neededActing * penaltyPercentage);
+
+                // Check if player has enough acting to lose
+                if (currentActing >= penaltyAmount) {
+                    // Player has enough acting - just remove penalty, no regression
+                    coiApi.addActing(player, pathway, -penaltyAmount);
+                    return false; // No regression - don't drop char
+                } else {
+                    // Player doesn't have enough acting - full sequence regression
                     coiApi.destroyBeyonder(player);
 
-                    boolean created = coiApi.createBeyonder(player, primaryLowestPathway.get(), lowestSequence + 1);
+                    boolean created = coiApi.createBeyonder(player, pathway, lowestSequence + 1);
                     if (created) {
                         BeyonderData newBeyonderData = coiApi.getBeyonderData(player);
-                        int neededActing = newBeyonderData.getPathway(primaryLowestPathway.get()).neededActing();
-                        coiApi.addActing(player, primaryLowestPathway.get(), (int) (neededActing * restoredPercentage));
+                        int newNeededActing = newBeyonderData.getPathway(pathway).neededActing();
+                        int restoredActing = (int) (newNeededActing * restoredPercentage);
+                        coiApi.addActing(player, pathway, restoredActing);
                     }
 
-                    return created;
-                } else {
-                    // Acting penalty only (no sequence regression)
-                    return coiApi.addActing(player, primaryLowestPathway.get(), (int) -(actingBefore * penaltyPercentage));
+                    return created; // Regression happened - should drop char
                 }
             }
             return false;

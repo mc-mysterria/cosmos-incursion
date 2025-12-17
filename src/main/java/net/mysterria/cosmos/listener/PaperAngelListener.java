@@ -41,7 +41,7 @@ public class PaperAngelListener implements Listener {
         ItemStack item = event.getItem();
 
         // Check if it's a Paper Angel
-        if (item == null || !PaperAngelItem.isPaperAngel(item, itemKey)) {
+        if (!PaperAngelItem.isPaperAngel(item, itemKey)) {
             return;
         }
 

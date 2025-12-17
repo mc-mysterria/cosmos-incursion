@@ -36,7 +36,6 @@ public class CosmosConfig {
 
     // Death system
     private int regressionSequence = 4;
-    private int regressionActingThreshold = 51;
     private double regressionActingRestored = 0.8;
     private double regressionActingPenalty = 0.5;
     private String crateCommand = "crate give cosmos %player% 1";

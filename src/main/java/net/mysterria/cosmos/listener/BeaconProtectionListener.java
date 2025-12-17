@@ -2,7 +2,6 @@ package net.mysterria.cosmos.listener;
 
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.beacon.SpiritBeacon;
-import net.mysterria.cosmos.beacon.ui.BeaconUIManager;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -59,7 +58,7 @@ public class BeaconProtectionListener implements Listener {
 
         // Check all active beacons
         for (SpiritBeacon beacon : plugin.getBeaconManager().getAllBeacons()) {
-            if (isPartOfBeaconStructure(blockLoc, beacon.getLocation())) {
+            if (isPartOfBeaconStructure(blockLoc, beacon.location())) {
                 return true;
             }
         }
@@ -72,7 +71,7 @@ public class BeaconProtectionListener implements Listener {
      */
     private boolean isBeaconLocationOccupied(Location loc) {
         for (SpiritBeacon beacon : plugin.getBeaconManager().getAllBeacons()) {
-            if (isPartOfBeaconStructure(loc, beacon.getLocation())) {
+            if (isPartOfBeaconStructure(loc, beacon.location())) {
                 return true;
             }
         }

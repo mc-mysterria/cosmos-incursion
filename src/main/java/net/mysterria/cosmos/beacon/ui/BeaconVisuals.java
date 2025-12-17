@@ -40,10 +40,10 @@ public class BeaconVisuals {
             return;
         }
 
-        Location center = beacon.getLocation();
+        Location center = beacon.location();
         World world = center.getWorld();
         if (world == null) {
-            plugin.log("Cannot create beacon - world is null for beacon: " + beacon.getId());
+            plugin.log("Cannot create beacon - world is null for beacon: " + beacon.id());
             return;
         }
 
@@ -130,7 +130,7 @@ public class BeaconVisuals {
         }
 
         Material glassColor = getGlassColorForTown(townId);
-        Location center = beacon.getLocation();
+        Location center = beacon.location();
         World world = center.getWorld();
         if (world == null) return;
 
@@ -161,9 +161,9 @@ public class BeaconVisuals {
             return;
         }
 
-        World world = beacon.getLocation().getWorld();
+        World world = beacon.location().getWorld();
         if (world == null) {
-            plugin.log("Cannot remove beacon - world is null for beacon: " + beacon.getId());
+            plugin.log("Cannot remove beacon - world is null for beacon: " + beacon.id());
             return;
         }
 
@@ -179,8 +179,8 @@ public class BeaconVisuals {
         originalBlocks.clear();
         beaconCreated = false;
 
-        plugin.log("Removed physical beacon at " + beacon.getLocation().getBlockX() + "," +
-                beacon.getLocation().getBlockY() + "," + beacon.getLocation().getBlockZ());
+        plugin.log("Removed physical beacon at " + beacon.location().getBlockX() + "," +
+                   beacon.location().getBlockY() + "," + beacon.location().getBlockZ());
     }
 
     /**

@@ -32,7 +32,7 @@ public class SafeModeListener implements Listener {
             return;
         }
 
-        if (event.isAfter() == true) {
+        if (event.isAfter()) {
             event.setCancelled(true);
             player.sendMessage(Component.text(
                     "You cannot toggle safe mode while in an Incursion zone!"

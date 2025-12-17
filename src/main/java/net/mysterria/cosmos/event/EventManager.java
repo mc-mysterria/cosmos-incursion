@@ -27,13 +27,12 @@ public class EventManager {
     private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
-
+    private final java.util.Set<Integer> announcedMinutes;
     private EventState currentState;
     private IncursionEvent activeEvent;
     private long cooldownEndTime;
     private BeaconCaptureTask beaconCaptureTask;
     private net.mysterria.cosmos.task.ZoneBoundaryParticleTask boundaryParticleTask;
-    private final java.util.Set<Integer> announcedMinutes;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffManager buffManager, BlueMapIntegration blueMapIntegration,
@@ -127,13 +126,6 @@ public class EventManager {
 
         // Check if event duration has elapsed
         if (activeEvent.shouldEnd()) {
-            endEvent();
-        }
-
-        // Check if player count dropped too low
-        int onlinePlayers = Bukkit.getOnlinePlayers().size();
-        if (onlinePlayers < config.getMinPlayers()) {
-            plugin.log("Player count dropped below minimum, ending event");
             endEvent();
         }
     }
@@ -475,10 +467,10 @@ public class EventManager {
                 if (safeLocation != null) {
                     player.teleport(safeLocation);
                     player.sendMessage(miniMessage.deserialize(
-                        "<red>[Cosmos Incursion]</red> <white>An incursion zone has appeared! You've been moved to safety.</white>"
+                            "<red>[Cosmos Incursion]</red> <white>An incursion zone has appeared! You've been moved to safety.</white>"
                     ));
                     player.sendMessage(miniMessage.deserialize(
-                        "<gray>You must consent to the zone rules before entering. Approach the zone to see the agreement.</gray>"
+                            "<gray>You must consent to the zone rules before entering. Approach the zone to see the agreement.</gray>"
                     ));
                 }
             }

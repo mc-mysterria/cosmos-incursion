@@ -52,7 +52,7 @@ public class BeaconParticleTask extends BukkitRunnable {
      */
     private void spawnBeaconParticles(BeaconCapture capture) {
         SpiritBeacon beacon = capture.getBeacon();
-        Location beaconLoc = beacon.getLocation();
+        Location beaconLoc = beacon.location();
 
         // Get nearby players
         List<Player> nearbyPlayers = uiManager.getNearbyPlayers(beaconLoc, PARTICLE_RADIUS);

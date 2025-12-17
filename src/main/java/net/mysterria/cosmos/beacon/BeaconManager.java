@@ -3,11 +3,8 @@ package net.mysterria.cosmos.beacon;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.zone.IncursionZone;
 import org.bukkit.Location;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 
-import java.io.File;
 import java.util.*;
 
 /**
@@ -34,7 +31,7 @@ public class BeaconManager {
         captureStates.clear();
 
         for (SpiritBeacon beacon : beacons.values()) {
-            captureStates.put(beacon.getId(), new BeaconCapture(beacon));
+            captureStates.put(beacon.id(), new BeaconCapture(beacon));
         }
 
         plugin.log("Initialized capture states for " + captureStates.size() + " beacons");
@@ -75,7 +72,7 @@ public class BeaconManager {
      * Get capture state for a beacon
      */
     public BeaconCapture getCaptureState(SpiritBeacon beacon) {
-        return captureStates.get(beacon.getId());
+        return captureStates.get(beacon.id());
     }
 
     /**

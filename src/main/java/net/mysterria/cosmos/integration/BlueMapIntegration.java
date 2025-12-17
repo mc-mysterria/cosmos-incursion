@@ -262,8 +262,8 @@ public class BlueMapIntegration {
         try {
             // Create circle shape for beacon capture radius
             List<Vector2d> circlePoints = createCirclePoints(
-                    beacon.getLocation().getX(),
-                    beacon.getLocation().getZ(),
+                    beacon.location().getX(),
+                    beacon.location().getZ(),
                     captureRadius,
                     32  // Number of segments for smooth circle
             );
@@ -272,8 +272,8 @@ public class BlueMapIntegration {
 
             // Create shape marker with blue color
             ShapeMarker marker = ShapeMarker.builder()
-                    .label("⚡ " + beacon.getName())
-                    .shape(shape, (float) beacon.getLocation().getY())
+                    .label("⚡ " + beacon.name())
+                    .shape(shape, (float) beacon.location().getY())
                     .fillColor(new Color(0, 100, 255, 0.25f))      // Blue fill (15% opacity)
                     .lineColor(new Color(0, 150, 255, 0.8f))       // Bright blue border (80% opacity)
                     .lineWidth(2)
@@ -281,11 +281,11 @@ public class BlueMapIntegration {
                     .build();
 
             // Add marker to the set
-            String markerId = "beacon_" + beacon.getId();
+            String markerId = "beacon_" + beacon.id();
             markerSet.put(markerId, marker);
-            beaconMarkers.put(beacon.getId(), marker);
+            beaconMarkers.put(beacon.id(), marker);
 
-            plugin.log("Created BlueMap marker for beacon: " + beacon.getName());
+            plugin.log("Created BlueMap marker for beacon: " + beacon.name());
         } catch (Exception e) {
             plugin.log("Error creating beacon marker: " + e.getMessage());
             e.printStackTrace();
@@ -296,7 +296,7 @@ public class BlueMapIntegration {
      * Remove a beacon marker from the map
      */
     public void removeBeaconMarker(SpiritBeacon beacon) {
-        removeBeaconMarker(beacon.getId());
+        removeBeaconMarker(beacon.id());
     }
 
     /**

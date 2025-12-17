@@ -79,10 +79,11 @@ public class DeathHandler {
             return;
         }
 
-        // Apply sequence regression
-        boolean regressionSuccess = CoiToolkit.lowerByOneSequence(victim);
+        // Apply death penalty (either acting loss or sequence regression)
+        boolean didRegress = CoiToolkit.lowerByOneSequence(victim);
 
-        if (regressionSuccess) {
+        if (didRegress) {
+            // Full sequence regression occurred
             plugin.log("Regressed " + victim.getName() + " from Seq " + victimSequence + " to Seq " + (victimSequence + 1));
 
             // Send regression message
@@ -101,7 +102,13 @@ public class DeathHandler {
                 }
             }
         } else {
-            plugin.log("Failed to apply regression to " + victim.getName());
+            // Acting penalty applied (no sequence regression)
+            plugin.log("Applied acting penalty to " + victim.getName() + " (no sequence regression)");
+
+            // Send acting penalty message
+            victim.sendMessage(miniMessage.deserialize(
+                    "<red>[Cosmos Incursion]</red> <yellow>You lost acting progress from death in the incursion.</yellow>"
+            ));
         }
     }
 

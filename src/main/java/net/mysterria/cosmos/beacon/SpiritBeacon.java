@@ -1,20 +1,12 @@
 package net.mysterria.cosmos.beacon;
 
-import lombok.Getter;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
 
 /**
  * Represents a Spirit Beacon - a virtual capture point for territory control
  * Beacons are defined by coordinates in config, not physical blocks
  */
-@Getter
-public class SpiritBeacon {
-
-    private final String id;
-    private final String name;
-    private final Location location;
+public record SpiritBeacon(String id, String name, Location location) {
 
     /**
      * Constructor with Location object (for auto-generated beacons)

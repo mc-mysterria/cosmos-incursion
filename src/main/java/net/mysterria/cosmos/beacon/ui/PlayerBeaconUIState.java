@@ -2,7 +2,6 @@ package net.mysterria.cosmos.beacon.ui;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.bukkit.boss.BossBar;
 import org.bukkit.scoreboard.Scoreboard;
 
 import java.util.HashMap;
@@ -29,39 +28,33 @@ public class PlayerBeaconUIState {
      * Key: "beaconId:soundType", Value: Last play timestamp (millis)
      */
     private final Map<String, Long> lastSoundTimes;
-
-    /**
-     * Last beacon this player was near (for state change detection)
-     */
-    private String currentBeaconId;
-
-    /**
-     * Reference to player's personal scoreboard (if active)
-     */
-    private Scoreboard scoreboard;
-
-    /**
-     * Last action bar message sent (for duplicate prevention)
-     */
-    private String lastActionBarMessage;
-
     /**
      * Last title sent timestamp (for cooldown)
      * Key: Beacon ID, Value: Last title timestamp
      */
     private final Map<String, Long> lastTitleTimes;
-
-    /**
-     * Timestamp when scoreboard was last updated
-     */
-    private long lastScoreboardUpdate;
-
     /**
      * Cache of last known beacon states for this player
      * Used to detect state changes (contested, ownership change, etc.)
      * Key: Beacon ID, Value: Last known state hash
      */
     private final Map<String, Integer> lastBeaconStates;
+    /**
+     * Last beacon this player was near (for state change detection)
+     */
+    private String currentBeaconId;
+    /**
+     * Reference to player's personal scoreboard (if active)
+     */
+    private Scoreboard scoreboard;
+    /**
+     * Last action bar message sent (for duplicate prevention)
+     */
+    private String lastActionBarMessage;
+    /**
+     * Timestamp when scoreboard was last updated
+     */
+    private long lastScoreboardUpdate;
 
     public PlayerBeaconUIState() {
         this.activeBossbars = new HashSet<>();

@@ -40,13 +40,17 @@ CosmosIncursion is a Minecraft Paper plugin (1.21+) that manages timed PvP event
 The plugin operates through a state machine managed by `EventManager`:
 
 1. **IDLE** - Waiting for trigger conditions (player count threshold, cooldown elapsed)
+   - Only starts new event if player count >= min-players
 2. **STARTING** - Countdown phase, zones generated, beacons placed
    - Broadcasts countdown at 60, 30, 10, 5, 4, 3, 2, 1 seconds
 3. **ACTIVE** - Event running, zones active, beacons capturable
    - Broadcasts time remaining at 25, 20, 15, 10, 5, 3, 2, 1 minutes and 30 seconds
+   - **Runs to completion regardless of player count changes**
 4. **ENDING** - Cleanup phase, calculate winners, award buffs
 
 State transitions are driven by `EventCheckTask` (ticks every second) and handle zone activation/deactivation, beacon lifecycle, and player consent management.
+
+**Important:** Once an event starts (either automatically or via admin command), it will run for its full duration regardless of player count dropping below minimum. The minimum player check only applies when deciding whether to start a new event after cooldown.
 
 ### Manager Hierarchy
 
@@ -84,6 +88,11 @@ During ACTIVE state:
 
 **Death in Zone:**
 - `PlayerDeathListener` → `DeathHandler.handleZoneDeath()`
+- **Item Handling** (priority HIGHEST to run before graves plugins):
+  - All inventory items (including armor and off-hand) manually dropped at death location
+  - Event drops cleared (`event.getDrops().clear()`)
+  - Player inventory cleared before death completes
+  - Prevents graves plugin from creating graves and avoids item duplication
 - Sequence 4+ players regress unless they have a "Paper Angel" protection active
 - **Paper Angel System**:
   - Given via `/cosmos admin give paperangel <player>`
@@ -140,20 +149,22 @@ All gameplay values are in `config.yml`:
 - Zone generation: base-count, players-per-zone, radius, min-separation
 - Spirit Weight: min-sequence, max-sequence, dot-damage, dot-interval-ticks
 - Anti-grief: kill-threshold, time-window-seconds, sequence-difference
-- Death penalties: regression-sequence, regression-acting-threshold, regression-acting-restored, regression-acting-penalty
+- Death penalties: regression-sequence, regression-acting-restored, regression-acting-penalty
 - Beacons: capture-radius, capture-points, points-per-player, decay-rate
 - Rewards: acting-speed-bonus, buff-duration-hours
 
 ### Death Penalty System
-The sequence regression system uses a two-tier penalty based on acting percentage:
-- **Below threshold** (default 51%): Full sequence regression
-  - Player regresses to next sequence (e.g., Seq 4 → Seq 5)
-  - Receives percentage of new sequence's needed acting (default 80%)
-  - Drops characteristic item of previous sequence
-- **Above threshold**: Acting penalty only
+The sequence regression system uses a two-tier penalty based on current acting points:
+- **Has enough acting to lose** (>= penalty amount): Acting penalty only
   - No sequence change
-  - Loses percentage of current needed acting (default 50%)
+  - Loses configured % of needed acting (default 50%)
   - No characteristic drop
+  - Example: If needed acting is 1000 and penalty is 50%, lose 500 acting points
+- **Doesn't have enough acting**: Full sequence regression
+  - Player regresses to next sequence (e.g., Seq 4 → Seq 5)
+  - Receives configured % of new sequence's needed acting (default 80%)
+  - Drops characteristic item of previous sequence
+  - Example: If player has 400 acting but needs 500 to avoid penalty, they regress
 
 All values configurable in `config.yml` under `death` section.
 
