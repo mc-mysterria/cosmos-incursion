@@ -1,9 +1,9 @@
 package net.mysterria.cosmos.task;
 
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.beacon.BeaconCapture;
-import net.mysterria.cosmos.beacon.BeaconManager;
-import net.mysterria.cosmos.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.beacon.BeaconCapture;
+import net.mysterria.cosmos.domain.beacon.BeaconManager;
+import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.toolkit.TownsToolkit;
 import net.william278.husktowns.town.Town;
@@ -25,11 +25,11 @@ public class BeaconCaptureTask extends BukkitRunnable {
 
     private final CosmosIncursion plugin;
     private final BeaconManager beaconManager;
-    private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
+    private final net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager;
     private final CosmosConfig config;
 
     public BeaconCaptureTask(CosmosIncursion plugin, BeaconManager beaconManager,
-                             net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager) {
+                             net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager) {
         this.plugin = plugin;
         this.beaconManager = beaconManager;
         this.beaconUIManager = beaconUIManager;

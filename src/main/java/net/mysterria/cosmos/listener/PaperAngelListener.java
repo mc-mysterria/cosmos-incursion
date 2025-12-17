@@ -3,7 +3,7 @@ package net.mysterria.cosmos.listener;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.item.PaperAngelItem;
+import net.mysterria.cosmos.domain.item.PaperAngelItem;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;

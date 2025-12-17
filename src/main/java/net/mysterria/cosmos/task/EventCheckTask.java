@@ -1,6 +1,6 @@
 package net.mysterria.cosmos.task;
 
-import net.mysterria.cosmos.event.EventManager;
+import net.mysterria.cosmos.domain.event.EventManager;
 import org.bukkit.scheduler.BukkitRunnable;
 
 public class EventCheckTask extends BukkitRunnable {

@@ -4,7 +4,7 @@ import dev.ua.ikeepcalm.coi.api.event.SafeModeEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.player.PlayerStateManager;
+import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;

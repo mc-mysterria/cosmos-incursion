@@ -1,7 +1,7 @@
 package net.mysterria.cosmos.listener;
 
-import net.mysterria.cosmos.combat.CombatLogHandler;
-import net.mysterria.cosmos.reward.BuffManager;
+import net.mysterria.cosmos.domain.combat.CombatLogHandler;
+import net.mysterria.cosmos.domain.reward.BuffManager;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;

@@ -1,7 +1,7 @@
 package net.mysterria.cosmos.listener;
 
-import net.mysterria.cosmos.combat.CombatLogHandler;
-import net.mysterria.cosmos.reward.BuffManager;
+import net.mysterria.cosmos.domain.combat.CombatLogHandler;
+import net.mysterria.cosmos.domain.reward.BuffManager;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -17,10 +17,10 @@ public class PlayerQuitListener implements Listener {
 
     private final CombatLogHandler combatLogHandler;
     private final BuffManager buffManager;
-    private final net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
+    private final net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager;
 
     public PlayerQuitListener(CombatLogHandler combatLogHandler, BuffManager buffManager,
-                              net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager) {
+                              net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager) {
         this.combatLogHandler = combatLogHandler;
         this.buffManager = buffManager;
         this.beaconUIManager = beaconUIManager;

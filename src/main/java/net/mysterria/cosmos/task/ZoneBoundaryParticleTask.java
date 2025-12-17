@@ -2,8 +2,8 @@ package net.mysterria.cosmos.task;
 
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
-import net.mysterria.cosmos.zone.IncursionZone;
-import net.mysterria.cosmos.zone.ZoneManager;
+import net.mysterria.cosmos.domain.zone.IncursionZone;
+import net.mysterria.cosmos.domain.zone.ZoneManager;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.entity.Player;

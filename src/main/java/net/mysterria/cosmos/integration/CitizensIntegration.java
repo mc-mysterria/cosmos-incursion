@@ -5,7 +5,7 @@ import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.api.npc.NPCRegistry;
 import net.citizensnpcs.trait.SkinTrait;
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.combat.HollowBody;
+import net.mysterria.cosmos.domain.combat.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;

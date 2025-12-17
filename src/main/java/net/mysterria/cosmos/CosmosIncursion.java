@@ -6,23 +6,23 @@ import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.mysterria.cosmos.beacon.BeaconManager;
-import net.mysterria.cosmos.beacon.ui.BeaconUIManager;
-import net.mysterria.cosmos.combat.CombatLogHandler;
+import net.mysterria.cosmos.domain.beacon.BeaconManager;
+import net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager;
+import net.mysterria.cosmos.domain.combat.CombatLogHandler;
 import net.mysterria.cosmos.command.CosmosCommand;
 import net.mysterria.cosmos.config.ConfigManager;
-import net.mysterria.cosmos.effect.EffectManager;
-import net.mysterria.cosmos.effect.SpiritWeightTask;
-import net.mysterria.cosmos.event.EventManager;
+import net.mysterria.cosmos.domain.effect.EffectManager;
+import net.mysterria.cosmos.task.SpiritWeightTask;
+import net.mysterria.cosmos.domain.event.EventManager;
 import net.mysterria.cosmos.gui.ConsentGUI;
 import net.mysterria.cosmos.integration.BlueMapIntegration;
 import net.mysterria.cosmos.integration.CitizensIntegration;
 import net.mysterria.cosmos.listener.*;
-import net.mysterria.cosmos.player.KillTracker;
-import net.mysterria.cosmos.player.PlayerStateManager;
-import net.mysterria.cosmos.reward.BuffManager;
+import net.mysterria.cosmos.domain.player.KillTracker;
+import net.mysterria.cosmos.domain.player.PlayerStateManager;
+import net.mysterria.cosmos.domain.reward.BuffManager;
 import net.mysterria.cosmos.task.EventCheckTask;
-import net.mysterria.cosmos.zone.ZoneManager;
+import net.mysterria.cosmos.domain.zone.ZoneManager;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -78,7 +78,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private net.mysterria.cosmos.gui.ConsentGUI consentGUI;
 
     @Getter
-    private net.mysterria.cosmos.beacon.ui.BeaconUIManager beaconUIManager;
+    private net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager;
 
     private LiteCommands<CommandSender> liteCommands;
 

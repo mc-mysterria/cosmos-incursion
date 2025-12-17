@@ -1,9 +1,9 @@
 package net.mysterria.cosmos.listener;
 
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.combat.DeathHandler;
-import net.mysterria.cosmos.player.KillTracker;
-import net.mysterria.cosmos.player.PlayerStateManager;
+import net.mysterria.cosmos.domain.combat.DeathHandler;
+import net.mysterria.cosmos.domain.player.KillTracker;
+import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;

@@ -11,8 +11,8 @@ import de.bluecolored.bluemap.api.markers.ShapeMarker;
 import de.bluecolored.bluemap.api.math.Color;
 import de.bluecolored.bluemap.api.math.Shape;
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.beacon.SpiritBeacon;
-import net.mysterria.cosmos.zone.IncursionZone;
+import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.zone.IncursionZone;
 import org.bukkit.entity.Player;
 
 import java.util.*;

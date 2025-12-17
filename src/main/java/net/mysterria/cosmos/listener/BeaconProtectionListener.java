@@ -1,7 +1,7 @@
 package net.mysterria.cosmos.listener;
 
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
