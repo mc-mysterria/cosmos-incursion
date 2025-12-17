@@ -72,7 +72,7 @@ death:
   # Percentage of acting restored after sequence regression (0.0 - 1.0)
   # When player doesn't have enough acting to lose, they regress and get this % back
   # Example: 0.8 = receive 80% of new sequence's needed acting
-  regression-acting-restored: 0.8
+  regression-acting-restored: 0.99
 
   # Percentage of acting lost as penalty (0.0 - 1.0)
   # If player has this % of needed acting: just lose it (no regression, no char drop)
