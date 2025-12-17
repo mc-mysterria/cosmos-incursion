@@ -22,6 +22,7 @@ public class ConfigManager {
         FileConfiguration fileConfig = plugin.getConfig();
 
         // Event settings
+        config.setEventAutoStart(fileConfig.getBoolean("event.auto-start", true));
         config.setMinPlayers(fileConfig.getInt("event.min-players", 30));
         config.setCooldownMinutes(fileConfig.getInt("event.cooldown-minutes", 120));
         config.setDurationMinutes(fileConfig.getInt("event.duration-minutes", 30));
@@ -49,6 +50,9 @@ public class ConfigManager {
 
         // Death system
         config.setRegressionSequence(fileConfig.getInt("death.regression-sequence", 4));
+        config.setRegressionActingThreshold(fileConfig.getInt("death.regression-acting-threshold", 51));
+        config.setRegressionActingRestored(fileConfig.getDouble("death.regression-acting-restored", 0.8));
+        config.setRegressionActingPenalty(fileConfig.getDouble("death.regression-acting-penalty", 0.5));
         config.setCrateCommand(fileConfig.getString("death.crate-command", "crate give cosmos %player% 1"));
 
         // Combat logging

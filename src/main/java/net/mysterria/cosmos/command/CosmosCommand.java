@@ -87,10 +87,12 @@ public class CosmosCommand {
     @Permission("cosmos.admin")
     public void reload(@Context CommandSender sender) {
         try {
-            plugin.getConfigManager().reload();
-            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Configuration reloaded successfully!").color(NamedTextColor.GREEN)));
+            plugin.reloadPlugin();
+            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Plugin reloaded successfully!").color(NamedTextColor.GREEN)));
+            sender.sendMessage(Component.text("  ").append(Component.text("✓ Configuration refreshed").color(NamedTextColor.GRAY)));
+            sender.sendMessage(Component.text("  ").append(Component.text("✓ Config-dependent tasks restarted").color(NamedTextColor.GRAY)));
         } catch (Exception e) {
-            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Failed to reload configuration: " + e.getMessage()).color(NamedTextColor.RED)));
+            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Failed to reload: " + e.getMessage()).color(NamedTextColor.RED)));
             e.printStackTrace();
         }
     }

@@ -82,6 +82,9 @@ public final class CosmosIncursion extends JavaPlugin {
 
     private LiteCommands<CommandSender> liteCommands;
 
+    // Task IDs for tasks that need to be restarted on reload
+    private int spiritWeightTaskId = -1;
+
     @Override
     public void onEnable() {
         instance = this;
@@ -206,8 +209,7 @@ public final class CosmosIncursion extends JavaPlugin {
                 .runTaskTimer(this, 0L, 5L);
 
         // Spirit Weight task - runs based on config (default: every 5 seconds / 100 ticks)
-        long dotInterval = configManager.getConfig().getDotIntervalTicks();
-        new SpiritWeightTask(this, playerStateManager, effectManager, eventManager, zoneManager).runTaskTimer(this, dotInterval, dotInterval);
+        startSpiritWeightTask();
 
         // Hollow Body cleanup task - runs every 30 seconds
         if (citizensIntegration.isAvailable()) {
@@ -295,6 +297,37 @@ public final class CosmosIncursion extends JavaPlugin {
             log("Failed to hook CircleOfImagination API: " + t.getMessage());
             getServer().getPluginManager().disablePlugin(this);
         }
+    }
+
+    /**
+     * Start or restart the Spirit Weight task with current config values
+     */
+    private void startSpiritWeightTask() {
+        // Cancel existing task if running
+        if (spiritWeightTaskId != -1) {
+            getServer().getScheduler().cancelTask(spiritWeightTaskId);
+        }
+
+        // Start new task with current config interval
+        long dotInterval = configManager.getConfig().getDotIntervalTicks();
+        SpiritWeightTask task = new SpiritWeightTask(this, playerStateManager, effectManager, eventManager, zoneManager);
+        spiritWeightTaskId = task.runTaskTimer(this, dotInterval, dotInterval).getTaskId();
+    }
+
+    /**
+     * Reload plugin configuration and restart config-dependent tasks
+     * Called by /cosmos admin reload command
+     */
+    public void reloadPlugin() {
+        log("Reloading Cosmos Incursion configuration...");
+
+        // Reload configuration
+        configManager.reload();
+
+        // Restart tasks that depend on config values
+        startSpiritWeightTask();
+
+        log("Configuration reloaded successfully!");
     }
 
     public void log(String message) {

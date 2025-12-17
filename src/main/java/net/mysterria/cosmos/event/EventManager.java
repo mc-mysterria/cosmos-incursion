@@ -69,6 +69,11 @@ public class EventManager {
      * IDLE state: Check trigger conditions
      */
     private void tickIdle() {
+        // Skip auto-start if disabled in config
+        if (!config.isEventAutoStart()) {
+            return;
+        }
+
         // Check if still on cooldown
         if (System.currentTimeMillis() < cooldownEndTime) {
             return;

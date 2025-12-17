@@ -1,6 +1,9 @@
 # Cosmos Incursion Configuration
 
 event:
+  # Enable automatic event start when conditions are met
+  auto-start: false
+
   # Minimum players online to trigger event
   min-players: 30
 
@@ -65,6 +68,19 @@ balancing:
 death:
   # Sequence that triggers regression penalty
   regression-sequence: 6
+
+  # Acting percentage threshold for full sequence regression
+  # Below this percentage: full sequence regression (with acting restored)
+  # Above this percentage: acting penalty only (no sequence regression)
+  regression-acting-threshold: 51
+
+  # Percentage of acting restored after sequence regression (0.0 - 1.0)
+  # Example: 0.8 = 80% of needed acting is restored
+  regression-acting-restored: 0.8
+
+  # Percentage of acting lost as penalty when above threshold (0.0 - 1.0)
+  # Example: 0.5 = lose 50% of needed acting
+  regression-acting-penalty: 0.5
 
   # Command to grant Cosmos Crate (placeholder: %player%)
   crate-command: "crate give cosmos %player% 1"

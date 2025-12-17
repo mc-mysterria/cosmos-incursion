@@ -1,6 +1,7 @@
 package net.mysterria.cosmos.toolkit;
 
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
+import dev.ua.ikeepcalm.coi.api.model.BeyonderData;
 import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -64,14 +65,36 @@ public class CoiToolkit {
             int lowestSequence = coiApi.getLowestSequence(player);
 
             if (primaryLowestPathway.isPresent()) {
-                coiApi.destroyBeyonder(player);
-                // Regression means going to a higher sequence number (weaker)
-                // Seq 4 -> Seq 5, NOT Seq 4 -> Seq 3
-                return coiApi.createBeyonder(player, primaryLowestPathway.get(), lowestSequence + 1);
-            } else {
-                return false;
+                BeyonderData beyonderData = coiApi.getBeyonderData(player);
+                double actingPercentage = beyonderData.getPathway(primaryLowestPathway.get()).getActingPercentage();
+                double actingBefore = beyonderData.getPathway(primaryLowestPathway.get()).neededActing();
+
+                // Get config values
+                var config = CosmosIncursion.getInstance().getConfigManager().getConfig();
+                int threshold = config.getRegressionActingThreshold();
+                double restoredPercentage = config.getRegressionActingRestored();
+                double penaltyPercentage = config.getRegressionActingPenalty();
+
+                if (actingPercentage < threshold) {
+                    // Full sequence regression
+                    coiApi.destroyBeyonder(player);
+
+                    boolean created = coiApi.createBeyonder(player, primaryLowestPathway.get(), lowestSequence + 1);
+                    if (created) {
+                        BeyonderData newBeyonderData = coiApi.getBeyonderData(player);
+                        int neededActing = newBeyonderData.getPathway(primaryLowestPathway.get()).neededActing();
+                        coiApi.addActing(player, primaryLowestPathway.get(), (int) (neededActing * restoredPercentage));
+                    }
+
+                    return created;
+                } else {
+                    // Acting penalty only (no sequence regression)
+                    return coiApi.addActing(player, primaryLowestPathway.get(), (int) -(actingBefore * penaltyPercentage));
+                }
             }
+            return false;
         }
+
         return false;
     }
 

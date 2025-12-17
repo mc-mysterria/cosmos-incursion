@@ -1,11 +1,13 @@
 package net.mysterria.cosmos.zone;
 
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.toolkit.TownsToolkit;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.World;
+import org.bukkit.*;
+import org.bukkit.block.Biome;
+import org.bukkit.block.Block;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -127,9 +129,10 @@ public class ZonePlacer {
             x += (random.nextDouble() - 0.5) * 200;
             z += (random.nextDouble() - 0.5) * 200;
 
-            int y = world.getHighestBlockYAt((int) x, (int) z);
-
-            candidates.add(new Location(world, x, y, z));
+            Location candidate = findSuitableSurfaceLocation(world, (int) x, (int) z);
+            if (candidate != null) {
+                candidates.add(candidate);
+            }
         }
 
         // Sort by how far they are from nearest town (prefer locations between towns)
@@ -149,6 +152,78 @@ public class ZonePlacer {
         ).reversed());
 
         return candidates;
+    }
+
+    /**
+     * Find a suitable surface location for a zone (avoid oceans and underwater areas)
+     */
+    private Location findSuitableSurfaceLocation(World world, int x, int z) {
+        // Get the highest block
+        int y = world.getHighestBlockYAt(x, z);
+        Location location = new Location(world, x, y, z);
+
+        // Check biome - reject ocean biomes
+        Biome biome = world.getBiome(location);
+        if (isOceanBiome(biome)) {
+            return null;
+        }
+
+        // Check if the surface is underwater
+        Block surfaceBlock = world.getBlockAt(x, y, z);
+        Block aboveBlock = world.getBlockAt(x, y + 1, z);
+
+        // Reject if water or lava at or above surface
+        if (surfaceBlock.getType() == Material.WATER || surfaceBlock.getType() == Material.LAVA) {
+            return null;
+        }
+        if (aboveBlock.getType() == Material.WATER || aboveBlock.getType() == Material.LAVA) {
+            return null;
+        }
+
+        // Check if there's a significant amount of water/lava in the zone area
+        if (!isAreaSuitableForCombat(world, x, y, z)) {
+            return null;
+        }
+
+        return location;
+    }
+
+    /**
+     * Check if a biome is an ocean biome
+     */
+    private boolean isOceanBiome(Biome biome) {
+        return biome.translationKey().contains("OCEAN") ||
+               biome.translationKey().contains("DEEP") ||
+               biome == Biome.RIVER;
+    }
+
+    /**
+     * Check if the area around a location is suitable for combat (mostly land, not water)
+     */
+    private boolean isAreaSuitableForCombat(World world, int centerX, int centerY, int centerZ) {
+        int radius = 30; // Check a 60x60 area
+        int waterCount = 0;
+        int totalChecked = 0;
+        int checkInterval = 10; // Check every 10 blocks to avoid lag
+
+        for (int x = centerX - radius; x <= centerX + radius; x += checkInterval) {
+            for (int z = centerZ - radius; z <= centerZ + radius; z += checkInterval) {
+                totalChecked++;
+
+                // Check if this location has water at surface level
+                int y = world.getHighestBlockYAt(x, z);
+                Block block = world.getBlockAt(x, y, z);
+                Block above = world.getBlockAt(x, y + 1, z);
+
+                if (block.getType() == Material.WATER || above.getType() == Material.WATER) {
+                    waterCount++;
+                }
+            }
+        }
+
+        // Reject if more than 30% of the area is water
+        double waterPercentage = (double) waterCount / totalChecked;
+        return waterPercentage <= 0.3;
     }
 
     /**

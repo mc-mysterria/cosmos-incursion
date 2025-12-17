@@ -10,6 +10,7 @@ import net.mysterria.cosmos.config.CosmosConfig;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -72,8 +73,8 @@ public class CitizensIntegration {
 
         try {
             // Capture player inventory before creating NPC
-            org.bukkit.inventory.ItemStack[] inventory = player.getInventory().getContents().clone();
-            org.bukkit.inventory.ItemStack[] armor = player.getInventory().getArmorContents().clone();
+            ItemStack[] inventory = player.getInventory().getContents().clone();
+            ItemStack[] armor = player.getInventory().getArmorContents().clone();
 
             // Create NPC name from config
             String npcName = config.getNpcNameFormat().replace("%player%", player.getName());

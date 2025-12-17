@@ -8,6 +8,7 @@ import lombok.Setter;
 public class CosmosConfig {
 
     // Event settings
+    private boolean eventAutoStart = true;
     private int minPlayers = 30;
     private int cooldownMinutes = 120;
     private int durationMinutes = 30;
@@ -35,6 +36,9 @@ public class CosmosConfig {
 
     // Death system
     private int regressionSequence = 4;
+    private int regressionActingThreshold = 51;
+    private double regressionActingRestored = 0.8;
+    private double regressionActingPenalty = 0.5;
     private String crateCommand = "crate give cosmos %player% 1";
 
     // Combat logging
