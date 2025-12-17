@@ -18,7 +18,7 @@ event:
 
 zones:
   # Number of zones to create
-  base-count: 2
+  base-count: 1
 
   # Additional zone per X players (e.g., 2 zones at 30, 3 zones at 50)
   players-per-zone: 20
