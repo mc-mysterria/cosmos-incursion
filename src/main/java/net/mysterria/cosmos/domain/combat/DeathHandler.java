@@ -92,15 +92,6 @@ public class DeathHandler {
 
             // Drop characteristic item at death location
             dropCharacteristic(victim, victimSequence, deathLocation);
-
-            // Grant reward to killer (if not griefing)
-            if (killer != null && !killer.equals(victim)) {
-                if (rewardHandler.shouldGrantReward(killer, victim)) {
-                    rewardHandler.grantCosmosCrate(killer);
-                } else {
-                    plugin.log("Blocked reward for " + killer.getName() + " - griefing kill or Corrupted Monster");
-                }
-            }
         } else {
             // Acting penalty applied (no sequence regression)
             plugin.log("Applied acting penalty to " + victim.getName() + " (no sequence regression)");
@@ -109,6 +100,16 @@ public class DeathHandler {
             victim.sendMessage(miniMessage.deserialize(
                     "<red>[Cosmos Incursion]</red> <yellow>You lost acting progress from death in the incursion.</yellow>"
             ));
+        }
+
+        // Grant reward to killer (if not griefing)
+        // Reward is given for both regression and acting penalty deaths
+        if (killer != null && !killer.equals(victim)) {
+            if (rewardHandler.shouldGrantReward(killer, victim)) {
+                rewardHandler.grantCosmosCrate(killer);
+            } else {
+                plugin.log("Blocked reward for " + killer.getName() + " - griefing kill or Corrupted Monster");
+            }
         }
     }
 
