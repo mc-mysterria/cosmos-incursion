@@ -80,6 +80,11 @@ death:
   # Example: 0.5 = need 50% of needed acting to avoid regression
   regression-acting-penalty: 0.5
 
+  # Cooldown between death penalties (in seconds)
+  # Prevents players from regressing multiple times in quick succession
+  # Example: 60 = 1 minute cooldown between death penalties
+  death-penalty-cooldown-seconds: 20
+
   # Command to grant Cosmos Crate (placeholder: %player%)
   crate-command: "emp admin crate give %player% pvp 1"
 

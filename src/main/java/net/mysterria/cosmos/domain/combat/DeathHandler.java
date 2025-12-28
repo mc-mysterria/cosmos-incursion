@@ -13,6 +13,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Handles death penalties in Incursion zones
@@ -24,15 +26,15 @@ public class DeathHandler {
 
     private final CosmosIncursion plugin;
     private final PlayerStateManager playerStateManager;
-    private final KillTracker killTracker;
     private final RewardHandler rewardHandler;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
 
+    private final ConcurrentHashMap<UUID, Long> lastDeathPenaltyTime = new ConcurrentHashMap<>();
+
     public DeathHandler(CosmosIncursion plugin, PlayerStateManager playerStateManager, KillTracker killTracker) {
         this.plugin = plugin;
         this.playerStateManager = playerStateManager;
-        this.killTracker = killTracker;
         this.rewardHandler = new RewardHandler(plugin, killTracker);
         this.config = plugin.getConfigManager().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
@@ -68,6 +70,20 @@ public class DeathHandler {
             return;
         }
 
+        // Check death penalty cooldown
+        if (isOnDeathPenaltyCooldown(victim)) {
+            long remainingSeconds = getRemainingCooldownSeconds(victim);
+            plugin.log("Death penalty cooldown active for " + victim.getName() +
+                      " (" + remainingSeconds + " seconds remaining)");
+
+            Component message = miniMessage.deserialize(
+                "<red>[Cosmos Incursion]</red> <yellow>Death penalty on cooldown (" +
+                remainingSeconds + "s remaining). You are safe from regression.</yellow>"
+            );
+            victim.sendMessage(message);
+            return;
+        }
+
         // Check Paper Angel protection
         if (hasPaperAngel(victim)) {
             plugin.log("Paper Angel protected " + victim.getName() + " from regression");
@@ -81,6 +97,9 @@ public class DeathHandler {
 
         // Apply death penalty (either acting loss or sequence regression)
         boolean didRegress = CoiToolkit.lowerByOneSequence(victim);
+
+        // Record this death penalty time
+        lastDeathPenaltyTime.put(victim.getUniqueId(), System.currentTimeMillis());
 
         if (didRegress) {
             // Full sequence regression occurred
@@ -191,6 +210,51 @@ public class DeathHandler {
         }
 
         return primaryPathway.isEmpty() ? Optional.empty() : Optional.of(primaryPathway);
+    }
+
+    /**
+     * Check if player is on death penalty cooldown
+     */
+    private boolean isOnDeathPenaltyCooldown(Player player) {
+        if (!lastDeathPenaltyTime.containsKey(player.getUniqueId())) {
+            return false;
+        }
+
+        long lastPenaltyTime = lastDeathPenaltyTime.get(player.getUniqueId());
+        long cooldownMillis = config.getDeathPenaltyCooldownSeconds() * 1000L;
+        long elapsed = System.currentTimeMillis() - lastPenaltyTime;
+
+        return elapsed < cooldownMillis;
+    }
+
+    /**
+     * Get remaining cooldown time in seconds
+     */
+    private long getRemainingCooldownSeconds(Player player) {
+        if (!lastDeathPenaltyTime.containsKey(player.getUniqueId())) {
+            return 0;
+        }
+
+        long lastPenaltyTime = lastDeathPenaltyTime.get(player.getUniqueId());
+        long cooldownMillis = config.getDeathPenaltyCooldownSeconds() * 1000L;
+        long elapsed = System.currentTimeMillis() - lastPenaltyTime;
+        long remaining = cooldownMillis - elapsed;
+
+        return Math.max(0, remaining / 1000);
+    }
+
+    /**
+     * Clear death penalty cooldown for a player (useful for event resets)
+     */
+    public void clearCooldown(Player player) {
+        lastDeathPenaltyTime.remove(player.getUniqueId());
+    }
+
+    /**
+     * Clear all death penalty cooldowns (useful for event end)
+     */
+    public void clearAllCooldowns() {
+        lastDeathPenaltyTime.clear();
     }
 
 }

@@ -38,6 +38,7 @@ public class CosmosConfig {
     private int regressionSequence = 4;
     private double regressionActingRestored = 0.8;
     private double regressionActingPenalty = 0.5;
+    private int deathPenaltyCooldownSeconds = 60;  // Cooldown between death penalties
     private String crateCommand = "crate give cosmos %player% 1";
 
     // Combat logging
