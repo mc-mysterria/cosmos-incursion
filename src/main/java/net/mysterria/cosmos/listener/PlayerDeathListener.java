@@ -1,6 +1,5 @@
 package net.mysterria.cosmos.listener;
 
-import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.DeathHandler;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
@@ -23,14 +22,13 @@ public class PlayerDeathListener implements Listener {
     private final KillTracker killTracker;
     private final DeathHandler deathHandler;
 
-    public PlayerDeathListener(CosmosIncursion plugin, PlayerStateManager playerStateManager,
-                               KillTracker killTracker) {
+    public PlayerDeathListener(PlayerStateManager playerStateManager, KillTracker killTracker, DeathHandler deathHandler) {
         this.playerStateManager = playerStateManager;
         this.killTracker = killTracker;
-        this.deathHandler = new DeathHandler(plugin, playerStateManager, killTracker);
+        this.deathHandler = deathHandler;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
 

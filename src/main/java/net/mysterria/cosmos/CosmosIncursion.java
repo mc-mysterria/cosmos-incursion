@@ -60,6 +60,9 @@ public final class CosmosIncursion extends JavaPlugin {
     private KillTracker killTracker;
 
     @Getter
+    private net.mysterria.cosmos.domain.combat.DeathHandler deathHandler;
+
+    @Getter
     private EffectManager effectManager;
 
     @Getter
@@ -131,6 +134,10 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing kill tracker...");
         killTracker = new KillTracker(this, blueMapIntegration);
 
+        // Initialize death handler
+        log("Initializing death handler...");
+        deathHandler = new net.mysterria.cosmos.domain.combat.DeathHandler(this, playerStateManager, killTracker);
+
         // Initialize Citizens integration (retry mechanism for API initialization)
         log("Initializing Citizens integration...");
         citizensIntegration = new CitizensIntegration(this);
@@ -192,7 +199,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private void registerListeners() {
         // PlayerMoveListener removed - using tick-based ZoneCheckTask instead for better reliability
         getServer().getPluginManager().registerEvents(new SafeModeListener(this, playerStateManager), this);
-        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker), this);
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(playerStateManager, killTracker, deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager, beaconUIManager), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
