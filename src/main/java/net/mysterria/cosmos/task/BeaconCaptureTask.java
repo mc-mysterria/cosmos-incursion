@@ -83,6 +83,11 @@ public class BeaconCaptureTask extends BukkitRunnable {
         double captureRadius = config.getBeaconCaptureRadius();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
+            // Skip Citizens NPCs (they have "NPC" metadata)
+            if (player.hasMetadata("NPC")) {
+                continue;
+            }
+
             // Check if player is within capture radius
             if (!beacon.isWithinCaptureRadius(player.getLocation(), captureRadius)) {
                 continue;

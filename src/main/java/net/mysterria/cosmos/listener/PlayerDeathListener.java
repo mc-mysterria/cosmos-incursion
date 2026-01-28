@@ -32,6 +32,11 @@ public class PlayerDeathListener implements Listener {
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
 
+        // Skip Citizens NPCs (they have their own death handling via NPCDeathEvent)
+        if (victim.hasMetadata("NPC")) {
+            return;
+        }
+
         // Only process deaths in incursion zones
         if (!playerStateManager.isInZone(victim)) {
             return;

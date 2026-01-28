@@ -555,6 +555,11 @@ public class BeaconUIManager {
         double radiusSquared = radius * radius;
 
         for (Player player : Bukkit.getOnlinePlayers()) {
+            // Skip Citizens NPCs (they have "NPC" metadata)
+            if (player.hasMetadata("NPC")) {
+                continue;
+            }
+
             if (player.getWorld().equals(location.getWorld())) {
                 double distanceSquared = player.getLocation().distanceSquared(location);
                 if (distanceSquared <= radiusSquared) {

@@ -65,6 +65,10 @@ public class ZoneCheckTask extends BukkitRunnable {
 
         try {
             for (Player player : Bukkit.getOnlinePlayers()) {
+                // Skip Citizens NPCs (they have "NPC" metadata)
+                if (player.hasMetadata("NPC")) {
+                    continue;
+                }
                 checkPlayerZone(player);
             }
         } catch (Exception e) {

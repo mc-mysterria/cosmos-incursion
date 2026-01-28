@@ -461,6 +461,11 @@ public class EventManager {
      */
     private void handleExistingPlayersInZones() {
         for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
+            // Skip Citizens NPCs (they have "NPC" metadata)
+            if (player.hasMetadata("NPC")) {
+                continue;
+            }
+
             IncursionZone zone = zoneManager.getZoneAt(player.getLocation());
 
             if (zone != null) {
