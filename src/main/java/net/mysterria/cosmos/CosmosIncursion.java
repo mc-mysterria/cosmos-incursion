@@ -193,7 +193,7 @@ public final class CosmosIncursion extends JavaPlugin {
     }
 
     private void registerCommands() {
-        this.liteCommands = LiteBukkitFactory.builder().commands(new CosmosCommand(this)).build();
+        this.liteCommands = LiteBukkitFactory.builder(this.getName(), this).commands(new CosmosCommand(this)).build();
     }
 
     private void registerListeners() {
