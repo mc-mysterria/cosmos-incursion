@@ -23,6 +23,7 @@ import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import net.mysterria.cosmos.domain.reward.BuffManager;
 import net.mysterria.cosmos.task.EventCheckTask;
 import net.mysterria.cosmos.domain.zone.ZoneManager;
+import net.mysterria.cosmos.task.ZoneCheckTask;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -212,8 +213,7 @@ public final class CosmosIncursion extends JavaPlugin {
         new EventCheckTask(eventManager).runTaskTimer(this, 0L, 20L);
 
         // Zone check task - runs every 5 ticks (4 times per second) for reliable zone detection
-        new net.mysterria.cosmos.task.ZoneCheckTask(this, zoneManager, playerStateManager, effectManager, eventManager, consentGUI)
-                .runTaskTimer(this, 0L, 5L);
+        new ZoneCheckTask(this, zoneManager, playerStateManager, effectManager, eventManager, consentGUI).runTaskTimer(this, 0L, 5L);
 
         // Spirit Weight task - runs based on config (default: every 5 seconds / 100 ticks)
         startSpiritWeightTask();

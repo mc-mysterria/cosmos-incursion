@@ -54,32 +54,60 @@ public class PlayerDeathListener implements Listener {
         // This prevents graves plugin from creating a grave and avoids item duplication
         Location deathLocation = victim.getLocation();
 
-        // Drop all inventory items
-        for (ItemStack item : victim.getInventory().getContents()) {
+        // Clear event drops FIRST to prevent any default drops
+        // This is critical - we must clear before manually dropping to avoid duplication
+        event.getDrops().clear();
+
+        // Now manually drop all items explicitly by slot
+        // Drop hotbar (slots 0-8)
+        for (int i = 0; i < 9; i++) {
+            ItemStack item = victim.getInventory().getItem(i);
             if (item != null && item.getType() != Material.AIR) {
-                deathLocation.getWorld().dropItemNaturally(deathLocation, item);
+                deathLocation.getWorld().dropItemNaturally(deathLocation, item.clone());
             }
         }
 
-        // Drop all armor items
-        for (ItemStack item : victim.getInventory().getArmorContents()) {
+        // Drop main inventory (slots 9-35)
+        for (int i = 9; i < 36; i++) {
+            ItemStack item = victim.getInventory().getItem(i);
             if (item != null && item.getType() != Material.AIR) {
-                deathLocation.getWorld().dropItemNaturally(deathLocation, item);
+                deathLocation.getWorld().dropItemNaturally(deathLocation, item.clone());
             }
+        }
+
+        // Drop armor (helmet, chestplate, leggings, boots)
+        ItemStack helmet = victim.getInventory().getHelmet();
+        if (helmet != null && helmet.getType() != Material.AIR) {
+            deathLocation.getWorld().dropItemNaturally(deathLocation, helmet.clone());
+        }
+
+        ItemStack chestplate = victim.getInventory().getChestplate();
+        if (chestplate != null && chestplate.getType() != Material.AIR) {
+            deathLocation.getWorld().dropItemNaturally(deathLocation, chestplate.clone());
+        }
+
+        ItemStack leggings = victim.getInventory().getLeggings();
+        if (leggings != null && leggings.getType() != Material.AIR) {
+            deathLocation.getWorld().dropItemNaturally(deathLocation, leggings.clone());
+        }
+
+        ItemStack boots = victim.getInventory().getBoots();
+        if (boots != null && boots.getType() != Material.AIR) {
+            deathLocation.getWorld().dropItemNaturally(deathLocation, boots.clone());
         }
 
         // Drop off-hand item
         ItemStack offHand = victim.getInventory().getItemInOffHand();
         if (offHand != null && offHand.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, offHand);
+            deathLocation.getWorld().dropItemNaturally(deathLocation, offHand.clone());
         }
 
-        // Clear all drops from the event (prevents graves plugin from seeing items)
-        event.getDrops().clear();
-
-        // Clear player's inventory
+        // Clear player's inventory completely
         victim.getInventory().clear();
-        victim.getInventory().setArmorContents(null);
+        victim.getInventory().setHelmet(null);
+        victim.getInventory().setChestplate(null);
+        victim.getInventory().setLeggings(null);
+        victim.getInventory().setBoots(null);
         victim.getInventory().setItemInOffHand(null);
 
         // Process death (sequence regression, char drop, rewards)
