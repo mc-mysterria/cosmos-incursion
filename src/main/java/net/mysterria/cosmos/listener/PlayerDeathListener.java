@@ -2,6 +2,9 @@ package net.mysterria.cosmos.listener;
 
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.DeathHandler;
+import net.mysterria.cosmos.domain.permanent.PermanentZone;
+import net.mysterria.cosmos.domain.permanent.PlayerResourceBuffer;
+import net.mysterria.cosmos.domain.permanent.ResourceType;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import net.mysterria.cosmos.domain.player.PlayerZoneState;
@@ -76,6 +79,46 @@ public class PlayerDeathListener implements Listener {
 
         // Process death penalties (regression logic — only applies in DEATH tier)
         deathHandler.handleZoneDeath(victim, killer, deathLocation, tier);
+
+        // Drop any permanent zone carry buffer as items
+        PermanentZone pZone = plugin.getPermanentZoneManager().getZoneAt(deathLocation);
+        if (pZone == null) {
+            // Player might be in permanent zone but not incursion zone, check separately
+            pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
+        }
+        if (pZone != null) {
+            dropBufferAsItems(victim, deathLocation);
+            plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
+        }
+    }
+
+    /** Called when player dies outside an incursion zone but inside a permanent zone. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerDeathInPermanentZone(PlayerDeathEvent event) {
+        Player victim = event.getEntity();
+        if (victim.hasMetadata("NPC")) return;
+        // Already handled above if they were also in an incursion zone
+        if (playerStateManager.isInZone(victim)) return;
+
+        PermanentZone pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
+        if (pZone == null) return;
+
+        dropBufferAsItems(victim, victim.getLocation());
+        plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
+    }
+
+    private void dropBufferAsItems(Player victim, Location loc) {
+        PlayerResourceBuffer buffer = plugin.getPermanentZoneManager().getBuffer(victim.getUniqueId());
+        if (buffer.isEmpty()) return;
+        for (ResourceType type : ResourceType.values()) {
+            double amount = buffer.get(type);
+            if (amount < 1.0) continue;
+            int count = (int) amount;
+            if (loc.getWorld() != null) {
+                org.bukkit.inventory.ItemStack stack = new org.bukkit.inventory.ItemStack(type.getDefaultMaterial(), Math.min(count, 64));
+                loc.getWorld().dropItemNaturally(loc, stack);
+            }
+        }
     }
 
     /**

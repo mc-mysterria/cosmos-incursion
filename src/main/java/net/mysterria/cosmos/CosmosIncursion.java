@@ -24,9 +24,8 @@ import net.mysterria.cosmos.integration.map.MapIntegration;
 import net.mysterria.cosmos.integration.map.NoOpMapIntegration;
 import net.mysterria.cosmos.integration.map.SquareMapIntegration;
 import net.mysterria.cosmos.listener.*;
-import net.mysterria.cosmos.task.EventCheckTask;
-import net.mysterria.cosmos.task.SpiritWeightTask;
-import net.mysterria.cosmos.task.ZoneCheckTask;
+import net.mysterria.cosmos.domain.permanent.PermanentZoneManager;
+import net.mysterria.cosmos.task.*;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -80,6 +79,9 @@ public final class CosmosIncursion extends JavaPlugin {
 
     @Getter
     private BuffManager buffManager;
+
+    @Getter
+    private PermanentZoneManager permanentZoneManager;
 
     @Getter
     private net.mysterria.cosmos.gui.ConsentGUI consentGUI;
@@ -160,6 +162,17 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing consent GUI...");
         consentGUI = new ConsentGUI();
 
+        // Initialize permanent zone manager
+        log("Initializing permanent zone manager...");
+        permanentZoneManager = new PermanentZoneManager(this);
+        permanentZoneManager.loadZones();
+        permanentZoneManager.loadBalances();
+        // Spawn initial PoIs and extraction points for loaded zones
+        for (var zone : permanentZoneManager.getAllZones()) {
+            permanentZoneManager.spawnPoIsForZone(zone);
+            permanentZoneManager.spawnExtractionPoints(zone);
+        }
+
         // Initialize event manager
         log("Initializing event manager...");
         eventManager = new EventManager(this, zoneManager, beaconManager, buffManager, mapIntegration, beaconUIManager);
@@ -188,6 +201,12 @@ public final class CosmosIncursion extends JavaPlugin {
             buffManager.saveBuffData();
         }
 
+        // Save permanent zone data
+        if (permanentZoneManager != null) {
+            permanentZoneManager.saveZones();
+            permanentZoneManager.saveBalances();
+        }
+
         // Unregister commands
         if (liteCommands != null) {
             liteCommands.unregister();
@@ -203,7 +222,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private void registerListeners() {
         // PlayerMoveListener removed - using tick-based ZoneCheckTask instead for better reliability
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker, deathHandler), this);
-        getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager, beaconUIManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerQuitListener(this, combatLogHandler, buffManager, beaconUIManager), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
@@ -236,6 +255,12 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, () -> {
             buffManager.cleanupExpired();
         }, 6000L, 6000L);  // 5 minutes = 6000 ticks
+
+        // Permanent zone tasks
+        new PermanentZonePlayerTask(permanentZoneManager).runTaskTimer(this, 0L, 5L);
+        new ResourceAccumulationTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
+        new ExtractionTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
+        new PoIRotationTask(permanentZoneManager).runTaskTimer(this, 0L, 20L);
     }
 
     /**

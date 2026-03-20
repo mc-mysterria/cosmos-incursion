@@ -85,6 +85,15 @@ public class CosmosConfig {
     private double actingSpeedBonus = 1.10;
     private int buffDurationHours = 24;
 
+    // Permanent zones
+    private int permanentZonePoiCount = 3;
+    private int permanentZonePoiDurationSeconds = 300;
+    private int permanentZoneExtractionPointCount = 2;
+    private int permanentZoneExtractionPointDurationSeconds = 180;
+    private double permanentZonePoiCaptureRadius = 8.0;
+    private double permanentZoneExtractionRadius = 6.0;
+    private double permanentZoneExtractionRatePerSecond = 5.0;
+
     // Messages
     private String msgEventStarting = "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>";
     private String msgEventStarted = "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>";

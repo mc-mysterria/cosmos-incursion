@@ -145,6 +145,22 @@ rewards:
   # Duration of buff (in hours)
   buff-duration-hours: 24
 
+permanent-zones:
+  # Number of Points of Interest active simultaneously per zone
+  poi-count: 3
+  # How long each PoI stays active before rotating (seconds)
+  poi-duration-seconds: 300
+  # Number of extraction points active simultaneously per zone
+  extraction-point-count: 2
+  # How long each extraction point stays active (seconds)
+  extraction-point-duration-seconds: 180
+  # Radius (blocks) within which a player accumulates resources from a PoI
+  poi-capture-radius: 8.0
+  # Radius (blocks) within which a player can deposit at an extraction point
+  extraction-radius: 6.0
+  # Units of each resource drained from buffer per second during extraction
+  extraction-rate-per-second: 5.0
+
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"
   event-started: "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>"

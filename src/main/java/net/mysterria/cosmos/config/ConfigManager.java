@@ -118,6 +118,15 @@ public class ConfigManager {
         config.setActingSpeedBonus(fileConfig.getDouble("rewards.acting-speed-bonus", 1.10));
         config.setBuffDurationHours(fileConfig.getInt("rewards.buff-duration-hours", 24));
 
+        // Permanent zones
+        config.setPermanentZonePoiCount(fileConfig.getInt("permanent-zones.poi-count", 3));
+        config.setPermanentZonePoiDurationSeconds(fileConfig.getInt("permanent-zones.poi-duration-seconds", 300));
+        config.setPermanentZoneExtractionPointCount(fileConfig.getInt("permanent-zones.extraction-point-count", 2));
+        config.setPermanentZoneExtractionPointDurationSeconds(fileConfig.getInt("permanent-zones.extraction-point-duration-seconds", 180));
+        config.setPermanentZonePoiCaptureRadius(fileConfig.getDouble("permanent-zones.poi-capture-radius", 8.0));
+        config.setPermanentZoneExtractionRadius(fileConfig.getDouble("permanent-zones.extraction-radius", 6.0));
+        config.setPermanentZoneExtractionRatePerSecond(fileConfig.getDouble("permanent-zones.extraction-rate-per-second", 5.0));
+
         // Messages
         config.setMsgEventStarting(fileConfig.getString("messages.event-starting",
                 "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"));
