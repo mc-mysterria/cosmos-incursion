@@ -4,7 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
-import net.mysterria.cosmos.integration.BlueMapIntegration;
+import net.mysterria.cosmos.integration.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -23,7 +23,7 @@ public class KillTracker {
 
     private final CosmosIncursion plugin;
     private final CosmosConfig config;
-    private final BlueMapIntegration blueMapIntegration;
+    private final MapIntegration mapIntegration;
     private final MiniMessage miniMessage;
 
     // Map of killer UUID -> list of kill timestamps
@@ -32,10 +32,10 @@ public class KillTracker {
     // Set of players currently marked as Corrupted Monster
     private final Map<UUID, Long> corruptedMonsters;  // UUID -> expiry time
 
-    public KillTracker(CosmosIncursion plugin, BlueMapIntegration blueMapIntegration) {
+    public KillTracker(CosmosIncursion plugin, MapIntegration mapIntegration) {
         this.plugin = plugin;
         this.config = plugin.getConfigManager().getConfig();
-        this.blueMapIntegration = blueMapIntegration;
+        this.mapIntegration = mapIntegration;
         this.miniMessage = MiniMessage.miniMessage();
         this.killTimestamps = new ConcurrentHashMap<>();
         this.corruptedMonsters = new ConcurrentHashMap<>();
@@ -132,8 +132,8 @@ public class KillTracker {
         Bukkit.getServer().sendMessage(component);
 
         // Add BlueMap marker
-        if (blueMapIntegration.isAvailable()) {
-            blueMapIntegration.markCorruptedMonster(player);
+        if (mapIntegration.isAvailable()) {
+            mapIntegration.markCorruptedMonster(player);
         }
 
         // Clear kill history
@@ -148,8 +148,8 @@ public class KillTracker {
             plugin.log("Removed Corrupted Monster status from player " + playerId);
 
             // Remove BlueMap marker
-            if (blueMapIntegration.isAvailable()) {
-                blueMapIntegration.removeCorruptedMonsterMarker(playerId);
+            if (mapIntegration.isAvailable()) {
+                mapIntegration.removeCorruptedMonsterMarker(playerId);
             }
         }
     }
@@ -191,8 +191,8 @@ public class KillTracker {
                 plugin.log("Corrupted Monster status expired for player " + entry.getKey());
 
                 // Remove BlueMap marker
-                if (blueMapIntegration.isAvailable()) {
-                    blueMapIntegration.removeCorruptedMonsterMarker(entry.getKey());
+                if (mapIntegration.isAvailable()) {
+                    mapIntegration.removeCorruptedMonsterMarker(entry.getKey());
                 }
 
                 return true;

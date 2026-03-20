@@ -13,6 +13,7 @@ import net.mysterria.cosmos.domain.event.source.EventState;
 import net.mysterria.cosmos.domain.item.PaperAngelItem;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import net.mysterria.cosmos.domain.zone.ZoneManager;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
@@ -147,7 +148,19 @@ public class CosmosCommand {
         sender.sendMessage(Component.text("=== Registered Zones ===").color(NamedTextColor.GOLD));
         for (IncursionZone incursionZone : zones) {
             Location center = incursionZone.getCenter();
-            sender.sendMessage(Component.text("- " + incursionZone.getName()).color(NamedTextColor.YELLOW).append(Component.text(" at (" + (int) center.getX() + ", " + (int) center.getY() + ", " + (int) center.getZ() + ")").color(NamedTextColor.WHITE)).append(Component.text(" [Radius: " + (int) incursionZone.getRadius() + "]").color(NamedTextColor.GRAY)).append(Component.text(incursionZone.isActive() ? " [ACTIVE]" : " [INACTIVE]").color(incursionZone.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+            NamedTextColor tierColor = switch (incursionZone.getTier()) {
+                case GREEN  -> NamedTextColor.GREEN;
+                case YELLOW -> NamedTextColor.YELLOW;
+                case RED    -> NamedTextColor.RED;
+                case DEATH  -> NamedTextColor.DARK_RED;
+            };
+            sender.sendMessage(
+                Component.text("- " + incursionZone.getName()).color(NamedTextColor.YELLOW)
+                    .append(Component.text(" [" + incursionZone.getTier() + "]").color(tierColor))
+                    .append(Component.text(" at (" + (int) center.getX() + ", " + (int) center.getY() + ", " + (int) center.getZ() + ")").color(NamedTextColor.WHITE))
+                    .append(Component.text(" [Radius: " + (int) incursionZone.getRadius() + "]").color(NamedTextColor.GRAY))
+                    .append(Component.text(incursionZone.isActive() ? " [ACTIVE]" : " [INACTIVE]").color(incursionZone.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED))
+            );
         }
     }
 
@@ -168,10 +181,12 @@ public class CosmosCommand {
         double radius = plugin.getConfigManager().getConfig().getZoneRadius();
         Location location = player.getLocation();
 
-        IncursionZone incursionZone = new IncursionZone(name, location, radius);
+        // Admin-placed zones default to GREEN tier (safest)
+        IncursionZone incursionZone = new IncursionZone(name, location, radius, ZoneTier.GREEN);
         zoneManager.registerZone(incursionZone);
 
-        sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Zone '" + name + "' created at your location with radius " + (int) radius).color(NamedTextColor.GREEN)));
+        sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
+            .append(Component.text("Zone '" + name + "' [GREEN] created at your location (use /cosmos admin zone tier to change)").color(NamedTextColor.GREEN)));
     }
 
     @Execute(name = "admin zone remove")
@@ -215,6 +230,35 @@ public class CosmosCommand {
 
         player.teleport(zone.get().getCenter());
         sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Teleported to zone '" + name + "'").color(NamedTextColor.GREEN)));
+    }
+
+    @Execute(name = "admin zone tier")
+    @Permission("cosmos.admin")
+    public void zoneTier(@Context CommandSender sender, @Arg String name, @Arg String tierName) {
+        ZoneManager zoneManager = plugin.getZoneManager();
+        if (zoneManager == null) {
+            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("ZoneManager not initialized").color(NamedTextColor.RED)));
+            return;
+        }
+
+        Optional<IncursionZone> zone = zoneManager.getZone(name);
+        if (zone.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Zone '" + name + "' not found").color(NamedTextColor.RED)));
+            return;
+        }
+
+        ZoneTier tier;
+        try {
+            tier = ZoneTier.valueOf(tierName.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
+                .append(Component.text("Invalid tier. Use: green, yellow, red, death").color(NamedTextColor.RED)));
+            return;
+        }
+
+        zone.get().setTier(tier);
+        sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
+            .append(Component.text("Zone '" + name + "' tier set to " + tier.name()).color(NamedTextColor.GREEN)));
     }
 
     @Execute(name = "admin give paperangel")

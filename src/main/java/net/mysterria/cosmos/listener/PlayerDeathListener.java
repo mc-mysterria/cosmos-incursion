@@ -1,8 +1,11 @@
 package net.mysterria.cosmos.listener;
 
+import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.DeathHandler;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
+import net.mysterria.cosmos.domain.player.PlayerZoneState;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -12,17 +15,22 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 /**
  * Listens for player deaths in Incursion zones
  * Delegates to DeathHandler for processing and KillTracker for griefing detection
  */
 public class PlayerDeathListener implements Listener {
 
+    private final CosmosIncursion plugin;
     private final PlayerStateManager playerStateManager;
     private final KillTracker killTracker;
     private final DeathHandler deathHandler;
 
-    public PlayerDeathListener(PlayerStateManager playerStateManager, KillTracker killTracker, DeathHandler deathHandler) {
+    public PlayerDeathListener(CosmosIncursion plugin, PlayerStateManager playerStateManager,
+                               KillTracker killTracker, DeathHandler deathHandler) {
+        this.plugin = plugin;
         this.playerStateManager = playerStateManager;
         this.killTracker = killTracker;
         this.deathHandler = deathHandler;
@@ -50,68 +58,69 @@ public class PlayerDeathListener implements Listener {
             killTracker.recordKill(killer, victim);
         }
 
-        // IMPORTANT: Drop all items manually before death completes
-        // This prevents graves plugin from creating a grave and avoids item duplication
-        Location deathLocation = victim.getLocation();
+        // Resolve zone tier to determine which items to drop
+        ZoneTier tier = ZoneTier.DEATH; // default to harshest behavior if zone state is missing
+        PlayerZoneState zoneState = playerStateManager.getState(victim);
+        if (zoneState != null && zoneState.getIncursionZone() != null) {
+            tier = zoneState.getIncursionZone().getTier();
+        }
+        double dropChance = plugin.getConfigManager().getConfig().getTierConfigs().get(tier).dropChance();
 
-        // Clear event drops FIRST to prevent any default drops
-        // This is critical - we must clear before manually dropping to avoid duplication
+        // IMPORTANT: Clear event drops FIRST to prevent any default drops.
+        // This prevents graves plugins from creating graves and avoids item duplication.
+        Location deathLocation = victim.getLocation();
         event.getDrops().clear();
 
-        // Now manually drop all items explicitly by slot
-        // Drop hotbar (slots 0-8)
-        for (int i = 0; i < 9; i++) {
-            ItemStack item = victim.getInventory().getItem(i);
-            if (item != null && item.getType() != Material.AIR) {
-                deathLocation.getWorld().dropItemNaturally(deathLocation, item.clone());
+        // Manually drop items according to tier drop chance, then clear inventory
+        dropItemsWithChance(victim, deathLocation, dropChance);
+
+        // Process death penalties (regression logic — only applies in DEATH tier)
+        deathHandler.handleZoneDeath(victim, killer, deathLocation, tier);
+    }
+
+    /**
+     * Drops items from the victim's inventory according to dropChance, then clears the inventory.
+     * dropChance == 0.0 → nothing dropped (GREEN zone).
+     * dropChance == 1.0 → everything dropped (RED / DEATH zone).
+     * Values in between drop each item slot independently with that probability.
+     */
+    private void dropItemsWithChance(Player victim, Location loc, double dropChance) {
+        var rng = ThreadLocalRandom.current();
+        var inv = victim.getInventory();
+
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item == null || item.getType() == Material.AIR) continue;
+            if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
+                loc.getWorld().dropItemNaturally(loc, item.clone());
             }
         }
 
-        // Drop main inventory (slots 9-35)
-        for (int i = 9; i < 36; i++) {
-            ItemStack item = victim.getInventory().getItem(i);
-            if (item != null && item.getType() != Material.AIR) {
-                deathLocation.getWorld().dropItemNaturally(deathLocation, item.clone());
+        // Armor slots
+        for (ItemStack armor : new ItemStack[]{
+                inv.getHelmet(), inv.getChestplate(), inv.getLeggings(), inv.getBoots()
+        }) {
+            if (armor == null || armor.getType() == Material.AIR) continue;
+            if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
+                loc.getWorld().dropItemNaturally(loc, armor.clone());
             }
         }
 
-        // Drop armor (helmet, chestplate, leggings, boots)
-        ItemStack helmet = victim.getInventory().getHelmet();
-        if (helmet != null && helmet.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, helmet.clone());
+        // Off-hand
+        ItemStack offHand = inv.getItemInOffHand();
+        if (offHand.getType() != Material.AIR) {
+            if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
+                loc.getWorld().dropItemNaturally(loc, offHand.clone());
+            }
         }
 
-        ItemStack chestplate = victim.getInventory().getChestplate();
-        if (chestplate != null && chestplate.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, chestplate.clone());
-        }
-
-        ItemStack leggings = victim.getInventory().getLeggings();
-        if (leggings != null && leggings.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, leggings.clone());
-        }
-
-        ItemStack boots = victim.getInventory().getBoots();
-        if (boots != null && boots.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, boots.clone());
-        }
-
-        // Drop off-hand item
-        ItemStack offHand = victim.getInventory().getItemInOffHand();
-        if (offHand != null && offHand.getType() != Material.AIR) {
-            deathLocation.getWorld().dropItemNaturally(deathLocation, offHand.clone());
-        }
-
-        // Clear player's inventory completely
-        victim.getInventory().clear();
-        victim.getInventory().setHelmet(null);
-        victim.getInventory().setChestplate(null);
-        victim.getInventory().setLeggings(null);
-        victim.getInventory().setBoots(null);
-        victim.getInventory().setItemInOffHand(null);
-
-        // Process death (sequence regression, char drop, rewards)
-        deathHandler.handleZoneDeath(victim, killer, deathLocation);
+        // Always clear inventory regardless of drop chance
+        inv.clear();
+        inv.setHelmet(null);
+        inv.setChestplate(null);
+        inv.setLeggings(null);
+        inv.setBoots(null);
+        inv.setItemInOffHand(null);
     }
 
 }

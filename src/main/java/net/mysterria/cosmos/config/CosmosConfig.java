@@ -2,10 +2,22 @@ package net.mysterria.cosmos.config;
 
 import lombok.Getter;
 import lombok.Setter;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 @Getter
 @Setter
 public class CosmosConfig {
+
+    /**
+     * Per-tier settings for drop chance, reward, and particle color.
+     * particleR/G/B are 0-255 RGB values for zone boundary particles.
+     */
+    public record ZoneTierConfig(double dropChance, String rewardCommand,
+                                 int particleR, int particleG, int particleB) {}
+
 
     // Event settings
     private boolean eventAutoStart = true;
@@ -13,6 +25,10 @@ public class CosmosConfig {
     private int cooldownMinutes = 120;
     private int durationMinutes = 30;
     private int countdownSeconds = 60;
+
+    // Zone tier configuration (populated by ConfigManager)
+    private Map<ZoneTier, ZoneTierConfig> tierConfigs = new EnumMap<>(ZoneTier.class);
+    private Map<ZoneTier, Integer> tierDistribution = new EnumMap<>(ZoneTier.class);
 
     // Zone settings
     private int zoneBaseCount = 2;

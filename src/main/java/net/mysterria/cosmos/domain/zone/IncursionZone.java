@@ -19,14 +19,23 @@ public class IncursionZone {
     private final Set<UUID> playersInside;
     @Setter
     private boolean active;
+    @Setter
+    private ZoneTier tier;
 
-    public IncursionZone(String name, Location center, double radius) {
+    /** Creates a zone with an explicit tier. */
+    public IncursionZone(String name, Location center, double radius, ZoneTier tier) {
         this.id = UUID.randomUUID();
         this.name = name;
         this.center = center;
         this.radius = radius;
+        this.tier = tier;
         this.active = false;
         this.playersInside = new HashSet<>();
+    }
+
+    /** Creates a zone with default DEATH tier (preserves backwards-compatible behavior). */
+    public IncursionZone(String name, Location center, double radius) {
+        this(name, center, radius, ZoneTier.DEATH);
     }
 
     /**

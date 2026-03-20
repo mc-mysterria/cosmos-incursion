@@ -4,6 +4,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import net.mysterria.cosmos.domain.zone.ZoneManager;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.entity.Player;
@@ -69,10 +70,11 @@ public class ZoneBoundaryParticleTask extends BukkitRunnable {
         int pointCount = (int) (radius / 2); // 1 point every 2 blocks (increased from 5)
         pointCount = Math.max(32, Math.min(pointCount, 128)); // Between 32 and 128 points
 
-        // Create particle options (larger, brighter particles)
+        // Derive particle color from zone tier config
+        CosmosConfig.ZoneTierConfig tierCfg = config.getTierConfigs().get(zone.getTier());
         Particle.DustOptions dustOptions = new Particle.DustOptions(
-                org.bukkit.Color.fromRGB(255, 50, 50), // Red color
-                2.0f // Increased size from 1.0 to 2.0
+                org.bukkit.Color.fromRGB(tierCfg.particleR(), tierCfg.particleG(), tierCfg.particleB()),
+                2.0f
         );
 
         // Spawn particles in a circle with multiple height levels

@@ -35,6 +35,36 @@ zones:
   # Minimum distance between zone centers
   min-separation: 500
 
+  # How many zones of each tier to spawn per event.
+  # Zones are assigned in order: green first, death last.
+  # If more zones are generated than the sum here, extras default to GREEN.
+  tier-distribution:
+    green: 1
+    yellow: 1
+    red: 1
+    death: 1
+
+  # Per-tier rules. drop-chance is 0.0 (keep all) to 1.0 (drop all).
+  # reward-command runs as console on kill; use %player% for the killer's name.
+  # particle-color is a 6-digit hex RGB string (no '#'). Leave blank for defaults.
+  tiers:
+    green:
+      drop-chance: 0.0
+      reward-command: ""
+      particle-color: "00DC00"
+    yellow:
+      drop-chance: 0.33
+      reward-command: ""
+      particle-color: "FFDC00"
+    red:
+      drop-chance: 1.0
+      reward-command: ""
+      particle-color: "FF3C3C"
+    death:
+      drop-chance: 1.0
+      reward-command: ""
+      particle-color: "500000"
+
   # Zone boundary particles
   boundary-particles-enabled: true
   boundary-particle-update-ticks: 40  # How often to spawn particles (40 ticks = 2 seconds)

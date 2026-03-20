@@ -6,7 +6,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.beacon.BeaconManager;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.event.source.EventState;
-import net.mysterria.cosmos.integration.BlueMapIntegration;
+import net.mysterria.cosmos.integration.map.MapIntegration;
 import net.mysterria.cosmos.domain.reward.BuffManager;
 import net.mysterria.cosmos.task.BeaconCaptureTask;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
@@ -23,7 +23,7 @@ public class EventManager {
     private final ZoneManager zoneManager;
     private final BeaconManager beaconManager;
     private final BuffManager buffManager;
-    private final BlueMapIntegration blueMapIntegration;
+    private final MapIntegration mapIntegration;
     private final net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
@@ -35,13 +35,13 @@ public class EventManager {
     private net.mysterria.cosmos.task.ZoneBoundaryParticleTask boundaryParticleTask;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
-                        BuffManager buffManager, BlueMapIntegration blueMapIntegration,
+                        BuffManager buffManager, MapIntegration mapIntegration,
                         net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager beaconUIManager) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.beaconManager = beaconManager;
         this.buffManager = buffManager;
-        this.blueMapIntegration = blueMapIntegration;
+        this.mapIntegration = mapIntegration;
         this.beaconUIManager = beaconUIManager;
         this.config = plugin.getConfigManager().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
@@ -209,9 +209,9 @@ public class EventManager {
             zoneManager.deactivateAllZones();
 
             // Remove BlueMap markers
-            if (blueMapIntegration.isAvailable()) {
-                blueMapIntegration.removeAllZoneMarkers();
-                blueMapIntegration.removeAllBeaconMarkers();
+            if (mapIntegration.isAvailable()) {
+                mapIntegration.removeAllZoneMarkers();
+                mapIntegration.removeAllBeaconMarkers();
             }
 
             // Stop beacon capture task
@@ -323,15 +323,15 @@ public class EventManager {
         handleExistingPlayersInZones();
 
         // Create BlueMap markers for all zones
-        if (blueMapIntegration.isAvailable()) {
+        if (mapIntegration.isAvailable()) {
             for (IncursionZone incursionZone : activeEvent.getIncursionZones()) {
-                blueMapIntegration.createZoneMarker(incursionZone);
+                mapIntegration.createZoneMarker(incursionZone);
             }
 
             // Create BlueMap markers for all beacons
             double captureRadius = config.getBeaconCaptureRadius();
             for (var beacon : beaconManager.getAllBeacons()) {
-                blueMapIntegration.createBeaconMarker(beacon, captureRadius);
+                mapIntegration.createBeaconMarker(beacon, captureRadius);
             }
         }
 

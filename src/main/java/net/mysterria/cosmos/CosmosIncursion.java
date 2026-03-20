@@ -6,23 +6,26 @@ import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.mysterria.cosmos.command.CosmosCommand;
+import net.mysterria.cosmos.config.ConfigManager;
 import net.mysterria.cosmos.domain.beacon.BeaconManager;
 import net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager;
 import net.mysterria.cosmos.domain.combat.CombatLogHandler;
-import net.mysterria.cosmos.command.CosmosCommand;
-import net.mysterria.cosmos.config.ConfigManager;
 import net.mysterria.cosmos.domain.effect.EffectManager;
-import net.mysterria.cosmos.task.SpiritWeightTask;
 import net.mysterria.cosmos.domain.event.EventManager;
-import net.mysterria.cosmos.gui.ConsentGUI;
-import net.mysterria.cosmos.integration.BlueMapIntegration;
-import net.mysterria.cosmos.integration.CitizensIntegration;
-import net.mysterria.cosmos.listener.*;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import net.mysterria.cosmos.domain.reward.BuffManager;
-import net.mysterria.cosmos.task.EventCheckTask;
 import net.mysterria.cosmos.domain.zone.ZoneManager;
+import net.mysterria.cosmos.gui.ConsentGUI;
+import net.mysterria.cosmos.integration.CitizensIntegration;
+import net.mysterria.cosmos.integration.map.BlueMapIntegration;
+import net.mysterria.cosmos.integration.map.MapIntegration;
+import net.mysterria.cosmos.integration.map.NoOpMapIntegration;
+import net.mysterria.cosmos.integration.map.SquareMapIntegration;
+import net.mysterria.cosmos.listener.*;
+import net.mysterria.cosmos.task.EventCheckTask;
+import net.mysterria.cosmos.task.SpiritWeightTask;
 import net.mysterria.cosmos.task.ZoneCheckTask;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
@@ -67,7 +70,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private EffectManager effectManager;
 
     @Getter
-    private BlueMapIntegration blueMapIntegration;
+    private MapIntegration mapIntegration;
 
     @Getter
     private CitizensIntegration citizensIntegration;
@@ -126,14 +129,14 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing beacon UI manager...");
         beaconUIManager = new BeaconUIManager(this, beaconManager);
 
-        // Initialize BlueMap integration
-        log("Initializing BlueMap integration...");
-        blueMapIntegration = new BlueMapIntegration(this);
-        blueMapIntegration.initialize();
+        // Initialize map integration — prefer BlueMap, fall back to squaremap, then no-op
+        log("Initializing map integration...");
+        mapIntegration = resolveMapIntegration();
+        mapIntegration.initialize();
 
         // Initialize kill tracker
         log("Initializing kill tracker...");
-        killTracker = new KillTracker(this, blueMapIntegration);
+        killTracker = new KillTracker(this, mapIntegration);
 
         // Initialize death handler
         log("Initializing death handler...");
@@ -159,7 +162,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
         // Initialize event manager
         log("Initializing event manager...");
-        eventManager = new EventManager(this, zoneManager, beaconManager, buffManager, blueMapIntegration, beaconUIManager);
+        eventManager = new EventManager(this, zoneManager, beaconManager, buffManager, mapIntegration, beaconUIManager);
 
         // Register commands
         log("Registering commands...");
@@ -199,8 +202,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     private void registerListeners() {
         // PlayerMoveListener removed - using tick-based ZoneCheckTask instead for better reliability
-        getServer().getPluginManager().registerEvents(new SafeModeListener(this, playerStateManager), this);
-        getServer().getPluginManager().registerEvents(new PlayerDeathListener(playerStateManager, killTracker, deathHandler), this);
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker, deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(combatLogHandler, buffManager, beaconUIManager), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffManager), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
@@ -238,6 +240,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     /**
      * Initialize Citizens integration with retry mechanism
+     *
      * @param attempt Current attempt number (0-based)
      */
     private void initializeCitizensWithRetry(int attempt) {
@@ -254,6 +257,23 @@ public final class CosmosIncursion extends JavaPlugin {
                 log("Failed to initialize Citizens after " + maxAttempts + " attempts - Hollow Body NPCs will be disabled");
             }
         }, delayTicks);
+    }
+
+    /**
+     * Pick the map integration based on which map plugin is loaded.
+     * Priority: BlueMap → squaremap → no-op.
+     */
+    private MapIntegration resolveMapIntegration() {
+        if (getServer().getPluginManager().getPlugin("BlueMap") != null) {
+            log("Map: BlueMap detected, using BlueMap integration");
+            return new BlueMapIntegration(this);
+        }
+        if (getServer().getPluginManager().getPlugin("squaremap") != null) {
+            log("Map: squaremap detected, using squaremap integration");
+            return new SquareMapIntegration(this);
+        }
+        log("Map: no map plugin found, map markers disabled");
+        return new NoOpMapIntegration();
     }
 
     private void enableHuskTownsApi() {

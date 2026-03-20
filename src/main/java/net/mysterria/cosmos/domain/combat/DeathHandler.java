@@ -6,6 +6,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -41,19 +42,34 @@ public class DeathHandler {
     }
 
     /**
-     * Handle player death in incursion zone
-     * @param victim The player who died
-     * @param killer The killer (nullable)
-     * @param deathLocation Death location for item drops
+     * Handle player death in incursion zone.
+     *
+     * @param victim        The player who died
+     * @param killer        The killer (nullable for environmental deaths)
+     * @param deathLocation Death location for characteristic item drops
+     * @param tier          The tier of the zone the victim died in
      */
-    public void handleZoneDeath(Player victim, Player killer, Location deathLocation) {
+    public void handleZoneDeath(Player victim, Player killer, Location deathLocation, ZoneTier tier) {
         // Only process if victim is actually in a zone
         if (!playerStateManager.isInZone(victim)) {
             return;
         }
 
-        plugin.log("Processing zone death for " + victim.getName() +
+        plugin.log("Processing " + tier + " zone death for " + victim.getName() +
                    (killer != null ? " (killed by " + killer.getName() + ")" : " (natural death)"));
+
+        // Dispatch tier-specific reward command to the killer (if configured)
+        String rewardCommand = plugin.getConfigManager().getConfig().getTierConfigs().get(tier).rewardCommand();
+        if (killer != null && !killer.equals(victim) && rewardCommand != null && !rewardCommand.isBlank()) {
+            String cmd = rewardCommand.replace("%player%", killer.getName());
+            plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), cmd);
+        }
+
+        // GREEN / YELLOW / RED: no sequence regression, no acting penalty — item drops are the only punishment
+        if (tier != ZoneTier.DEATH) {
+            plugin.log("Non-DEATH tier (" + tier + ") — skipping regression logic for " + victim.getName());
+            return;
+        }
 
         // Check if player is a beyonder
         if (!CoiToolkit.isBeyonder(victim)) {

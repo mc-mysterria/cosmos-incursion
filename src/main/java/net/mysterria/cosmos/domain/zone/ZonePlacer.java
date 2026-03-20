@@ -13,6 +13,7 @@ import org.bukkit.block.Block;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ZonePlacer {
@@ -65,6 +66,9 @@ public class ZonePlacer {
         // Calculate zone center candidates
         List<Location> candidates = generateCandidateLocations(overworld, townLocations, count);
 
+        // Build an ordered list of tiers to assign (GREEN first, DEATH last)
+        List<ZoneTier> tierQueue = buildTierQueue();
+
         // Filter and validate candidates
         int zoneNumber = 1;
         for (Location candidate : candidates) {
@@ -74,9 +78,14 @@ public class ZonePlacer {
 
             // Validate this candidate
             if (isValidZoneLocation(candidate, claimedChunks, incursionZones)) {
-                IncursionZone incursionZone = new IncursionZone("Zone-" + zoneNumber, candidate, config.getZoneRadius());
+                // Assign tier from queue; extra zones beyond the queue default to GREEN
+                ZoneTier tier = (zoneNumber - 1) < tierQueue.size()
+                        ? tierQueue.get(zoneNumber - 1)
+                        : ZoneTier.GREEN;
+
+                IncursionZone incursionZone = new IncursionZone("Zone-" + zoneNumber, candidate, config.getZoneRadius(), tier);
                 incursionZones.add(incursionZone);
-                plugin.log("Generated zone at: " + String.format("(%.0f, %.0f, %.0f)",
+                plugin.log("Generated " + tier + " zone at: " + String.format("(%.0f, %.0f, %.0f)",
                         candidate.getX(), candidate.getY(), candidate.getZ()));
                 zoneNumber++;
             }
@@ -87,6 +96,23 @@ public class ZonePlacer {
         }
 
         return incursionZones;
+    }
+
+    /**
+     * Build the ordered list of tiers to assign to zones.
+     * Iterates GREEN → YELLOW → RED → DEATH, repeating each tier as many times
+     * as configured in tier-distribution.
+     */
+    private List<ZoneTier> buildTierQueue() {
+        List<ZoneTier> queue = new ArrayList<>();
+        Map<ZoneTier, Integer> distribution = config.getTierDistribution();
+        for (ZoneTier tier : ZoneTier.values()) {
+            int count = distribution.getOrDefault(tier, 0);
+            for (int i = 0; i < count; i++) {
+                queue.add(tier);
+            }
+        }
+        return queue;
     }
 
     /**

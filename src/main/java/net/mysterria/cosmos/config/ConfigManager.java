@@ -2,7 +2,11 @@ package net.mysterria.cosmos.config;
 
 import lombok.Getter;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import org.bukkit.configuration.file.FileConfiguration;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 public class ConfigManager {
 
@@ -27,6 +31,46 @@ public class ConfigManager {
         config.setCooldownMinutes(fileConfig.getInt("event.cooldown-minutes", 120));
         config.setDurationMinutes(fileConfig.getInt("event.duration-minutes", 30));
         config.setCountdownSeconds(fileConfig.getInt("event.countdown-seconds", 60));
+
+        // Zone tier distribution and per-tier settings
+        Map<ZoneTier, Integer> distribution = new EnumMap<>(ZoneTier.class);
+        Map<ZoneTier, CosmosConfig.ZoneTierConfig> tierConfigs = new EnumMap<>(ZoneTier.class);
+
+        int[] defaultDropChancePercent = {0, 33, 100, 100};   // GREEN, YELLOW, RED, DEATH
+        int[][] defaultColors = {
+                {0, 220, 0},      // GREEN
+                {255, 220, 0},    // YELLOW
+                {255, 60, 60},    // RED
+                {80, 0, 0}        // DEATH (dark crimson)
+        };
+
+        ZoneTier[] tiers = ZoneTier.values();
+        for (int i = 0; i < tiers.length; i++) {
+            ZoneTier tier = tiers[i];
+            String key = tier.configKey();
+
+            distribution.put(tier, fileConfig.getInt("zones.tier-distribution." + key, 1));
+
+            double dropChance = fileConfig.getDouble("zones.tiers." + key + ".drop-chance",
+                    defaultDropChancePercent[i] / 100.0);
+            String rewardCommand = fileConfig.getString("zones.tiers." + key + ".reward-command", "");
+            String colorHex = fileConfig.getString("zones.tiers." + key + ".particle-color", "");
+            int r, g, b;
+            if (colorHex.length() == 6) {
+                r = Integer.parseInt(colorHex.substring(0, 2), 16);
+                g = Integer.parseInt(colorHex.substring(2, 4), 16);
+                b = Integer.parseInt(colorHex.substring(4, 6), 16);
+            } else {
+                r = defaultColors[i][0];
+                g = defaultColors[i][1];
+                b = defaultColors[i][2];
+            }
+
+            tierConfigs.put(tier, new CosmosConfig.ZoneTierConfig(dropChance, rewardCommand, r, g, b));
+        }
+
+        config.setTierDistribution(distribution);
+        config.setTierConfigs(tierConfigs);
 
         // Zone settings
         config.setZoneBaseCount(fileConfig.getInt("zones.base-count", 2));

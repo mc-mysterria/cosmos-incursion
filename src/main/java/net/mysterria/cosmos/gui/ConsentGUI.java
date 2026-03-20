@@ -5,6 +5,7 @@ import dev.triumphteam.gui.guis.GuiItem;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.mysterria.cosmos.domain.zone.ZoneTier;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -18,80 +19,97 @@ import java.util.*;
  */
 public class ConsentGUI {
 
-    private final Map<UUID, ConsentState> playerConsents;
+    // Key format: "uuid_TIER" — one consent state per player per zone tier
+    private final Map<String, ConsentState> playerConsents;
 
     public ConsentGUI() {
         this.playerConsents = new HashMap<>();
     }
 
+    private String consentKey(UUID playerId, ZoneTier tier) {
+        return playerId + "_" + tier.name();
+    }
+
     /**
-     * Show the consent GUI to a player
+     * Show the consent GUI to a player for the given zone tier.
+     * The loot-loss and regression descriptions adapt to the tier.
      */
-    public void showConsent(Player player) {
-        ConsentState state = playerConsents.computeIfAbsent(player.getUniqueId(), k -> new ConsentState());
+    public void showConsent(Player player, ZoneTier tier) {
+        String key = consentKey(player.getUniqueId(), tier);
+        ConsentState state = playerConsents.computeIfAbsent(key, k -> new ConsentState());
 
         // Reset cancelled flag when showing GUI (in case they try to enter again)
         state.cancelled = false;
 
+        NamedTextColor tierColor = switch (tier) {
+            case GREEN -> NamedTextColor.GREEN;
+            case YELLOW -> NamedTextColor.YELLOW;
+            case RED -> NamedTextColor.RED;
+            case DEATH -> NamedTextColor.DARK_RED;
+        };
+
         Gui gui = Gui.gui()
-                .title(Component.text("Cosmos Incursion - Zone Entry", NamedTextColor.RED, TextDecoration.BOLD))
+                .title(Component.text(tier.name() + " Zone - Confirm Entry", tierColor, TextDecoration.BOLD))
                 .rows(3)
                 .disableAllInteractions()
                 .create();
 
-        // Note: No close handler - players can close freely
-        // Zone entry is already protected by consent checks in ZoneCheckTask
-
-        // Create checkbox items
+        // PvP checkbox (same for all tiers)
         GuiItem pvpConsent = createCheckbox(
                 "PvP Enabled",
                 "Other players can kill you in this zone",
                 state.pvpAgreed,
                 () -> {
                     state.pvpAgreed = !state.pvpAgreed;
-                    showConsent(player); // Refresh GUI
+                    showConsent(player, tier);
                 }
         );
 
+        // Loot checkbox — description varies by tier
+        String lootDescription = switch (tier) {
+            case GREEN  -> "You will keep ALL items if you die.";
+            case YELLOW -> "~33% of your items may drop on death.";
+            case RED, DEATH -> "ALL of your items will drop on death.";
+        };
         GuiItem lootConsent = createCheckbox(
                 "Risk of Loot Loss",
-                "You may lose items if you die",
+                lootDescription,
                 state.lootAgreed,
                 () -> {
                     state.lootAgreed = !state.lootAgreed;
-                    showConsent(player); // Refresh GUI
+                    showConsent(player, tier);
                 }
         );
 
+        // Sequence regression checkbox — only dangerous in DEATH tier
+        String regressionDescription = tier == ZoneTier.DEATH
+                ? "Dying may cause sequence regression."
+                : "No sequence regression in this zone.";
         GuiItem sequenceConsent = createCheckbox(
                 "Sequence Regression",
-                "Dying may cause you to lose a sequence",
+                regressionDescription,
                 state.sequenceAgreed,
                 () -> {
                     state.sequenceAgreed = !state.sequenceAgreed;
-                    showConsent(player); // Refresh GUI
+                    showConsent(player, tier);
                 }
         );
 
-        // Add items to GUI
         gui.setItem(11, pvpConsent);
         gui.setItem(13, lootConsent);
         gui.setItem(15, sequenceConsent);
 
-        // Add confirm button if all agreed
         if (state.hasAgreedToAll()) {
             GuiItem confirmButton = createConfirmButton(() -> {
                 state.confirmed = true;
                 player.closeInventory();
-                player.sendMessage(Component.text("You have agreed to the incursion zone rules.", NamedTextColor.GREEN));
+                player.sendMessage(Component.text("You have agreed to the " + tier.name() + " zone rules.", NamedTextColor.GREEN));
             });
             gui.setItem(22, confirmButton);
         } else {
-            GuiItem disabledButton = createDisabledConfirmButton();
-            gui.setItem(22, disabledButton);
+            gui.setItem(22, createDisabledConfirmButton());
         }
 
-        // Add cancel button
         GuiItem cancelButton = createCancelButton(() -> {
             state.cancelled = true;
             player.closeInventory();
@@ -190,22 +208,23 @@ public class ConsentGUI {
     }
 
     /**
-     * Check if a player has consented for this session
+     * Check if a player has consented to a specific zone tier.
      */
-    public boolean hasConsented(Player player) {
-        ConsentState state = playerConsents.get(player.getUniqueId());
+    public boolean hasConsented(Player player, ZoneTier tier) {
+        ConsentState state = playerConsents.get(consentKey(player.getUniqueId(), tier));
         return state != null && state.confirmed;
     }
 
     /**
-     * Reset consent for a player (when event ends)
+     * Reset all tier consents for a player (called when event ends).
      */
     public void resetConsent(UUID playerId) {
-        playerConsents.remove(playerId);
+        String prefix = playerId.toString() + "_";
+        playerConsents.keySet().removeIf(k -> k.startsWith(prefix));
     }
 
     /**
-     * Reset all consents (when event ends)
+     * Reset all consents (called when event ends).
      */
     public void resetAllConsents() {
         playerConsents.clear();

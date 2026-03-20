@@ -1,4 +1,4 @@
-package net.mysterria.cosmos.integration;
+package net.mysterria.cosmos.integration.map;
 
 import com.flowpowered.math.vector.Vector2d;
 import de.bluecolored.bluemap.api.BlueMapAPI;
@@ -11,6 +11,7 @@ import de.bluecolored.bluemap.api.markers.ShapeMarker;
 import de.bluecolored.bluemap.api.math.Color;
 import de.bluecolored.bluemap.api.math.Shape;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import org.bukkit.entity.Player;
@@ -20,7 +21,7 @@ import java.util.*;
 /**
  * Handles BlueMap API integration for visualizing Incursion zones
  */
-public class BlueMapIntegration {
+public class BlueMapIntegration implements MapIntegration {
 
     private final CosmosIncursion plugin;
     private final Map<UUID, Marker> zoneMarkers;
@@ -110,14 +111,20 @@ public class BlueMapIntegration {
 
             Shape shape = new Shape(circlePoints);
 
+            // Derive marker color from zone tier
+            CosmosConfig.ZoneTierConfig tierCfg = plugin.getConfigManager().getConfig()
+                    .getTierConfigs().get(incursionZone.getTier());
+            int r = tierCfg.particleR(), g = tierCfg.particleG(), b = tierCfg.particleB();
+            String tierLabel = incursionZone.getTier().name();
+
             // Create shape marker
             ShapeMarker marker = ShapeMarker.builder()
-                    .label("Cosmos Incursion (Active) - " + incursionZone.getName())
+                    .label("[" + tierLabel + "] Cosmos Incursion - " + incursionZone.getName())
                     .shape(shape, (float) incursionZone.getCenter().getY())
-                    .fillColor(new Color(255, 0, 0, 0.15f))      // Very transparent red fill (5% opacity)
-                    .lineColor(new Color(255, 0, 0, 0.6f))     // Semi-transparent red border (60% opacity)
+                    .fillColor(new Color(r, g, b, 0.15f))
+                    .lineColor(new Color(r, g, b, 0.6f))
                     .lineWidth(3)
-                    .depthTestEnabled(false)  // Show through terrain
+                    .depthTestEnabled(false)
                     .build();
 
             String markerId = "zone_" + incursionZone.getId();

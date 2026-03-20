@@ -134,7 +134,8 @@ public class BuffManager {
      * Apply Acting Speed buff to a player
      */
     private void applyBuffToPlayer(Player player, long expiryTime) {
-        CoiToolkit.setActingSpeedMultiplier(player, config.getActingSpeedBonus(), expiryTime);
+        long remainingMillis = Math.max(0L, expiryTime - System.currentTimeMillis());
+        CoiToolkit.setActingSpeedMultiplier(player, config.getActingSpeedBonus(), remainingMillis);
 
         activePlayerBuffs.put(player.getUniqueId(), expiryTime);
 
@@ -151,10 +152,7 @@ public class BuffManager {
      * Remove Acting Speed buff from a player
      */
     private void removeBuffFromPlayer(Player player) {
-        if (CoiToolkit.getActingMultiplierPercentageNamespacedKey() != null && CoiToolkit.getActingMultiplierExpiryNamespacedKey() != null) {
-            player.getPersistentDataContainer().remove(CoiToolkit.getActingMultiplierExpiryNamespacedKey());
-            player.getPersistentDataContainer().remove(CoiToolkit.getActingMultiplierPercentageNamespacedKey());
-        }
+        CoiToolkit.setActingSpeedMultiplier(player, 1.0, 0L);
 
         activePlayerBuffs.remove(player.getUniqueId());
 

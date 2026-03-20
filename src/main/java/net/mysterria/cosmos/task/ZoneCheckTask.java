@@ -102,14 +102,14 @@ public class ZoneCheckTask extends BukkitRunnable {
 
         // Player is in a zone but not tracked
         if (currentZone != null && !isTracked) {
-            // Check consent
-            if (!consentGUI.hasConsented(player)) {
+            // Check consent for this zone's specific tier
+            if (!consentGUI.hasConsented(player, currentZone.getTier())) {
                 // Push player out of zone to a safe location
                 pushPlayerOutOfZone(player, currentZone);
-                player.sendMessage(Component.text("You must agree to the zone rules before entering!", NamedTextColor.RED));
+                player.sendMessage(Component.text("You must agree to the " + currentZone.getTier().name() + " zone rules before entering!", NamedTextColor.RED));
 
-                // Show consent GUI
-                showConsentGUI(player);
+                // Show consent GUI for this tier
+                showConsentGUI(player, currentZone);
                 return;
             }
 
@@ -131,14 +131,9 @@ public class ZoneCheckTask extends BukkitRunnable {
     }
 
     /**
-     * Check if player is near a zone and show consent GUI if needed
+     * Check if player is near a zone and show consent GUI if needed.
      */
     private void checkNearZone(Player player) {
-        // Already consented, no need to check
-        if (consentGUI.hasConsented(player)) {
-            return;
-        }
-
         // Check cooldown to avoid spamming GUI
         long now = System.currentTimeMillis();
         Long lastPrompt = lastConsentPrompt.get(player.getUniqueId());
@@ -148,32 +143,33 @@ public class ZoneCheckTask extends BukkitRunnable {
 
         // Find nearest zone
         IncursionZone nearestZone = zoneManager.getNearestZone(player.getLocation());
-        if (nearestZone != null) {
-            double distance = nearestZone.getDistanceFromCenter(player.getLocation()) - nearestZone.getRadius();
-
-            // Player is within consent distance
-            if (distance >= 0 && distance <= CONSENT_DISTANCE) {
-                showConsentGUI(player);
-                lastConsentPrompt.put(player.getUniqueId(), now);
-            }
-        }
-    }
-
-    /**
-     * Show consent GUI to player
-     */
-    private void showConsentGUI(Player player) {
-        consentGUI.showConsent(player);
-    }
-
-    /**
-     * Check if player is approaching a zone and show distance warnings
-     */
-    private void checkZoneWarnings(Player player) {
-        // Already consented, no need to warn
-        if (consentGUI.hasConsented(player)) {
+        if (nearestZone == null) {
             return;
         }
+
+        // Already consented to this zone's tier, no need to show GUI
+        if (consentGUI.hasConsented(player, nearestZone.getTier())) {
+            return;
+        }
+
+        double distance = nearestZone.getDistanceFromCenter(player.getLocation()) - nearestZone.getRadius();
+        if (distance >= 0 && distance <= CONSENT_DISTANCE) {
+            showConsentGUI(player, nearestZone);
+            lastConsentPrompt.put(player.getUniqueId(), now);
+        }
+    }
+
+    /**
+     * Show tier-aware consent GUI to a player for the given zone.
+     */
+    private void showConsentGUI(Player player, IncursionZone zone) {
+        consentGUI.showConsent(player, zone.getTier());
+    }
+
+    /**
+     * Check if player is approaching a zone and show distance warnings.
+     */
+    private void checkZoneWarnings(Player player) {
 
         // Find nearest zone
         IncursionZone nearestZone = zoneManager.getNearestZone(player.getLocation());
@@ -349,18 +345,26 @@ public class ZoneCheckTask extends BukkitRunnable {
         // Calculate player tier
         PlayerTier tier = playerStateManager.calculateTier(player);
 
-        // Force safe mode OFF
-        CoiToolkit.turnOffSafeMode(player);
-
         // Register player state
         playerStateManager.registerEntry(player, incursionZone, tier);
 
         // Update zone tracking
         zoneManager.updatePlayerZone(player, incursionZone);
 
+        // Tier color for display
+        String tierColor = switch (incursionZone.getTier()) {
+            case GREEN  -> "green";
+            case YELLOW -> "yellow";
+            case RED    -> "red";
+            case DEATH  -> "dark_red";
+        };
+
         // Display warning title
         Component title = miniMessage.deserialize(config.getMsgZoneEntry());
-        Component subtitle = miniMessage.deserialize("<white>You have entered <red>" + incursionZone.getName() + "</red></white>");
+        Component subtitle = miniMessage.deserialize(
+                "<white>You have entered <" + tierColor + ">" + incursionZone.getName()
+                + " [" + incursionZone.getTier() + "]</" + tierColor + "></white>"
+        );
 
         player.showTitle(Title.title(
                 title,
@@ -372,10 +376,15 @@ public class ZoneCheckTask extends BukkitRunnable {
                 )
         ));
 
-        // Send action bar message
-        String tierMessage = tier == PlayerTier.SPIRIT_WEIGHT ?
-                "<red>⚠ DANGER ZONE ⚠ PvP is now enabled! You are marked as SPIRIT WEIGHT</red>" :
-                "<red>⚠ DANGER ZONE ⚠ PvP is now enabled!</red>";
+        // Action bar message based on zone tier
+        String tierMessage = switch (incursionZone.getTier()) {
+            case GREEN  -> "<green>⚠ GREEN ZONE — PvP enabled. No item loss on death.</green>";
+            case YELLOW -> "<yellow>⚠ YELLOW ZONE — PvP enabled. ~33% item loss on death!</yellow>";
+            case RED    -> "<red>⚠ RED ZONE — PvP enabled. ALL items lost on death!</red>";
+            case DEATH  -> tier == PlayerTier.SPIRIT_WEIGHT
+                    ? "<dark_red>☠ DEATH ZONE — ALL items + sequence regression! You are SPIRIT WEIGHT!</dark_red>"
+                    : "<dark_red>☠ DEATH ZONE — ALL items + sequence regression!</dark_red>";
+        };
 
         player.sendActionBar(miniMessage.deserialize(tierMessage));
 

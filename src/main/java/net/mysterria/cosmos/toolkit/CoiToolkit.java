@@ -3,51 +3,22 @@ package net.mysterria.cosmos.toolkit;
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import dev.ua.ikeepcalm.coi.api.model.BeyonderData;
 import net.mysterria.cosmos.CosmosIncursion;
-import org.bukkit.Bukkit;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.plugin.Plugin;
 
-import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
+
 
 public class CoiToolkit {
 
     private static final CircleOfImaginationAPI coiApi = CosmosIncursion.getInstance().getCoiAPI();
 
-    public static @Nullable NamespacedKey getActingMultiplierExpiryNamespacedKey() {
-        Plugin plugin = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
-        if (plugin != null) {
-            return new NamespacedKey(plugin, "growth_expiry");
-        }
-
-        return null;
-    }
-
-    public static @Nullable NamespacedKey getActingMultiplierPercentageNamespacedKey() {
-        Plugin plugin = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
-        if (plugin != null) {
-            return new NamespacedKey(plugin, "growth_percentage");
-        }
-
-        return null;
-    }
-
+    /**
+     * Safe-mode enforcement is no longer supported via the API.
+     * The SafeModeListener still blocks in-zone toggling via event cancellation.
+     */
     public static boolean turnOffSafeMode(Player player) {
-        if (coiApi.isBeyonder(player)) {
-            return coiApi.setSafeMode(player, false);
-        }
-
-        return false;
-    }
-
-    public static boolean turnOnSafeMode(Player player) {
-        if (coiApi.isBeyonder(player)) {
-            return coiApi.setSafeMode(player, true);
-        }
-
         return false;
     }
 
@@ -61,6 +32,7 @@ public class CoiToolkit {
 
     /**
      * Apply death penalty to player - either acting loss or sequence regression
+     *
      * @param player The player to penalize
      * @return true if player regressed to lower sequence (drops char), false if only lost acting (no char drop)
      */
