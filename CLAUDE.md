@@ -1,216 +1,170 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-CosmosIncursion is a Minecraft Paper plugin (1.21+) that manages timed PvP events with incursion zones and spirit beacons. It integrates with CircleOfImagination (beyonder system), HuskTowns (town claims), BlueMap (visualization), and Citizens (NPC creation).
+**CosmosIncursion** is a Minecraft Paper 1.21+ plugin that manages timed PvP incursion events and permanent extraction zones. It integrates with CircleOfImagination (beyonder/sequence system), HuskTowns (town claims), BlueMap (map visualization), and Citizens (NPC combat logging).
 
-## Build & Development Commands
+See [`docs/`](docs/) for detailed documentation.
+
+---
+
+## Build & Dev Commands
 
 ```bash
-# Build the plugin (creates shadowJar in build/libs/)
-./gradlew build
-
-# Run a local Paper test server with the plugin
-./gradlew runServer
-
-# Clean build artifacts
-./gradlew clean
+./gradlew build       # Build shadowJar → build/libs/
+./gradlew runServer   # Start local Paper test server
+./gradlew clean       # Clean build artifacts
 ```
+
+---
 
 ## Admin Commands
 
 ```
-/cosmos status - Show current event status
-/cosmos admin reload - Reload configuration
-/cosmos admin start - Force start event
-/cosmos admin stop - Force stop event
-/cosmos admin give paperangel <player> [amount] - Give Paper Angel items
-/cosmos admin zone list - List all zones
-/cosmos admin zone add <name> - Create zone at your location
-/cosmos admin zone remove <name> - Remove a zone
-/cosmos admin zone tp <name> - Teleport to a zone
+/cosmos status                              - Show current event status
+/cosmos admin reload                        - Hot-reload config.yml
+/cosmos admin start / stop                  - Force start/stop event
+/cosmos admin give paperangel <player>      - Give Paper Angel protection item
+/cosmos admin zone list/add/remove/tp       - Manage incursion zones
+
+/cosmos exclusion list/add/remove/tp/info   - Manage permanent zones
+/cosmos exclusion vertex add/remove/tp      - Manage polygon vertices
+/cosmos exclusion reload                    - Reload permanent zones from file
 ```
+
+---
+
+## Package Structure
+
+```
+net.mysterria.cosmos/
+├── CosmosIncursion.java              ← Plugin entry point, initializes all managers
+├── domain/
+│   ├── incursion/                    ← Timed event zones (circle-based)
+│   │   ├── source/                   ← Enums: ZoneTier, PlayerTier, EventState
+│   │   ├── tasks/                    ← ZoneCheckTask, EventCheckTask, ZoneBoundaryParticleTask
+│   │   └── gui/                      ← ConsentGUI
+│   ├── beacon/                       ← Spirit beacon capture mechanics
+│   │   └── tasks/                    ← BeaconCaptureTask, BeaconParticleTask
+│   ├── combat/                       ← Death, combat-log, anti-grief, rewards
+│   └── exclusion/                    ← Permanent polygon extraction zones
+│       └── tasks/                    ← PermanentZonePlayerTask, ResourceAccumulationTask,
+│                                       ExtractionTask, PoIRotationTask
+├── command/                          ← LiteCommands: GeneralCommand, AdminCommand, ExclusionCommand
+├── toolkit/                          ← Wrappers: CoiToolkit, TownsToolkit, CitizensToolkit,
+│                                       ZonePlacerToolkit, BlueMapIntegration, BuffToolkit, etc.
+└── config/                           ← ConfigLoader, CosmosConfig
+```
+
+---
 
 ## Core Architecture
 
-### Event State Machine
+### Manager Initialization Order (CosmosIncursion.onEnable)
+1. `ConfigManager` → loads config.yml
+2. `ZoneManager` → incursion zone registry
+3. `BeaconManager` → beacon registry + capture states
+4. `PlayerStateManager` → per-player zone + tier tracking
+5. `EffectManager` → glowing/DOT effects
+6. `BeaconUIManager` → action bars, boss bars
+7. `PermanentZoneManager` → permanent zones, PoIs, extraction points
+8. `EventManager` → event state machine (depends on all above)
 
-The plugin operates through a state machine managed by `EventManager`:
+### Event State Machine (`EventManager` + `EventCheckTask`)
 
-1. **IDLE** - Waiting for trigger conditions (player count threshold, cooldown elapsed)
-   - Only starts new event if player count >= min-players
-2. **STARTING** - Countdown phase, zones generated, beacons placed
-   - Broadcasts countdown at 60, 30, 10, 5, 4, 3, 2, 1 seconds
-3. **ACTIVE** - Event running, zones active, beacons capturable
-   - Broadcasts time remaining at 25, 20, 15, 10, 5, 3, 2, 1 minutes and 30 seconds
-   - **Runs to completion regardless of player count changes**
-4. **ENDING** - Cleanup phase, calculate winners, award buffs
+`IDLE → STARTING → ACTIVE → ENDING`
 
-State transitions are driven by `EventCheckTask` (ticks every second) and handle zone activation/deactivation, beacon lifecycle, and player consent management.
+- **IDLE**: Waits for `min-players` threshold + cooldown. Does not re-check after event starts.
+- **STARTING**: 60s countdown; zones + beacons generated with tier distribution.
+- **ACTIVE**: Full duration regardless of player count changes. Runs beacon capture + rewards.
+- **ENDING**: Awards buff to winning town, despawns Hollow Bodies, cleans up state.
 
-**Important:** Once an event starts (either automatically or via admin command), it will run for its full duration regardless of player count dropping below minimum. The minimum player check only applies when deciding whether to start a new event after cooldown.
+### Zone Tiers (Incursion Events)
 
-### Manager Hierarchy
+Zones are assigned tiers at event start with configurable ratios. See [docs/ZONE_TIERS.md](docs/ZONE_TIERS.md).
 
-The main plugin class `CosmosIncursion` initializes managers in dependency order:
+| Tier  | Item Drop | Sequence Regression | Reward Level |
+|-------|-----------|--------------------:|--------------|
+| GREEN | 0%        | Never               | Low          |
+| YELLOW| ~33%      | Never               | Medium       |
+| RED   | 100%      | Never               | High         |
+| DEATH | 100%      | Yes (Seq 4–5 only)  | Best         |
 
-1. `ConfigManager` - Loads config.yml
-2. `ZoneManager` - Tracks incursion zones and player locations
-3. `BeaconManager` - Manages spirit beacons and capture states
-4. `PlayerStateManager` - Tracks which players are in zones and their tier
-5. `EffectManager` - Applies glowing/DOT effects based on tier
-6. `BeaconUIManager` - Handles beacon visuals, action bars, boss bars
-7. `EventManager` - Orchestrates the event lifecycle (depends on all above)
+### Permanent Extraction Zones
 
-### Zone Entry Flow
+Always-on polygon PvP zones with rotating PoIs and extraction points. See [docs/PERMANENT_ZONES.md](docs/PERMANENT_ZONES.md).
 
-1. `ZoneCheckTask` (runs every 5 ticks) detects player movement
-2. Checks if player is in a new zone using `ZoneManager.getZoneAt()`
-3. If entering a zone without consent, shows `ConsentGUI`
-4. On consent, registers entry via `PlayerStateManager.registerEntry()`
-5. `PlayerStateManager.calculateTier()` determines SPIRIT_WEIGHT vs INSIGNIFICANT
-6. `EffectManager` applies effects based on tier:
-   - SPIRIT_WEIGHT: glowing effect + DOT damage (via `SpiritWeightTask`)
-   - INSIGNIFICANT: no effects
+- Players accumulate resources near **PoIs** (rotate every ~5 min)
+- Resources are deposited to town balance by standing at **Extraction Points** (rotate every ~3 min)
+- Dying in zone loses all carried (unextracted) resources
 
-### Beacon Capture Mechanics
+### Combat & Death
 
-During ACTIVE state:
-- `BeaconCaptureTask` runs every second
-- For each beacon, counts nearby players by town
-- Updates `BeaconCapture.progress` (+points per player, -decay when uncontested)
-- Tracks total ownership time per town
-- At event end, town with most total ownership seconds wins the Acting Speed buff
+See [docs/COMBAT_DEATH.md](docs/COMBAT_DEATH.md).
 
-### Combat & Death Systems
+- **Death Penalty**: Tier-gated; DEATH zones trigger sequence regression for Seq 4–5 players
+- **Paper Angel**: One-time protection item, right-click to arm
+- **Hollow Body NPCs**: Spawned on combat-log (disconnect in zone), drop full inventory on death
+- **Anti-Grief**: 3 low-tier kills in 600s → "Corrupted Monster" debuff
 
-**Death in Zone:**
-- `PlayerDeathListener` → `DeathHandler.handleZoneDeath()`
-- **Item Handling** (priority HIGHEST to run before graves plugins):
-  - All inventory items (including armor and off-hand) manually dropped at death location
-  - Event drops cleared (`event.getDrops().clear()`)
-  - Player inventory cleared before death completes
-  - Prevents graves plugin from creating graves and avoids item duplication
-- Sequence 4+ players regress unless they have a "Paper Angel" protection active
-- **Paper Angel System**:
-  - Given via `/cosmos admin give paperangel <player>`
-  - Right-click to activate (sets PDC: `paper_angel = true`)
-  - Protects from sequence regression on next zone death
-  - One-time use (PDC removed after saving player)
-  - Cannot activate if protection already active
-- Killer earns a Cosmos Crate (if not griefing)
-- Low-tier killers tracked by `KillTracker` for anti-grief (becomes "Corrupted Monster")
+### Key Design Patterns
 
-**Combat Logging:**
-- `PlayerQuitListener` → `CombatLogHandler.handleDisconnect()`
-- If player disconnects while in zone:
-  - Captures full inventory (items + armor) snapshot
-  - Spawns a "Hollow Body" NPC via Citizens with stored inventory
-  - NPC is vulnerable and persists for configured duration
-- When Hollow Body NPC dies:
-  - Drops ALL stored items at death location (lootable by others)
-  - Marks NPC as killed
-- On reconnect:
-  - If killed: Clears inventory, teleports to death location, kills player (triggers sequence regression)
-  - If survived: No penalty
-  - Works even after event ends (Hollow Body persists)
-- Event end cleanup:
-  - All remaining Hollow Body NPCs are force-despawned when event transitions to ENDING state
-  - Prevents NPCs from persisting into the next event
+- **Tick-based detection** instead of event listeners for zone boundaries (reliable under lag)
+- **Polygon containment** for permanent zones via ray-casting (XZ plane)
+- **ConcurrentHashMap** throughout for thread-safe async/tick updates
+- **JSON persistence**: `zones_permanent.json`, `permanent_zone_balances.json`, `buff_data.json`
+- **Map integration**: BlueMap → squaremap → NoOp fallback chain
+
+---
+
+## Background Tasks
+
+| Task                     | Interval        | Purpose                              |
+|--------------------------|-----------------|--------------------------------------|
+| `EventCheckTask`         | 20t (1s)        | Event state machine tick             |
+| `ZoneCheckTask`          | 5t (200ms)      | Incursion zone entry/exit detection  |
+| `ZoneBoundaryParticleTask`| 40t (2s)       | Boundary particle visuals            |
+| `BeaconCaptureTask`      | 20t (1s)        | Beacon progress + decay              |
+| `PermanentZonePlayerTask`| 5t (200ms)      | Permanent zone entry/exit            |
+| `ResourceAccumulationTask`| 20t (1s)       | Resource gain from PoIs              |
+| `ExtractionTask`         | 20t (1s)        | Deposit resources to town balance    |
+| `PoIRotationTask`        | 20t (1s)        | PoI/extraction point rotation        |
+
+---
 
 ## API Integrations
 
-### CircleOfImagination (Required)
-- `CoiToolkit` wraps API calls
-- Used for checking beyonder status and sequence level
-- Determines player tier classification
+| Plugin              | Wrapper            | Required? | Purpose                                    |
+|---------------------|--------------------|-----------|--------------------------------------------|
+| CircleOfImagination | `CoiToolkit`       | Required  | Beyonder status, sequence, acting points   |
+| HuskTowns           | `TownsToolkit`     | Required  | Town membership, town balance              |
+| BlueMap             | `BlueMapIntegration`| Optional | Map markers for zones, beacons, players   |
+| squaremap           | `SquareMapIntegration`| Optional| Map fallback                              |
+| Citizens            | `CitizensToolkit`  | Optional  | Hollow Body NPCs for combat logging        |
 
-### HuskTowns (Required)
-- `TownsToolkit` wraps API calls
-- Validates town membership for beacon capture
-- Prevents zone placement near town claims
-
-### BlueMap (Required)
-- `BlueMapIntegration` creates map markers for zones and beacons
-- Updates beacon markers with ownership colors during capture
-- Marks SPIRIT_WEIGHT players on the map
-
-### Citizens (Soft Dependency)
-- `CitizensIntegration` manages Hollow Body NPCs
-- Creates/removes NPCs with configured duration
-- Tracks kill state for reconnect penalty logic
-
-## Configuration
-
-All gameplay values are in `config.yml`:
-- Event triggers: auto-start (enable/disable automatic event starts), min-players, cooldown-minutes, duration-minutes
-- Zone generation: base-count, players-per-zone, radius, min-separation
-- Spirit Weight: min-sequence, max-sequence, dot-damage, dot-interval-ticks
-- Anti-grief: kill-threshold, time-window-seconds, sequence-difference
-- Death penalties: regression-sequence, regression-acting-restored, regression-acting-penalty
-- Beacons: capture-radius, capture-points, points-per-player, decay-rate
-- Rewards: acting-speed-bonus, buff-duration-hours
-
-### Death Penalty System
-The sequence regression system uses a two-tier penalty based on current acting points:
-- **Has enough acting to lose** (>= penalty amount): Acting penalty only
-  - No sequence change
-  - Loses configured % of needed acting (default 50%)
-  - No characteristic drop
-  - Example: If needed acting is 1000 and penalty is 50%, lose 500 acting points
-- **Doesn't have enough acting**: Full sequence regression
-  - Player regresses to next sequence (e.g., Seq 4 → Seq 5)
-  - Receives configured % of new sequence's needed acting (default 80%)
-  - Drops characteristic item of previous sequence
-  - Example: If player has 400 acting but needs 500 to avoid penalty, they regress
-
-All values configurable in `config.yml` under `death` section.
-
-## Key Design Patterns
-
-### Tick-Based Detection
-The plugin uses scheduled tasks instead of event listeners for zone detection to ensure reliable boundary checking:
-- `ZoneCheckTask` every 5 ticks (200ms) - zone entry/exit detection
-- `EventCheckTask` every 20 ticks (1 second) - event state machine tick
-- `SpiritWeightTask` every 100 ticks (5 seconds, configurable) - DOT damage application
-- `BeaconCaptureTask` every 20 ticks (1 second) - beacon capture progress
-- `ZoneBoundaryParticleTask` every 40 ticks (2 seconds, configurable) - visual boundary markers
-
-### Zone Placement & Validation
-Zones are generated by `ZonePlacer` to ensure suitable combat locations:
-- **Random Distribution**: Uses random angles and radii (50-90% of town distance) with ±100 block offsets for variety
-- **Biome Validation**: Rejects ocean, deep ocean, and river biomes
-- **Surface Checks**: Ensures spawn point is not underwater or in lava
-- **Area Suitability**: Scans 60x60 block area around each candidate, rejects if >30% is water
-- **Town Avoidance**: Maintains buffer distance from town claims
-- **Zone Separation**: Enforces minimum distance between zones
-
-This multi-layer validation ensures zones spawn on land surfaces suitable for PvP combat, not in oceans or large bodies of water.
-
-### Consent System
-Players must consent to zone rules before entering:
-- `ConsentGUI` shows agreement GUI on boundary approach
-- Consent state tracked per player, reset when event ends
-- Players inside zones when event starts are teleported outside
-
-### Thread Safety
-All manager maps use `ConcurrentHashMap` to support async operations and tick-based updates without race conditions.
+---
 
 ## Testing Notes
 
-When testing locally with `runServer`:
-- Default min-players is 30 (adjust in config.yml for solo testing)
-- Set `event.auto-start: false` in config.yml to disable automatic event triggers (useful for manual testing)
-- Use `/cosmos admin start` to manually start an event
-- Use `/cosmos admin stop` to manually stop an event
-- Use `/cosmos admin reload` to reload configuration and restart config-dependent tasks (no server restart needed)
-- Check console logs prefixed with `[CI]` for state transitions
+```yaml
+# config.yml overrides for local testing
+event:
+  auto-start: false    # disable auto triggers
+  min-players: 1       # allow solo testing
+```
 
-### Runtime Configuration
-The plugin supports hot-reloading via `/cosmos admin reload`:
-- Reloads all values from config.yml
-- Restarts tasks with updated timing intervals (e.g., DOT interval)
-- No server restart required for most config changes
-- Event-specific settings (zone count, beacons, etc.) apply to next event start
+- Logs prefixed with `[CI]` for state transitions
+- `/cosmos admin reload` applies config changes without restart (task intervals, etc.)
+- Event-specific settings (zone count, tier distribution) apply on next event start
+- Console logs from `[CI]` prefix track all state transitions
+
+---
+
+## Further Reading
+
+- [docs/ZONE_TIERS.md](docs/ZONE_TIERS.md) — Zone tier system, consent GUI, tier mechanics
+- [docs/PERMANENT_ZONES.md](docs/PERMANENT_ZONES.md) — Extraction zones, PoIs, resource types, town balances
+- [docs/COMBAT_DEATH.md](docs/COMBAT_DEATH.md) — Death penalties, Paper Angel, Hollow Body NPCs, anti-grief
+- [docs/CONFIG_REFERENCE.md](docs/CONFIG_REFERENCE.md) — Full config.yml key reference
