@@ -2,7 +2,7 @@ package net.mysterria.cosmos.config;
 
 import lombok.Getter;
 import lombok.Setter;
-import net.mysterria.cosmos.domain.zone.ZoneTier;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 
 import java.util.EnumMap;
 import java.util.Map;

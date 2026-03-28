@@ -50,7 +50,7 @@ public class CoiToolkit {
                 int neededActing = beyonderData.getPathway(pathway).neededActing();
 
                 // Get config values
-                var config = CosmosIncursion.getInstance().getConfigManager().getConfig();
+                var config = CosmosIncursion.getInstance().getConfigLoader().getConfig();
                 double restoredPercentage = config.getRegressionActingRestored();
                 double penaltyPercentage = config.getRegressionActingPenalty();
 
