@@ -51,6 +51,7 @@ public class PermanentZoneManager {
     public void addZone(PermanentZone zone) {
         zones.put(zone.getId(), zone);
         saveZones();
+        plugin.getMapIntegration().createPermanentZoneMarker(zone);
     }
 
     public void removeZone(UUID zoneId) {
@@ -58,6 +59,7 @@ public class PermanentZoneManager {
         activePoIs.remove(zoneId);
         extractionPoints.remove(zoneId);
         saveZones();
+        plugin.getMapIntegration().removePermanentZoneMarker(zoneId);
     }
 
     public Optional<PermanentZone> getZone(UUID id) {
@@ -203,6 +205,7 @@ public class PermanentZoneManager {
             pois.add(new PointOfInterest(loc, type, poiRadius, durationMillis));
         }
         activePoIs.put(zone.getId(), pois);
+        plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
     }
 
     public void rotatePoIs(PermanentZone zone) {
@@ -213,6 +216,7 @@ public class PermanentZoneManager {
         ResourceType[] types = ResourceType.values();
         var rng = ThreadLocalRandom.current();
 
+        boolean anyExpired = pois.stream().anyMatch(poi -> !poi.isActive());
         pois.removeIf(poi -> !poi.isActive());
 
         int needed = config.getPermanentZonePoiCount() - pois.size();
@@ -220,6 +224,9 @@ public class PermanentZoneManager {
             Location loc = randomLocationInsideZone(zone, rng);
             ResourceType type = types[rng.nextInt(types.length)];
             pois.add(new PointOfInterest(loc, type, poiRadius, durationMillis));
+        }
+        if (anyExpired || needed > 0) {
+            plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
         }
     }
 
@@ -236,6 +243,7 @@ public class PermanentZoneManager {
             eps.add(new ExtractionPoint(loc, radius, durationMillis));
         }
         extractionPoints.put(zone.getId(), eps);
+        plugin.getMapIntegration().syncPermanentZoneExtractionPoints(zone, eps);
     }
 
     public void rotateExtractionPoints(PermanentZone zone) {
@@ -245,12 +253,16 @@ public class PermanentZoneManager {
         double radius = config.getPermanentZoneExtractionRadius();
         var rng = ThreadLocalRandom.current();
 
+        boolean anyExpired = eps.stream().anyMatch(ep -> !ep.isActive());
         eps.removeIf(ep -> !ep.isActive());
 
         int needed = config.getPermanentZoneExtractionPointCount() - eps.size();
         for (int i = 0; i < needed; i++) {
             Location loc = randomLocationInsideZone(zone, rng);
             eps.add(new ExtractionPoint(loc, radius, durationMillis));
+        }
+        if (anyExpired || needed > 0) {
+            plugin.getMapIntegration().syncPermanentZoneExtractionPoints(zone, eps);
         }
     }
 

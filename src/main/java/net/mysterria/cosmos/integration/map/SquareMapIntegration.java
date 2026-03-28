@@ -3,6 +3,10 @@ package net.mysterria.cosmos.integration.map;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.permanent.ExtractionPoint;
+import net.mysterria.cosmos.domain.permanent.PermanentZone;
+import net.mysterria.cosmos.domain.permanent.PointOfInterest;
+import net.mysterria.cosmos.domain.permanent.ResourceType;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -12,10 +16,8 @@ import xyz.jpenilla.squaremap.api.marker.Marker;
 import xyz.jpenilla.squaremap.api.marker.MarkerOptions;
 
 import java.awt.*;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.List;
 
 /**
  * squaremap integration for visualizing Incursion zones, beacons, and player markers.
@@ -33,6 +35,10 @@ public class SquareMapIntegration implements MapIntegration {
     private final Map<UUID, Key> zoneMarkerKeys = new HashMap<>();
     private final Map<UUID, Key> corruptedMonsterKeys = new HashMap<>();
     private final Map<String, Key> beaconMarkerKeys = new HashMap<>();
+    private final Map<UUID, Key> permanentZoneMarkerKeys = new HashMap<>();
+    // zone UUID → set of PoI/EP marker keys currently on the map
+    private final Map<UUID, Set<Key>> zonePoiKeys = new HashMap<>();
+    private final Map<UUID, Set<Key>> zoneExtractionKeys = new HashMap<>();
 
     public SquareMapIntegration(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -238,6 +244,159 @@ public class SquareMapIntegration implements MapIntegration {
         }
     }
 
+    // --- Permanent zone markers ---
+
+    @Override
+    public void createPermanentZoneMarker(PermanentZone zone) {
+        if (!isAvailable()) return;
+        try {
+            List<Point> points = new ArrayList<>();
+            for (org.bukkit.Location v : zone.getVertices()) {
+                points.add(Point.of(v.getX(), v.getZ()));
+            }
+            if (points.size() < 3) return;
+
+            Color fill = new Color(220, 120, 0, 45);    // amber ~18%
+            Color stroke = new Color(255, 160, 0, 200); // bright amber ~78%
+
+            MarkerOptions options = MarkerOptions.builder()
+                    .fillColor(fill)
+                    .strokeColor(stroke)
+                    .strokeWeight(3)
+                    .clickTooltip("⚔ Permanent Zone: " + zone.getName())
+                    .build();
+
+            var polygon = Marker.polygon(points).markerOptions(options);
+            Key key = permanentZoneKey(zone.getId());
+            layerProvider.addMarker(key, polygon);
+            permanentZoneMarkerKeys.put(zone.getId(), key);
+
+            plugin.log("squaremap: created permanent zone marker for " + zone.getName());
+        } catch (Exception e) {
+            plugin.log("squaremap: error creating permanent zone marker: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removePermanentZoneMarker(UUID zoneId) {
+        if (!isAvailable()) return;
+        Key key = permanentZoneMarkerKeys.remove(zoneId);
+        if (key != null) {
+            try { layerProvider.removeMarker(key); } catch (Exception ignored) {}
+        }
+        // Also remove PoI and EP markers for this zone
+        removeZoneSubMarkers(zoneId, zonePoiKeys);
+        removeZoneSubMarkers(zoneId, zoneExtractionKeys);
+    }
+
+    @Override
+    public void removeAllPermanentZoneMarkers() {
+        if (!isAvailable()) return;
+        for (Key key : new HashSet<>(permanentZoneMarkerKeys.values())) {
+            try { layerProvider.removeMarker(key); } catch (Exception ignored) {}
+        }
+        permanentZoneMarkerKeys.clear();
+        for (UUID zoneId : new HashSet<>(zonePoiKeys.keySet())) {
+            removeZoneSubMarkers(zoneId, zonePoiKeys);
+        }
+        for (UUID zoneId : new HashSet<>(zoneExtractionKeys.keySet())) {
+            removeZoneSubMarkers(zoneId, zoneExtractionKeys);
+        }
+    }
+
+    @Override
+    public void syncPermanentZonePoIs(PermanentZone zone, List<PointOfInterest> pois) {
+        if (!isAvailable()) return;
+        try {
+            removeZoneSubMarkers(zone.getId(), zonePoiKeys);
+            Set<Key> newKeys = new HashSet<>();
+            for (PointOfInterest poi : pois) {
+                if (!poi.isActive()) continue;
+                Color fill = poiFillColor(poi.getResourceType());
+                Color stroke = poiStrokeColor(poi.getResourceType());
+                MarkerOptions opts = MarkerOptions.builder()
+                        .fillColor(fill)
+                        .strokeColor(stroke)
+                        .strokeWeight(2)
+                        .clickTooltip(poiLabel(poi.getResourceType()) + " — " + zone.getName())
+                        .build();
+                var circle = Marker.circle(
+                        Point.of(poi.getLocation().getX(), poi.getLocation().getZ()),
+                        poi.getExtractionRadius()
+                ).markerOptions(opts);
+                Key key = poiKey(poi.getId());
+                layerProvider.addMarker(key, circle);
+                newKeys.add(key);
+            }
+            zonePoiKeys.put(zone.getId(), newKeys);
+        } catch (Exception e) {
+            plugin.log("squaremap: error syncing PoI markers: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void syncPermanentZoneExtractionPoints(PermanentZone zone, List<ExtractionPoint> eps) {
+        if (!isAvailable()) return;
+        try {
+            removeZoneSubMarkers(zone.getId(), zoneExtractionKeys);
+            Set<Key> newKeys = new HashSet<>();
+            for (ExtractionPoint ep : eps) {
+                if (!ep.isActive()) continue;
+                Color fill = new Color(0, 200, 220, 50);
+                Color stroke = new Color(0, 220, 255, 200);
+                MarkerOptions opts = MarkerOptions.builder()
+                        .fillColor(fill)
+                        .strokeColor(stroke)
+                        .strokeWeight(2)
+                        .clickTooltip("⬆ Extraction Point — " + zone.getName())
+                        .build();
+                var circle = Marker.circle(
+                        Point.of(ep.getLocation().getX(), ep.getLocation().getZ()),
+                        ep.getCaptureRadius()
+                ).markerOptions(opts);
+                Key key = extractionKey(ep.getId());
+                layerProvider.addMarker(key, circle);
+                newKeys.add(key);
+            }
+            zoneExtractionKeys.put(zone.getId(), newKeys);
+        } catch (Exception e) {
+            plugin.log("squaremap: error syncing extraction point markers: " + e.getMessage());
+        }
+    }
+
+    private void removeZoneSubMarkers(UUID zoneId, Map<UUID, Set<Key>> keyMap) {
+        Set<Key> keys = keyMap.remove(zoneId);
+        if (keys != null) {
+            for (Key k : keys) {
+                try { layerProvider.removeMarker(k); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private static Color poiFillColor(ResourceType type) {
+        return switch (type) {
+            case GOLD -> new Color(255, 200, 0, 60);
+            case SILVER -> new Color(180, 180, 210, 60);
+            case GEMS -> new Color(0, 200, 100, 60);
+        };
+    }
+
+    private static Color poiStrokeColor(ResourceType type) {
+        return switch (type) {
+            case GOLD -> new Color(255, 215, 0, 220);
+            case SILVER -> new Color(192, 192, 220, 220);
+            case GEMS -> new Color(0, 201, 87, 220);
+        };
+    }
+
+    private static String poiLabel(ResourceType type) {
+        return switch (type) {
+            case GOLD -> "⬛ Gold";
+            case SILVER -> "◈ Silver";
+            case GEMS -> "◆ Gems";
+        };
+    }
+
     // --- Key helpers ---
     // squaremap keys must be lowercase alphanumeric + underscore; strip UUID hyphens
 
@@ -251,5 +410,17 @@ public class SquareMapIntegration implements MapIntegration {
 
     private static Key corruptedKey(UUID id) {
         return Key.of("corrupted_" + id.toString().replace("-", ""));
+    }
+
+    private static Key permanentZoneKey(UUID id) {
+        return Key.of("pzone_" + id.toString().replace("-", ""));
+    }
+
+    private static Key poiKey(UUID id) {
+        return Key.of("poi_" + id.toString().replace("-", ""));
+    }
+
+    private static Key extractionKey(UUID id) {
+        return Key.of("ep_" + id.toString().replace("-", ""));
     }
 }

@@ -13,6 +13,10 @@ import de.bluecolored.bluemap.api.math.Shape;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.permanent.ExtractionPoint;
+import net.mysterria.cosmos.domain.permanent.PermanentZone;
+import net.mysterria.cosmos.domain.permanent.PointOfInterest;
+import net.mysterria.cosmos.domain.permanent.ResourceType;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import org.bukkit.entity.Player;
 
@@ -27,6 +31,10 @@ public class BlueMapIntegration implements MapIntegration {
     private final Map<UUID, Marker> zoneMarkers;
     private final Map<UUID, Marker> corruptedMonsterMarkers;
     private final Map<String, Marker> beaconMarkers;
+    private final Map<UUID, Marker> permanentZoneMarkers;
+    // zone UUID → set of marker IDs (PoI / extraction points) for bulk removal
+    private final Map<UUID, Set<String>> zonePoiMarkerIds;
+    private final Map<UUID, Set<String>> zoneExtractionMarkerIds;
     private BlueMapAPI api;
     private MarkerSet markerSet;
 
@@ -35,6 +43,9 @@ public class BlueMapIntegration implements MapIntegration {
         this.zoneMarkers = new HashMap<>();
         this.corruptedMonsterMarkers = new HashMap<>();
         this.beaconMarkers = new HashMap<>();
+        this.permanentZoneMarkers = new HashMap<>();
+        this.zonePoiMarkerIds = new HashMap<>();
+        this.zoneExtractionMarkerIds = new HashMap<>();
     }
 
     /**
@@ -347,6 +358,153 @@ public class BlueMapIntegration implements MapIntegration {
             plugin.log("Error removing all beacon markers: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    // --- Permanent zone markers ---
+
+    @Override
+    public void createPermanentZoneMarker(PermanentZone zone) {
+        if (api == null || markerSet == null) return;
+        try {
+            List<Vector2d> points = new ArrayList<>();
+            for (org.bukkit.Location v : zone.getVertices()) {
+                points.add(new Vector2d(v.getX(), v.getZ()));
+            }
+            if (points.size() < 3) return;
+
+            double avgY = zone.getVertices().stream().mapToDouble(org.bukkit.Location::getY).average().orElse(64);
+            Shape shape = new Shape(points);
+
+            ShapeMarker marker = ShapeMarker.builder()
+                    .label("⚔ Permanent Zone: " + zone.getName())
+                    .shape(shape, (float) avgY)
+                    .fillColor(new Color(220, 120, 0, 0.18f))
+                    .lineColor(new Color(255, 160, 0, 0.78f))
+                    .lineWidth(3)
+                    .depthTestEnabled(false)
+                    .build();
+
+            String markerId = "pzone_" + zone.getId();
+            markerSet.put(markerId, marker);
+            permanentZoneMarkers.put(zone.getId(), marker);
+
+            plugin.log("BlueMap: created permanent zone marker for " + zone.getName());
+        } catch (Exception e) {
+            plugin.log("BlueMap: error creating permanent zone marker: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removePermanentZoneMarker(UUID zoneId) {
+        if (markerSet == null) return;
+        markerSet.remove("pzone_" + zoneId);
+        permanentZoneMarkers.remove(zoneId);
+        removeZoneSubMarkers(zoneId, zonePoiMarkerIds);
+        removeZoneSubMarkers(zoneId, zoneExtractionMarkerIds);
+    }
+
+    @Override
+    public void removeAllPermanentZoneMarkers() {
+        if (markerSet == null) return;
+        for (UUID id : new HashSet<>(permanentZoneMarkers.keySet())) {
+            markerSet.remove("pzone_" + id);
+        }
+        permanentZoneMarkers.clear();
+        for (UUID id : new HashSet<>(zonePoiMarkerIds.keySet())) {
+            removeZoneSubMarkers(id, zonePoiMarkerIds);
+        }
+        for (UUID id : new HashSet<>(zoneExtractionMarkerIds.keySet())) {
+            removeZoneSubMarkers(id, zoneExtractionMarkerIds);
+        }
+    }
+
+    @Override
+    public void syncPermanentZonePoIs(PermanentZone zone, List<PointOfInterest> pois) {
+        if (api == null || markerSet == null) return;
+        try {
+            removeZoneSubMarkers(zone.getId(), zonePoiMarkerIds);
+            Set<String> newIds = new HashSet<>();
+            for (PointOfInterest poi : pois) {
+                if (!poi.isActive()) continue;
+                List<Vector2d> pts = createCirclePoints(
+                        poi.getLocation().getX(), poi.getLocation().getZ(),
+                        poi.getExtractionRadius(), 24);
+                ShapeMarker marker = ShapeMarker.builder()
+                        .label(poiLabel(poi.getResourceType()) + " — " + zone.getName())
+                        .shape(new Shape(pts), (float) poi.getLocation().getY())
+                        .fillColor(poiFillColor(poi.getResourceType()))
+                        .lineColor(poiLineColor(poi.getResourceType()))
+                        .lineWidth(2)
+                        .depthTestEnabled(false)
+                        .build();
+                String id = "poi_" + poi.getId();
+                markerSet.put(id, marker);
+                newIds.add(id);
+            }
+            zonePoiMarkerIds.put(zone.getId(), newIds);
+        } catch (Exception e) {
+            plugin.log("BlueMap: error syncing PoI markers: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void syncPermanentZoneExtractionPoints(PermanentZone zone, List<ExtractionPoint> eps) {
+        if (api == null || markerSet == null) return;
+        try {
+            removeZoneSubMarkers(zone.getId(), zoneExtractionMarkerIds);
+            Set<String> newIds = new HashSet<>();
+            for (ExtractionPoint ep : eps) {
+                if (!ep.isActive()) continue;
+                List<Vector2d> pts = createCirclePoints(
+                        ep.getLocation().getX(), ep.getLocation().getZ(),
+                        ep.getCaptureRadius(), 24);
+                ShapeMarker marker = ShapeMarker.builder()
+                        .label("⬆ Extraction Point — " + zone.getName())
+                        .shape(new Shape(pts), (float) ep.getLocation().getY())
+                        .fillColor(new Color(0, 200, 220, 0.20f))
+                        .lineColor(new Color(0, 220, 255, 0.78f))
+                        .lineWidth(2)
+                        .depthTestEnabled(false)
+                        .build();
+                String id = "ep_" + ep.getId();
+                markerSet.put(id, marker);
+                newIds.add(id);
+            }
+            zoneExtractionMarkerIds.put(zone.getId(), newIds);
+        } catch (Exception e) {
+            plugin.log("BlueMap: error syncing extraction point markers: " + e.getMessage());
+        }
+    }
+
+    private void removeZoneSubMarkers(UUID zoneId, Map<UUID, Set<String>> idMap) {
+        Set<String> ids = idMap.remove(zoneId);
+        if (ids != null && markerSet != null) {
+            for (String id : ids) markerSet.remove(id);
+        }
+    }
+
+    private static Color poiFillColor(ResourceType type) {
+        return switch (type) {
+            case GOLD -> new Color(255, 200, 0, 0.24f);
+            case SILVER -> new Color(180, 180, 210, 0.24f);
+            case GEMS -> new Color(0, 200, 100, 0.24f);
+        };
+    }
+
+    private static Color poiLineColor(ResourceType type) {
+        return switch (type) {
+            case GOLD -> new Color(255, 215, 0, 0.86f);
+            case SILVER -> new Color(192, 192, 220, 0.86f);
+            case GEMS -> new Color(0, 201, 87, 0.86f);
+        };
+    }
+
+    private static String poiLabel(ResourceType type) {
+        return switch (type) {
+            case GOLD -> "⬛ Gold";
+            case SILVER -> "◈ Silver";
+            case GEMS -> "◆ Gems";
+        };
     }
 
     /**

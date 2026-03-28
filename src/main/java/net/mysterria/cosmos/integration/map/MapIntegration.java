@@ -1,9 +1,13 @@
 package net.mysterria.cosmos.integration.map;
 
 import net.mysterria.cosmos.domain.beacon.SpiritBeacon;
+import net.mysterria.cosmos.domain.permanent.ExtractionPoint;
+import net.mysterria.cosmos.domain.permanent.PermanentZone;
+import net.mysterria.cosmos.domain.permanent.PointOfInterest;
 import net.mysterria.cosmos.domain.zone.IncursionZone;
 import org.bukkit.entity.Player;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -43,4 +47,16 @@ public interface MapIntegration {
     void removeCorruptedMonsterMarker(Player player);
 
     void removeCorruptedMonsterMarker(UUID playerId);
+
+    // --- Permanent zone markers ---
+
+    void createPermanentZoneMarker(PermanentZone zone);
+
+    void removePermanentZoneMarker(UUID zoneId);
+
+    void removeAllPermanentZoneMarkers();
+
+    void syncPermanentZonePoIs(PermanentZone zone, List<PointOfInterest> pois);
+
+    void syncPermanentZoneExtractionPoints(PermanentZone zone, List<ExtractionPoint> eps);
 }

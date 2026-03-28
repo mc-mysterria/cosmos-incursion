@@ -13,6 +13,7 @@ import net.mysterria.cosmos.domain.beacon.ui.BeaconUIManager;
 import net.mysterria.cosmos.domain.combat.CombatLogHandler;
 import net.mysterria.cosmos.domain.effect.EffectManager;
 import net.mysterria.cosmos.domain.event.EventManager;
+import net.mysterria.cosmos.domain.permanent.PermanentZone;
 import net.mysterria.cosmos.domain.player.KillTracker;
 import net.mysterria.cosmos.domain.player.PlayerStateManager;
 import net.mysterria.cosmos.domain.reward.BuffManager;
@@ -167,8 +168,9 @@ public final class CosmosIncursion extends JavaPlugin {
         permanentZoneManager = new PermanentZoneManager(this);
         permanentZoneManager.loadZones();
         permanentZoneManager.loadBalances();
-        // Spawn initial PoIs and extraction points for loaded zones
-        for (var zone : permanentZoneManager.getAllZones()) {
+
+        for (PermanentZone zone : permanentZoneManager.getAllZones()) {
+            mapIntegration.createPermanentZoneMarker(zone);
             permanentZoneManager.spawnPoIsForZone(zone);
             permanentZoneManager.spawnExtractionPoints(zone);
         }
