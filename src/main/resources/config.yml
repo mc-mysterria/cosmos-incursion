@@ -156,10 +156,24 @@ permanent-zones:
   extraction-point-duration-seconds: 180
   # Radius (blocks) within which a player accumulates resources from a PoI
   poi-capture-radius: 8.0
-  # Radius (blocks) within which a player can deposit at an extraction point
+  # Radius (blocks) within which a player can begin an extraction channel
   extraction-radius: 6.0
-  # Units of each resource drained from buffer per second during extraction
+  # Units of each resource drained from buffer per second during extraction (legacy, unused by channel mechanic)
   extraction-rate-per-second: 5.0
+  # How long (seconds) a player must stand at an extraction point to extract resources
+  extraction-channel-seconds: 10
+  # How many blocks outside the zone boundary the player is teleported after successful extraction
+  extraction-exit-buffer: 15.0
+  # Enable particle effects for zone boundaries, PoIs, and extraction points
+  particles-enabled: true
+  # How far away (blocks) players can see permanent zone particles
+  particle-view-distance: 64.0
+  # Total units of resource a single PoI can yield before it depletes and vanishes
+  poi-resource-cap: 50.0
+  # Minimum seconds before a depleted/expired PoI respawns (random delay in this range)
+  poi-respawn-min-seconds: 120
+  # Maximum seconds before a depleted/expired PoI respawns
+  poi-respawn-max-seconds: 300
 
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"

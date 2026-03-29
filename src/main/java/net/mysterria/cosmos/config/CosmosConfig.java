@@ -93,6 +93,13 @@ public class CosmosConfig {
     private double permanentZonePoiCaptureRadius = 8.0;
     private double permanentZoneExtractionRadius = 6.0;
     private double permanentZoneExtractionRatePerSecond = 5.0;
+    private int permanentZoneExtractionChannelSeconds = 10;
+    private double permanentZoneExtractionExitBuffer = 15.0;
+    private boolean permanentZoneParticlesEnabled = true;
+    private double permanentZoneParticleViewDistance = 64.0;
+    private double permanentZonePoiResourceCap = 50.0;
+    private int permanentZonePoiRespawnMinSeconds = 120;
+    private int permanentZonePoiRespawnMaxSeconds = 300;
 
     // Messages
     private String msgEventStarting = "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>";

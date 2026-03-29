@@ -18,9 +18,13 @@ import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
 import net.mysterria.cosmos.domain.combat.service.CombatLogHandler;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
+import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneListener;
+import net.mysterria.cosmos.domain.guide.CosmosGuideGUI;
 import net.mysterria.cosmos.domain.exclusion.task.ExtractionTask;
+import net.mysterria.cosmos.domain.exclusion.task.PermanentZoneBoundaryParticleTask;
 import net.mysterria.cosmos.domain.exclusion.task.PermanentZonePlayerTask;
 import net.mysterria.cosmos.domain.exclusion.task.PoIRotationTask;
+import net.mysterria.cosmos.domain.exclusion.task.PoIVisualizationTask;
 import net.mysterria.cosmos.domain.exclusion.task.ResourceAccumulationTask;
 import net.mysterria.cosmos.domain.incursion.task.EventCheckTask;
 import net.mysterria.cosmos.domain.incursion.task.ZoneCheckTask;
@@ -77,6 +81,7 @@ public final class CosmosIncursion extends JavaPlugin {
     // UI
     private ConsentGUI consentGUI;
     private BeaconUIManager beaconUIManager;
+    private CosmosGuideGUI guideGUI;
 
     private LiteCommands<CommandSender> liteCommands;
 
@@ -149,11 +154,16 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing consent GUI...");
         consentGUI = new ConsentGUI();
 
+        // Initialize guide GUI
+        log("Initializing guide GUI...");
+        guideGUI = new CosmosGuideGUI(this);
+
         // Initialize permanent zone manager
         log("Initializing permanent zone manager...");
         permanentZoneManager = new PermanentZoneManager(this);
         permanentZoneManager.loadZones();
         permanentZoneManager.loadBalances();
+        permanentZoneManager.cleanupOrphanedDisplayEntities();
 
         for (PermanentZone zone : permanentZoneManager.getAllZones()) {
             mapIntegration.createPermanentZoneMarker(zone);
@@ -189,8 +199,9 @@ public final class CosmosIncursion extends JavaPlugin {
             buffToolkit.saveBuffData();
         }
 
-        // Save permanent zone data
+        // Save permanent zone data and clean up display entities
         if (permanentZoneManager != null) {
+            permanentZoneManager.cleanup();
             permanentZoneManager.saveZones();
             permanentZoneManager.saveBalances();
         }
@@ -216,6 +227,7 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
         getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
+        getServer().getPluginManager().registerEvents(new ExclusionZoneListener(permanentZoneManager), this);
     }
 
     private void startTasks() {
@@ -247,6 +259,8 @@ public final class CosmosIncursion extends JavaPlugin {
         new ResourceAccumulationTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
         new ExtractionTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
         new PoIRotationTask(permanentZoneManager).runTaskTimer(this, 0L, 20L);
+        new PermanentZoneBoundaryParticleTask(this, permanentZoneManager).runTaskTimer(this, 0L, 40L);
+        new PoIVisualizationTask(this, permanentZoneManager).runTaskTimer(this, 0L, 5L);
     }
 
     private void initializeCitizensWithRetry(int attempt) {

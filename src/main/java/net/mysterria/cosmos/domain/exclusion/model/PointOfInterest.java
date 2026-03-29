@@ -13,25 +13,44 @@ public class PointOfInterest {
     private final Location location;
     private final ResourceType resourceType;
     private final double extractionRadius;
+    private final double resourceCap;
     private long activeUntil;
+    private double resourcesRemaining;
 
     public PointOfInterest(UUID id, Location location, ResourceType resourceType,
-                           double extractionRadius, long activeUntil) {
+                           double extractionRadius, long activeUntil, double resourceCap) {
         this.id = id;
         this.location = location;
         this.resourceType = resourceType;
         this.extractionRadius = extractionRadius;
         this.activeUntil = activeUntil;
+        this.resourceCap = resourceCap;
+        this.resourcesRemaining = resourceCap;
     }
 
     public PointOfInterest(Location location, ResourceType resourceType,
-                           double extractionRadius, long durationMillis) {
+                           double extractionRadius, long durationMillis, double resourceCap) {
         this(UUID.randomUUID(), location, resourceType, extractionRadius,
-                System.currentTimeMillis() + durationMillis);
+                System.currentTimeMillis() + durationMillis, resourceCap);
     }
 
+    /**
+     * Consume up to {@code amount} from this PoI's remaining resources.
+     * Returns the actual amount consumed (capped at remaining).
+     */
+    public double consumeResource(double amount) {
+        double actual = Math.min(amount, resourcesRemaining);
+        resourcesRemaining -= actual;
+        return actual;
+    }
+
+    public boolean isDepleted() {
+        return resourcesRemaining <= 0;
+    }
+
+    /** Active while time hasn't expired AND resources haven't been fully drained. */
     public boolean isActive() {
-        return System.currentTimeMillis() < activeUntil;
+        return System.currentTimeMillis() < activeUntil && !isDepleted();
     }
 
     public boolean isPlayerInRange(Location playerLoc) {

@@ -41,8 +41,10 @@ public class ResourceAccumulationTask extends BukkitRunnable {
                 if (!poi.isActive()) continue;
                 if (poi.isPlayerInRange(player.getLocation())) {
                     double rate = getRate(poi.getResourceType());
+                    double actual = poi.consumeResource(rate);
+                    if (actual <= 0) continue; // depleted mid-tick, skip
                     PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
-                    buffer.add(poi.getResourceType(), rate);
+                    buffer.add(poi.getResourceType(), actual);
                     sendBufferActionBar(player, buffer);
                     break; // Only one PoI per tick
                 }

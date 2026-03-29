@@ -2,8 +2,11 @@ package net.mysterria.cosmos.domain.exclusion.manager;
 
 import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.exclusion.model.ExtractionChannelState;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
@@ -11,7 +14,14 @@ import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
+import org.bukkit.entity.Display;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.ItemDisplay;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.io.*;
 import java.lang.reflect.Type;
@@ -40,6 +50,15 @@ public class PermanentZoneManager {
     // Tracks which permanent zone each online player is in (null = not in zone)
     private final Map<UUID, PermanentZone> playerZones = new ConcurrentHashMap<>();
 
+    // Per-player active extraction channel
+    private final Map<UUID, ExtractionChannelState> extractionChannels = new ConcurrentHashMap<>();
+
+    // PoI UUID → live ItemDisplay entity (for rotation and cleanup)
+    private final Map<UUID, Entity> poiDisplayEntities = new ConcurrentHashMap<>();
+
+    // Per-zone queue of scheduled PoI respawn timestamps (epoch ms)
+    private final Map<UUID, List<Long>> poiRespawnSchedule = new ConcurrentHashMap<>();
+
     // Town balance: townId -> resourceType -> accumulated amount
     private final Map<Integer, Map<ResourceType, Double>> townBalances = new ConcurrentHashMap<>();
     private final File balanceFile;
@@ -60,6 +79,10 @@ public class PermanentZoneManager {
     }
 
     public void removeZone(UUID zoneId) {
+        List<PointOfInterest> pois = activePoIs.getOrDefault(zoneId, Collections.emptyList());
+        for (PointOfInterest poi : pois) {
+            removeDisplayEntity(poi.getId());
+        }
         zones.remove(zoneId);
         activePoIs.remove(zoneId);
         extractionPoints.remove(zoneId);
@@ -157,7 +180,6 @@ public class PermanentZoneManager {
 
     public void saveBalances() {
         try (FileWriter fw = new FileWriter(balanceFile)) {
-            // Convert to string-keyed map for JSON
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
                 Map<String, Double> inner = new LinkedHashMap<>();
@@ -196,10 +218,20 @@ public class PermanentZoneManager {
     // ── PoI / Extraction management ──────────────────────────────────────────────
 
     public void spawnPoIsForZone(PermanentZone zone) {
+        // Remove existing display entities first
+        List<PointOfInterest> existing = activePoIs.getOrDefault(zone.getId(), Collections.emptyList());
+        for (PointOfInterest poi : existing) {
+            removeDisplayEntity(poi.getId());
+        }
+
+        // Clear any stale respawn schedule so fresh PoIs spawn immediately on zone init
+        poiRespawnSchedule.remove(zone.getId());
+
         CosmosConfig config = plugin.getConfigLoader().getConfig();
         int count = config.getPermanentZonePoiCount();
         long durationMillis = config.getPermanentZonePoiDurationSeconds() * 1000L;
         double poiRadius = config.getPermanentZonePoiCaptureRadius();
+        double resourceCap = config.getPermanentZonePoiResourceCap();
         ResourceType[] types = ResourceType.values();
         var rng = ThreadLocalRandom.current();
 
@@ -207,32 +239,80 @@ public class PermanentZoneManager {
         for (int i = 0; i < count; i++) {
             Location loc = randomLocationInsideZone(zone, rng);
             ResourceType type = types[rng.nextInt(types.length)];
-            pois.add(new PointOfInterest(loc, type, poiRadius, durationMillis));
+            PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, resourceCap);
+            pois.add(poi);
+            spawnDisplayEntityForPoI(poi);
         }
         activePoIs.put(zone.getId(), pois);
         plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
     }
 
+    /**
+     * Called every second. Removes inactive (depleted/expired) PoIs, schedules delayed
+     * respawns for each one, then spawns any scheduled PoIs whose delay has elapsed.
+     */
     public void rotatePoIs(PermanentZone zone) {
         List<PointOfInterest> pois = activePoIs.computeIfAbsent(zone.getId(), k -> new ArrayList<>());
+        List<Long> schedule = poiRespawnSchedule.computeIfAbsent(zone.getId(), k -> new ArrayList<>());
+
         CosmosConfig config = plugin.getConfigLoader().getConfig();
         long durationMillis = config.getPermanentZonePoiDurationSeconds() * 1000L;
         double poiRadius = config.getPermanentZonePoiCaptureRadius();
+        double resourceCap = config.getPermanentZonePoiResourceCap();
+        int minDelay = config.getPermanentZonePoiRespawnMinSeconds();
+        int maxDelay = config.getPermanentZonePoiRespawnMaxSeconds();
         ResourceType[] types = ResourceType.values();
         var rng = ThreadLocalRandom.current();
 
-        boolean anyExpired = pois.stream().anyMatch(poi -> !poi.isActive());
-        pois.removeIf(poi -> !poi.isActive());
+        boolean changed = false;
 
-        int needed = config.getPermanentZonePoiCount() - pois.size();
-        for (int i = 0; i < needed; i++) {
-            Location loc = randomLocationInsideZone(zone, rng);
-            ResourceType type = types[rng.nextInt(types.length)];
-            pois.add(new PointOfInterest(loc, type, poiRadius, durationMillis));
+        // Remove inactive PoIs and schedule their replacements
+        for (PointOfInterest poi : new ArrayList<>(pois)) {
+            if (!poi.isActive()) {
+                removeDisplayEntity(poi.getId());
+                pois.remove(poi);
+                long delay = (minDelay + rng.nextInt(Math.max(1, maxDelay - minDelay))) * 1000L;
+                schedule.add(System.currentTimeMillis() + delay);
+                changed = true;
+            }
         }
-        if (anyExpired || needed > 0) {
+
+        // Spawn scheduled PoIs whose delay has elapsed
+        long now = System.currentTimeMillis();
+        boolean spawned = false;
+        List<Long> ready = schedule.stream().filter(t -> now >= t).toList();
+        if (!ready.isEmpty()) {
+            schedule.removeAll(ready);
+            for (int i = 0; i < ready.size(); i++) {
+                Location loc = randomLocationInsideZone(zone, rng);
+                ResourceType type = types[rng.nextInt(types.length)];
+                PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, resourceCap);
+                pois.add(poi);
+                spawnDisplayEntityForPoI(poi);
+                announcePoISpawned(zone, poi);
+                spawned = true;
+            }
+            changed = true;
+        }
+
+        if (changed) {
             plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
         }
+    }
+
+    private void announcePoISpawned(PermanentZone zone, PointOfInterest poi) {
+        NamedTextColor color = switch (poi.getResourceType()) {
+            case GOLD -> NamedTextColor.GOLD;
+            case SILVER -> NamedTextColor.WHITE;
+            case GEMS -> NamedTextColor.GREEN;
+        };
+        Component msg = Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+            .append(Component.text("A ", NamedTextColor.WHITE))
+            .append(Component.text(poi.getResourceType().name(), color))
+            .append(Component.text(" Point of Interest has emerged in ", NamedTextColor.WHITE))
+            .append(Component.text(zone.getName(), NamedTextColor.YELLOW))
+            .append(Component.text("! Contest it before it runs dry.", NamedTextColor.WHITE));
+        Bukkit.broadcast(msg);
     }
 
     public void spawnExtractionPoints(PermanentZone zone) {
@@ -244,7 +324,7 @@ public class PermanentZoneManager {
 
         List<ExtractionPoint> eps = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            Location loc = randomLocationInsideZone(zone, rng);
+            Location loc = randomLocationNearBoundary(zone, rng);
             eps.add(new ExtractionPoint(loc, radius, durationMillis));
         }
         extractionPoints.put(zone.getId(), eps);
@@ -263,7 +343,7 @@ public class PermanentZoneManager {
 
         int needed = config.getPermanentZoneExtractionPointCount() - eps.size();
         for (int i = 0; i < needed; i++) {
-            Location loc = randomLocationInsideZone(zone, rng);
+            Location loc = randomLocationNearBoundary(zone, rng);
             eps.add(new ExtractionPoint(loc, radius, durationMillis));
         }
         if (anyExpired || needed > 0) {
@@ -281,6 +361,78 @@ public class PermanentZoneManager {
                 extractionPoints.getOrDefault(zone.getId(), Collections.emptyList()));
     }
 
+    // ── ItemDisplay entity management ────────────────────────────────────────────
+
+    private void spawnDisplayEntityForPoI(PointOfInterest poi) {
+        Location loc = poi.getLocation().clone().add(0, 1.5, 0);
+        World world = loc.getWorld();
+        if (world == null) return;
+        if (!loc.getChunk().isLoaded()) loc.getChunk().load();
+
+        ItemDisplay display = (ItemDisplay) world.spawnEntity(loc, EntityType.ITEM_DISPLAY);
+        display.setItemStack(new ItemStack(poi.getResourceType().getDefaultMaterial()));
+        display.setBillboard(Display.Billboard.FIXED);
+        display.setGravity(false);
+        display.setInterpolationDuration(10);
+        display.getPersistentDataContainer().set(
+            plugin.getKey("poi_display"),
+            PersistentDataType.STRING,
+            poi.getId().toString()
+        );
+
+        poiDisplayEntities.put(poi.getId(), display);
+    }
+
+    private void removeDisplayEntity(UUID poiId) {
+        Entity entity = poiDisplayEntities.remove(poiId);
+        if (entity != null && !entity.isDead()) {
+            entity.remove();
+        }
+    }
+
+    /** Returns the live display entity for a PoI, or null if none. */
+    public Entity getPoIDisplayEntity(UUID poiId) {
+        return poiDisplayEntities.get(poiId);
+    }
+
+    /**
+     * Removes any orphaned poi_display entities left over from a previous server session.
+     * Call this on plugin enable before spawning fresh PoIs.
+     */
+    public void cleanupOrphanedDisplayEntities() {
+        NamespacedKey key = plugin.getKey("poi_display");
+        for (World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity instanceof ItemDisplay
+                        && entity.getPersistentDataContainer().has(key)) {
+                    entity.remove();
+                }
+            }
+        }
+    }
+
+    /** Removes all live display entities. Call on plugin disable. */
+    public void cleanup() {
+        for (Entity entity : poiDisplayEntities.values()) {
+            if (!entity.isDead()) entity.remove();
+        }
+        poiDisplayEntities.clear();
+    }
+
+    // ── Extraction channel tracking ──────────────────────────────────────────────
+
+    public void startExtractionChannel(UUID playerId, ExtractionPoint ep) {
+        extractionChannels.put(playerId, new ExtractionChannelState(playerId, ep));
+    }
+
+    public ExtractionChannelState getExtractionChannel(UUID playerId) {
+        return extractionChannels.get(playerId);
+    }
+
+    public void cancelExtractionChannel(UUID playerId) {
+        extractionChannels.remove(playerId);
+    }
+
     // ── Player buffer access ─────────────────────────────────────────────────────
 
     public PlayerResourceBuffer getBuffer(UUID playerId) {
@@ -289,11 +441,13 @@ public class PermanentZoneManager {
 
     public void clearBuffer(UUID playerId) {
         buffers.remove(playerId);
+        extractionChannels.remove(playerId);
     }
 
     /** Returns snapshot and removes the buffer entry. */
     public Map<ResourceType, Double> collectAndClearBuffer(UUID playerId) {
         PlayerResourceBuffer buf = buffers.remove(playerId);
+        extractionChannels.remove(playerId);
         if (buf == null || buf.isEmpty()) return Collections.emptyMap();
         return buf.snapshot();
     }
@@ -303,6 +457,7 @@ public class PermanentZoneManager {
     public void updatePlayerZone(UUID playerId, PermanentZone zone) {
         if (zone == null) {
             playerZones.remove(playerId);
+            extractionChannels.remove(playerId);
         } else {
             playerZones.put(playerId, zone);
         }
@@ -327,15 +482,64 @@ public class PermanentZoneManager {
                 townBalances.getOrDefault(townId, Collections.emptyMap()));
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────
+    // ── Exit point calculation ────────────────────────────────────────────────────
 
     /**
-     * Returns a random location inside the polygon using rejection sampling within the bounding box.
-     * Falls back to the centroid if no point is found within 50 attempts.
+     * Finds a safe location just outside the zone boundary.
+     * Casts a ray from the centroid through {@code from}, finds where it exits the polygon,
+     * then adds {@code bufferDistance} extra blocks so the player lands clearly outside.
      */
+    public Location findExitPoint(PermanentZone zone, Location from, double bufferDistance) {
+        Location centroid = zone.getCentroid();
+        if (centroid == null) return null;
+        World world = zone.getWorld();
+        if (world == null) return null;
+
+        double dx = from.getX() - centroid.getX();
+        double dz = from.getZ() - centroid.getZ();
+        double dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist < 0.5) {
+            // Player is at centroid — pick direction of nearest vertex
+            List<Location> verts = zone.getVertices();
+            if (!verts.isEmpty()) {
+                dx = verts.get(0).getX() - centroid.getX();
+                dz = verts.get(0).getZ() - centroid.getZ();
+                dist = Math.sqrt(dx * dx + dz * dz);
+            }
+        }
+        if (dist < 0.1) return null;
+
+        // Normalize
+        dx /= dist;
+        dz /= dist;
+
+        // March outward 0.5 blocks at a time until outside the polygon
+        double approxRadius = zone.getApproximateRadius();
+        double maxSearch = approxRadius + bufferDistance + 60;
+        for (double r = dist; r <= maxSearch; r += 0.5) {
+            double x = centroid.getX() + dx * r;
+            double z = centroid.getZ() + dz * r;
+            if (!zone.contains(new Location(world, x, 64, z))) {
+                // Found the exit boundary — step one more buffer distance outward
+                double exitX = centroid.getX() + dx * (r + bufferDistance);
+                double exitZ = centroid.getZ() + dz * (r + bufferDistance);
+                double exitY = world.getHighestBlockYAt((int) exitX, (int) exitZ) + 1.0;
+                return new Location(world, exitX, exitY, exitZ, from.getYaw(), 0);
+            }
+        }
+
+        // Fallback: guaranteed-outside location
+        double x = centroid.getX() + dx * (approxRadius + bufferDistance + 10);
+        double z = centroid.getZ() + dz * (approxRadius + bufferDistance + 10);
+        double y = world.getHighestBlockYAt((int) x, (int) z) + 1.0;
+        return new Location(world, x, y, z, from.getYaw(), 0);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
     private Location randomLocationInsideZone(PermanentZone zone, Random rng) {
         List<Location> verts = zone.getVertices();
-        // Compute bounding box
         double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
         double minZ = Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
         for (Location v : verts) {
@@ -354,8 +558,63 @@ public class PermanentZoneManager {
                 return new Location(world, x, y, z);
             }
         }
-        // Fallback to centroid
         Location c = zone.getCentroid();
         return c != null ? c : verts.get(0);
+    }
+
+    /**
+     * Returns a random location near a polygon edge, inset by {@code insetDistance} blocks.
+     * Extraction points are placed near boundaries so the exit teleport after extraction is short.
+     * Falls back to a random interior location if no valid inset position is found.
+     */
+    private Location randomLocationNearBoundary(PermanentZone zone, Random rng) {
+        List<Location> verts = zone.getVertices();
+        int n = verts.size();
+        World world = zone.getWorld();
+        Location centroid = zone.getCentroid();
+        // Keep extraction point far enough from the boundary that the capture radius fits inside
+        double insetDistance = plugin.getConfigLoader().getConfig().getPermanentZoneExtractionRadius() + 10.0;
+
+        for (int attempt = 0; attempt < n * 4; attempt++) {
+            int edgeIdx = rng.nextInt(n);
+            Location a = verts.get(edgeIdx);
+            Location b = verts.get((edgeIdx + 1) % n);
+
+            double edgeDX = b.getX() - a.getX();
+            double edgeDZ = b.getZ() - a.getZ();
+            double edgeLen = Math.sqrt(edgeDX * edgeDX + edgeDZ * edgeDZ);
+            if (edgeLen < 1.0) continue;
+
+            // Random point along the edge
+            double t = rng.nextDouble();
+            double edgeX = a.getX() + t * edgeDX;
+            double edgeZ = a.getZ() + t * edgeDZ;
+
+            // Perpendicular inward normal
+            double normalX = -edgeDZ / edgeLen;
+            double normalZ = edgeDX / edgeLen;
+
+            // Flip to point toward centroid
+            if (centroid != null) {
+                double cx = centroid.getX() - edgeX;
+                double cz = centroid.getZ() - edgeZ;
+                if (normalX * cx + normalZ * cz < 0) {
+                    normalX = -normalX;
+                    normalZ = -normalZ;
+                }
+            }
+
+            double x = edgeX + normalX * insetDistance;
+            double z = edgeZ + normalZ * insetDistance;
+            Location candidate = new Location(world, x, 64, z);
+
+            if (zone.contains(candidate)) {
+                double y = world != null ? world.getHighestBlockYAt((int) x, (int) z) + 1.0 : 64;
+                return new Location(world, x, y, z);
+            }
+        }
+
+        // Fallback: random interior
+        return randomLocationInsideZone(zone, rng);
     }
 }
