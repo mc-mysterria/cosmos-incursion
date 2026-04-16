@@ -3,6 +3,7 @@ package net.mysterria.cosmos.command;
 import dev.rollczi.litecommands.annotations.command.Command;
 import dev.rollczi.litecommands.annotations.context.Context;
 import dev.rollczi.litecommands.annotations.execute.Execute;
+import dev.rollczi.litecommands.annotations.permission.Permission;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
@@ -20,6 +21,7 @@ public class GeneralCommand {
     }
 
     @Execute(name = "help")
+    @Permission("cosmos.admin")
     public void help(@Context CommandSender sender) {
         sender.sendMessage(Component.text("=== Cosmos Incursion ===").color(NamedTextColor.GOLD));
         sender.sendMessage(Component.text("/cosmos guide").color(NamedTextColor.YELLOW)
@@ -56,7 +58,18 @@ public class GeneralCommand {
         plugin.getGuideGUI().openTownResources(player);
     }
 
+    @Execute(name = "shop")
+    public void shop(@Context CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Only players can open the shop.", NamedTextColor.RED)));
+            return;
+        }
+        plugin.getZoneShopGUI().open(player);
+    }
+
     @Execute(name = "status")
+    @Permission("cosmos.admin")
     public void status(@Context CommandSender sender) {
         var eventManager = plugin.getEventManager();
         if (eventManager == null) {

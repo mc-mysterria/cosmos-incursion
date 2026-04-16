@@ -9,15 +9,22 @@ import dev.rollczi.litecommands.annotations.permission.Permission;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.item.PaperAngelToolkit;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+
+import java.util.Map;
+import java.util.Optional;
+
 
 import java.util.Optional;
 
@@ -205,6 +212,121 @@ public class AdminCommand {
         zone.get().setTier(tier);
         sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
             .append(Component.text("Zone '" + name + "' tier set to " + tier.name()).color(NamedTextColor.GREEN)));
+    }
+
+    // ── Balance admin commands ───────────────────────────────────────────────────
+
+    @Execute(name = "admin balance set")
+    @Permission("cosmos.admin")
+    public void balanceSet(@Context CommandSender sender,
+            @Arg String townName, @Arg String resourceName, @Arg double amount) {
+        ResourceType type = parseResourceType(sender, resourceName);
+        if (type == null) return;
+        Optional<TownData> townOpt = TownsToolkit.getTown(townName);
+        if (townOpt.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Town '" + townName + "' not found.", NamedTextColor.RED)));
+            return;
+        }
+        TownData town = townOpt.get();
+        plugin.getPermanentZoneManager().setTownBalance(town.id(), type, amount);
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+            .append(Component.text("Set " + town.name() + "'s " + type.displayName()
+                + " balance to " + String.format("%.1f", amount) + ".", NamedTextColor.GREEN)));
+    }
+
+    @Execute(name = "admin balance add")
+    @Permission("cosmos.admin")
+    public void balanceAdd(@Context CommandSender sender,
+            @Arg String townName, @Arg String resourceName, @Arg double amount) {
+        ResourceType type = parseResourceType(sender, resourceName);
+        if (type == null) return;
+        Optional<TownData> townOpt = TownsToolkit.getTown(townName);
+        if (townOpt.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Town '" + townName + "' not found.", NamedTextColor.RED)));
+            return;
+        }
+        TownData town = townOpt.get();
+        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, amount);
+        Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+            .append(Component.text("Added " + String.format("%.1f", amount) + " " + type.displayName()
+                + " to " + town.name() + ". New balance: "
+                + String.format("%.1f", balance.getOrDefault(type, 0.0)) + ".", NamedTextColor.GREEN)));
+    }
+
+    @Execute(name = "admin balance remove")
+    @Permission("cosmos.admin")
+    public void balanceRemove(@Context CommandSender sender,
+            @Arg String townName, @Arg String resourceName, @Arg double amount) {
+        ResourceType type = parseResourceType(sender, resourceName);
+        if (type == null) return;
+        Optional<TownData> townOpt = TownsToolkit.getTown(townName);
+        if (townOpt.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Town '" + townName + "' not found.", NamedTextColor.RED)));
+            return;
+        }
+        TownData town = townOpt.get();
+        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, -amount);
+        Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+            .append(Component.text("Removed " + String.format("%.1f", amount) + " " + type.displayName()
+                + " from " + town.name() + ". New balance: "
+                + String.format("%.1f", balance.getOrDefault(type, 0.0)) + ".", NamedTextColor.GREEN)));
+    }
+
+    @Execute(name = "admin balance view")
+    @Permission("cosmos.admin")
+    public void balanceView(@Context CommandSender sender, @Arg String townName) {
+        Optional<TownData> townOpt = TownsToolkit.getTown(townName);
+        if (townOpt.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Town '" + townName + "' not found.", NamedTextColor.RED)));
+            return;
+        }
+        TownData town = townOpt.get();
+        Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
+        sender.sendMessage(Component.text("=== " + town.name() + " Balance ===").color(NamedTextColor.GOLD));
+        for (ResourceType rt : ResourceType.values()) {
+            NamedTextColor col = switch (rt) {
+                case GOLD -> NamedTextColor.GOLD;
+                case SILVER -> NamedTextColor.WHITE;
+                case GEMS -> NamedTextColor.GREEN;
+            };
+            sender.sendMessage(Component.text("  " + rt.displayName() + ": ", col)
+                .append(Component.text(String.format("%.1f", balance.getOrDefault(rt, 0.0)), NamedTextColor.WHITE)));
+        }
+    }
+
+    // ── Shop admin command ───────────────────────────────────────────────────────
+
+    @Execute(name = "admin shop")
+    @Permission("cosmos.admin")
+    public void adminShop(@Context CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Only players can open the shop editor.", NamedTextColor.RED)));
+            return;
+        }
+        plugin.getZoneShopAdminGUI().open(player);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private ResourceType parseResourceType(CommandSender sender, String input) {
+        ResourceType type = switch (input.toLowerCase()) {
+            case "iron", "silver" -> ResourceType.SILVER;
+            case "gold" -> ResourceType.GOLD;
+            case "gems", "gem", "emerald" -> ResourceType.GEMS;
+            default -> null;
+        };
+        if (type == null) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Unknown resource type '" + input + "'. Use: iron, gold, gems", NamedTextColor.RED)));
+        }
+        return type;
     }
 
     @Execute(name = "admin give paperangel")

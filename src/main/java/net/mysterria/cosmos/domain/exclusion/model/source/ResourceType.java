@@ -1,7 +1,9 @@
 package net.mysterria.cosmos.domain.exclusion.model.source;
 
+import lombok.Getter;
 import org.bukkit.Material;
 
+@Getter
 public enum ResourceType {
     GOLD(Material.GOLD_INGOT),
     SILVER(Material.IRON_INGOT),
@@ -13,11 +15,15 @@ public enum ResourceType {
         this.defaultMaterial = defaultMaterial;
     }
 
-    public Material getDefaultMaterial() {
-        return defaultMaterial;
-    }
-
     public String configKey() {
         return name().toLowerCase();
+    }
+
+    public String displayName() {
+        return switch (this) {
+            case GOLD -> "Gold";
+            case SILVER -> "Iron";
+            case GEMS -> "Gems";
+        };
     }
 }

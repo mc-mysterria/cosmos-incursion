@@ -7,6 +7,7 @@ import lombok.Getter;
 import me.angeschossen.lands.api.LandsIntegration;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.mysterria.cosmos.command.AdminCommand;
 import net.mysterria.cosmos.command.ExclusionCommand;
 import net.mysterria.cosmos.command.GeneralCommand;
 import net.mysterria.cosmos.config.ConfigLoader;
@@ -23,7 +24,10 @@ import net.mysterria.cosmos.domain.combat.service.KillTracker;
 import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneListener;
 import net.mysterria.cosmos.domain.exclusion.listener.HuskTownsZoneProtectionListener;
 import net.mysterria.cosmos.domain.exclusion.listener.LandsZoneProtectionListener;
+import net.mysterria.cosmos.domain.market.gui.ZoneShopAdminGUI;
+import net.mysterria.cosmos.domain.market.gui.ZoneShopGUI;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
+import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.task.*;
 import net.mysterria.cosmos.domain.guide.CosmosGuideGUI;
@@ -77,6 +81,11 @@ public final class CosmosIncursion extends JavaPlugin {
     private MapIntegration mapIntegration;
     private CitizensToolkit citizensToolkit;
     private CombatLogHandler combatLogHandler;
+
+    // Shop
+    private ZoneShopManager zoneShopManager;
+    private ZoneShopGUI zoneShopGUI;
+    private ZoneShopAdminGUI zoneShopAdminGUI;
 
     // UI
     private ConsentGUI consentGUI;
@@ -172,6 +181,13 @@ public final class CosmosIncursion extends JavaPlugin {
             permanentZoneManager.spawnExtractionPoints(zone);
         }
 
+        // Initialize zone shop
+        log("Initializing zone shop...");
+        zoneShopManager = new ZoneShopManager(this);
+        zoneShopManager.load();
+        zoneShopGUI = new ZoneShopGUI(zoneShopManager, permanentZoneManager);
+        zoneShopAdminGUI = new ZoneShopAdminGUI(zoneShopManager);
+
         // Initialize event manager
         log("Initializing event manager...");
         eventManager = new EventManager(this, zoneManager, beaconManager, buffToolkit, mapIntegration, beaconUIManager);
@@ -217,7 +233,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     private void registerCommands() {
         this.liteCommands = LiteBukkitFactory.builder(this.getName(), this)
-                .commands(new ExclusionCommand(this), new GeneralCommand(this), new ExclusionCommand(this))
+                .commands(new AdminCommand(this), new ExclusionCommand(this), new GeneralCommand(this))
                 .build();
     }
 

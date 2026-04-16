@@ -488,6 +488,45 @@ public class PermanentZoneManager {
         }
     }
 
+    /**
+     * Deducts the given amounts from a town's balance.
+     * Returns {@code true} if the balance was sufficient and deduction succeeded.
+     */
+    public boolean deductFromTown(int townId, Map<ResourceType, Double> amounts) {
+        Map<ResourceType, Double> balance = townBalances.get(townId);
+        if (balance == null) return false;
+        for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
+        }
+        for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            double remaining = balance.getOrDefault(entry.getKey(), 0.0) - entry.getValue();
+            if (remaining <= 0) balance.remove(entry.getKey());
+            else balance.put(entry.getKey(), remaining);
+        }
+        saveBalances();
+        return true;
+    }
+
+    /** Sets the exact amount of one resource type for a town (admin command). */
+    public void setTownBalance(int townId, ResourceType type, double amount) {
+        Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
+                k -> new EnumMap<>(ResourceType.class));
+        if (amount <= 0) balance.remove(type);
+        else balance.put(type, amount);
+        saveBalances();
+    }
+
+    /** Adds (or subtracts if negative) a resource amount for a town (admin command). */
+    public void adjustTownBalance(int townId, ResourceType type, double delta) {
+        Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
+                k -> new EnumMap<>(ResourceType.class));
+        double current = balance.getOrDefault(type, 0.0);
+        double result = Math.max(0, current + delta);
+        if (result == 0) balance.remove(type);
+        else balance.put(type, result);
+        saveBalances();
+    }
+
     public Map<ResourceType, Double> getTownBalance(int townId) {
         return Collections.unmodifiableMap(
                 townBalances.getOrDefault(townId, Collections.emptyMap()));
