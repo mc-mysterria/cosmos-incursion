@@ -45,7 +45,6 @@ public class ZoneShopAdminGUI {
         Gui gui = Gui.gui()
             .title(Component.text("✦ Zone Shop — Admin Editor", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
             .rows(6)
-            .disableAllInteractions()
             .create();
 
         // Populate existing shop items
@@ -167,7 +166,6 @@ public class ZoneShopAdminGUI {
         Gui editor = Gui.gui()
             .title(Component.text("Set Prices — Slot " + slot, NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
             .rows(5)
-            .disableAllInteractions()
             .create();
 
         Runnable onDone = () -> {
