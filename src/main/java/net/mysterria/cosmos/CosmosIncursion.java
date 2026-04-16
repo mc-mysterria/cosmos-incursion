@@ -4,10 +4,11 @@ import dev.rollczi.litecommands.LiteCommands;
 import dev.rollczi.litecommands.bukkit.LiteBukkitFactory;
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
 import lombok.Getter;
+import me.angeschossen.lands.api.LandsIntegration;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.mysterria.cosmos.command.GeneralCommand;
 import net.mysterria.cosmos.command.ExclusionCommand;
+import net.mysterria.cosmos.command.GeneralCommand;
 import net.mysterria.cosmos.config.ConfigLoader;
 import net.mysterria.cosmos.domain.beacon.listener.BeaconProtectionListener;
 import net.mysterria.cosmos.domain.beacon.service.BeaconManager;
@@ -18,30 +19,28 @@ import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
 import net.mysterria.cosmos.domain.combat.service.CombatLogHandler;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
+import net.mysterria.cosmos.domain.combat.service.KillTracker;
 import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneListener;
+import net.mysterria.cosmos.domain.exclusion.listener.HuskTownsZoneProtectionListener;
+import net.mysterria.cosmos.domain.exclusion.listener.LandsZoneProtectionListener;
+import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
+import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
+import net.mysterria.cosmos.domain.exclusion.task.*;
 import net.mysterria.cosmos.domain.guide.CosmosGuideGUI;
-import net.mysterria.cosmos.domain.exclusion.task.ExtractionTask;
-import net.mysterria.cosmos.domain.exclusion.task.PermanentZoneBoundaryParticleTask;
-import net.mysterria.cosmos.domain.exclusion.task.PermanentZonePlayerTask;
-import net.mysterria.cosmos.domain.exclusion.task.PoIRotationTask;
-import net.mysterria.cosmos.domain.exclusion.task.PoIVisualizationTask;
-import net.mysterria.cosmos.domain.exclusion.task.ResourceAccumulationTask;
+import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
+import net.mysterria.cosmos.domain.incursion.service.EventManager;
+import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
+import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
 import net.mysterria.cosmos.domain.incursion.task.EventCheckTask;
 import net.mysterria.cosmos.domain.incursion.task.ZoneCheckTask;
-import net.mysterria.cosmos.toolkit.EffectsToolkit;
-import net.mysterria.cosmos.domain.incursion.service.EventManager;
-import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
-import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
-import net.mysterria.cosmos.domain.combat.service.KillTracker;
-import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import net.mysterria.cosmos.toolkit.BuffToolkit;
-import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
-import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
-import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
+import net.mysterria.cosmos.toolkit.EffectsToolkit;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
+import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.NoOpMapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.SquareMapIntegration;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import net.william278.husktowns.api.HuskTownsAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -58,6 +57,7 @@ public final class CosmosIncursion extends JavaPlugin {
     // APIs
     private CircleOfImaginationAPI coiAPI;
     private HuskTownsAPI huskTownsAPI;
+    private LandsIntegration landsIntegration;
 
     // Configuration
     private ConfigLoader configLoader;
@@ -100,8 +100,9 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Enabling COI API...");
         enableCoiApi();
 
-        log("Enabling HuskTowns API...");
-        enableHuskTownsApi();
+        log("Enabling towns plugin integration...");
+        initializeTownsPlugins();
+        if (!isEnabled()) return; // disabled if no towns plugin found
 
         // Initialize zone manager
         log("Initializing zone manager...");
@@ -228,6 +229,18 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
         getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneListener(permanentZoneManager), this);
+
+        // Soft-depend zone protection listeners — only register if the respective plugin is active
+        if (huskTownsAPI != null) {
+            getServer().getPluginManager().registerEvents(
+                    new HuskTownsZoneProtectionListener(permanentZoneManager), this);
+            log("Registered HuskTowns zone protection listener");
+        }
+        if (landsIntegration != null) {
+            getServer().getPluginManager().registerEvents(
+                    new LandsZoneProtectionListener(permanentZoneManager), this);
+            log("Registered Lands zone protection listener");
+        }
     }
 
     private void startTasks() {
@@ -292,30 +305,71 @@ public final class CosmosIncursion extends JavaPlugin {
         return new NoOpMapIntegration();
     }
 
-    private void enableHuskTownsApi() {
-        Plugin huskTownsPlugin = getServer().getPluginManager().getPlugin("HuskTowns");
-        if (huskTownsPlugin == null || !huskTownsPlugin.isEnabled()) {
-            log("HuskTowns plugin not found or not enabled, disabling Cosmos Incursion");
+    private void initializeTownsPlugins() {
+        boolean huskTownsOk = tryEnableHuskTowns();
+        boolean landsOk = tryEnableLands();
+
+        if (!huskTownsOk && !landsOk) {
+            log("No towns plugin found (requires HuskTowns or Lands), disabling Cosmos Incursion");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
+        TownsToolkit.init(huskTownsAPI, landsIntegration);
+
+        if (huskTownsOk) log("Towns: HuskTowns integration active");
+        if (landsOk) log("Towns: Lands integration active");
+    }
+
+    private boolean tryEnableHuskTowns() {
+        Plugin huskTownsPlugin = getServer().getPluginManager().getPlugin("HuskTowns");
+        if (huskTownsPlugin == null || !huskTownsPlugin.isEnabled()) return false;
         try {
-
             HuskTownsAPI api = HuskTownsAPI.getInstance();
-
-            if (api == null) {
-                log("HuskTowns API not registered, disabling Cosmos Incursion");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
-
+            if (api == null) return false;
             this.huskTownsAPI = api;
-            log("HuskTowns API hooked successfully");
+            return true;
         } catch (Throwable t) {
             log("Failed to hook HuskTowns API: " + t.getMessage());
-            getServer().getPluginManager().disablePlugin(this);
+            return false;
         }
+    }
+
+    private boolean tryEnableLands() {
+        Plugin landsPlugin = getServer().getPluginManager().getPlugin("Lands");
+        if (landsPlugin == null || !landsPlugin.isEnabled()) return false;
+        try {
+            this.landsIntegration = LandsIntegration.of(this);
+            return true;
+        } catch (Throwable t) {
+            log("Failed to hook Lands API: " + t.getMessage());
+            // Lands API factory may not be ready yet — retry after 1 tick
+            initializeLandsWithRetry(0);
+            return false;
+        }
+    }
+
+    private void initializeLandsWithRetry(int attempt) {
+        final int maxAttempts = 10;
+        final long delayTicks = 20L;
+
+        getServer().getScheduler().runTaskLater(this, () -> {
+            Plugin landsPlugin = getServer().getPluginManager().getPlugin("Lands");
+            if (landsPlugin == null || !landsPlugin.isEnabled()) return;
+            try {
+                this.landsIntegration = LandsIntegration.of(this);
+                TownsToolkit.init(huskTownsAPI, landsIntegration);
+                getServer().getPluginManager().registerEvents(
+                        new LandsZoneProtectionListener(permanentZoneManager), this);
+                log("Towns: Lands integration active (deferred)");
+            } catch (Throwable t) {
+                if (attempt < maxAttempts - 1) {
+                    initializeLandsWithRetry(attempt + 1);
+                } else {
+                    log("Failed to hook Lands API after " + maxAttempts + " attempts: " + t.getMessage());
+                }
+            }
+        }, delayTicks);
     }
 
     private void enableCoiApi() {

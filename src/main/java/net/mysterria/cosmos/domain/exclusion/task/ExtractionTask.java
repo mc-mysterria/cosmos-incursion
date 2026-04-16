@@ -10,8 +10,8 @@ import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
-import net.mysterria.cosmos.toolkit.TownsToolkit;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Sound;
@@ -147,9 +147,9 @@ public class ExtractionTask extends BukkitRunnable {
     }
 
     private void depositToTown(Player player, Map<ResourceType, Double> amounts) {
-        Optional<Town> townOpt = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
         if (townOpt.isEmpty()) return;
-        permanentZoneManager.depositToTown(townOpt.get().getId(), amounts);
+        permanentZoneManager.depositToTown(townOpt.get().id(), amounts);
     }
 
     private void notifyExtracted(Player player, Map<ResourceType, Double> extracted) {

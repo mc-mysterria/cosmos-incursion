@@ -12,7 +12,24 @@
       "Bash(jar tf:*)",
       "Bash(./gradlew compileJava)",
       "Bash(cd /tmp)",
-      "Bash(jar xf:*)"
+      "Bash(jar xf:*)",
+      "Bash(grep -i \"\\\\.java$\")",
+      "WebFetch(domain:repo.incredibleplugins.com)",
+      "WebFetch(domain:wiki.incredibleplugins.com)",
+      "Bash(grep \"\\\\.class$\")",
+      "Bash(javap -p me/angeschossen/lands/api/LandsIntegration.class)",
+      "Bash(javap -p me/angeschossen/lands/api/land/Land.class)",
+      "Bash(javap -p me/angeschossen/lands/api/player/LandPlayer.class)",
+      "Bash(javap -p me/angeschossen/lands/api/memberholder/MemberHolder.class)",
+      "Bash(javap -p me/angeschossen/lands/api/player/OfflinePlayer.class)",
+      "Bash(javap -p me/angeschossen/lands/api/land/ChunkCoordinate.class)",
+      "Bash(javap -p me/angeschossen/lands/api/player/TrustedPlayer.class)",
+      "Bash(jar xf *)",
+      "Bash(javap -p me/angeschossen/lands/api/events/ChunkPreClaimEvent.class)",
+      "Bash(javap -p me/angeschossen/lands/api/events/land/create/LandPreCreateEvent.class)",
+      "Bash(javap -p me/angeschossen/lands/api/events/player/PlayerNullableEvent.class)",
+      "Bash(javap -p -c me/angeschossen/lands/api/handler/APIHandler.class)",
+      "Bash(javap -p me/angeschossen/lands/api/handler/LandsIntegrationFactory.class)"
     ]
   }
 }

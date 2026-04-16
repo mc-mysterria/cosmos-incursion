@@ -4,8 +4,8 @@ import net.mysterria.cosmos.domain.beacon.model.BeaconCapture;
 import net.mysterria.cosmos.domain.beacon.model.PlayerBeaconUIState;
 import net.mysterria.cosmos.domain.beacon.model.SpiritBeacon;
 import net.mysterria.cosmos.config.CosmosConfig;
-import net.mysterria.cosmos.toolkit.TownsToolkit;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Location;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
@@ -45,7 +45,7 @@ public class BeaconSoundManager {
      */
     public void updateSounds(Player player, BeaconCapture capture, SpiritBeacon beacon, PlayerBeaconUIState state) {
         String beaconId = beacon.id();
-        Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> playerTown = TownsToolkit.getPlayerTown(player);
 
         // Observers only hear ambient
         if (playerTown.isEmpty()) {
@@ -53,8 +53,8 @@ public class BeaconSoundManager {
             return;
         }
 
-        Town town = playerTown.get();
-        boolean isOwnedByPlayer = capture.isOwnedBy(town.getId());
+        TownData town = playerTown.get();
+        boolean isOwnedByPlayer = capture.isOwnedBy(town.id());
         int previousStateHash = getPreviousStateHash(state, beaconId, capture);
         int currentStateHash = calculateStateHash(capture);
 

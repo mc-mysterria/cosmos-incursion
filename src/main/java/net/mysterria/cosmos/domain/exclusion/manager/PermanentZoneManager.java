@@ -102,6 +102,17 @@ public class PermanentZoneManager {
         return Collections.unmodifiableCollection(zones.values());
     }
 
+    /**
+     * Returns {@code true} if the given location falls inside any permanent zone.
+     * Uses the XZ ray-casting containment check from {@link PermanentZone#contains(Location)}.
+     */
+    public boolean isInsideAnyZone(Location location) {
+        for (PermanentZone zone : zones.values()) {
+            if (zone.contains(location)) return true;
+        }
+        return false;
+    }
+
     public PermanentZone getZoneAt(Location loc) {
         for (PermanentZone zone : zones.values()) {
             if (zone.isActive() && zone.contains(loc)) return zone;

@@ -19,7 +19,7 @@ public class GeneralCommand {
         this.plugin = plugin;
     }
 
-    @Execute
+    @Execute(name = "help")
     public void help(@Context CommandSender sender) {
         sender.sendMessage(Component.text("=== Cosmos Incursion ===").color(NamedTextColor.GOLD));
         sender.sendMessage(Component.text("/cosmos guide").color(NamedTextColor.YELLOW)
@@ -36,7 +36,7 @@ public class GeneralCommand {
             .append(Component.text(" - Give Paper Angel item").color(NamedTextColor.WHITE)));
     }
 
-    @Execute(name = "guide")
+    @Execute(aliases = {"guide"})
     public void guide(@Context CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)

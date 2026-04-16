@@ -2,7 +2,7 @@ name: deploy.yml
 
 on:
   push:
-    branches: [ production ]
+    branches: [ deployment ]
     paths:
       - 'src/**'
       - 'config/**'

@@ -6,8 +6,8 @@ import net.mysterria.cosmos.domain.beacon.service.BeaconManager;
 import net.mysterria.cosmos.domain.beacon.model.SpiritBeacon;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.service.BeaconUIManager;
-import net.mysterria.cosmos.toolkit.TownsToolkit;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -95,13 +95,13 @@ public class BeaconCaptureTask extends BukkitRunnable {
             }
 
             // Get player's town
-            Optional<Town> townOpt = TownsToolkit.getPlayerTown(player);
+            Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
             if (townOpt.isEmpty()) {
                 continue;
             }
 
-            Town town = townOpt.get();
-            counts.merge(town.getId(), 1, Integer::sum);
+            TownData town = townOpt.get();
+            counts.merge(town.id(), 1, Integer::sum);
         }
 
         return counts;
@@ -114,12 +114,12 @@ public class BeaconCaptureTask extends BukkitRunnable {
         capture.setContested(false);
 
         // Get town
-        Optional<Town> townOpt = TownsToolkit.getTownById(townId);
+        Optional<TownData> townOpt = TownsToolkit.getTownById(townId);
         if (townOpt.isEmpty()) {
             return;
         }
 
-        Town town = townOpt.get();
+        TownData town = townOpt.get();
 
         // Calculate capture delta
         double pointsPerPlayer = config.getPointsPerPlayer();
@@ -131,8 +131,8 @@ public class BeaconCaptureTask extends BukkitRunnable {
         // Log ownership changes
         if (capture.isOwnedBy(townId) && capture.getCaptureProgress() >= config.getBeaconCapturePoints()) {
             // Beacon is now fully captured
-            if (!capture.getOwningTownName().equals(town.getName())) {
-                plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.getName());
+            if (!capture.getOwningTownName().equals(town.name())) {
+                plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.name());
             }
         }
     }

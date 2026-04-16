@@ -7,8 +7,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
-import net.mysterria.cosmos.toolkit.TownsToolkit;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -60,7 +60,7 @@ public class CosmosGuideGUI {
 
         gui.setItem(13, clickItem(
             Material.LODESTONE,
-            Component.text("⚗  Extraction Zones", NamedTextColor.AQUA, TextDecoration.BOLD),
+            Component.text("⚗  Exclusion Zones", NamedTextColor.AQUA, TextDecoration.BOLD),
             List.of(
                 line("Permanent PvP zones active at all times.", NamedTextColor.GRAY),
                 line("Gather resources, survive, and extract.", NamedTextColor.GRAY),
@@ -346,7 +346,7 @@ public class CosmosGuideGUI {
     // ── Town resources ────────────────────────────────────────────────────────────
 
     public void openTownResources(Player player) {
-        Optional<Town> townOpt = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
 
         if (townOpt.isEmpty()) {
             Gui gui = Gui.gui()
@@ -365,15 +365,15 @@ public class CosmosGuideGUI {
             return;
         }
 
-        Town town = townOpt.get();
-        Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.getId());
+        TownData town = townOpt.get();
+        Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
 
         double gold   = balance.getOrDefault(ResourceType.GOLD,   0.0);
         double silver = balance.getOrDefault(ResourceType.SILVER, 0.0);
         double gems   = balance.getOrDefault(ResourceType.GEMS,   0.0);
 
         Gui gui = Gui.gui()
-            .title(Component.text("⚖  " + town.getName(), NamedTextColor.GOLD, TextDecoration.BOLD))
+            .title(Component.text("⚖  " + town.name(), NamedTextColor.GOLD, TextDecoration.BOLD))
             .rows(3)
             .disableAllInteractions()
             .create();

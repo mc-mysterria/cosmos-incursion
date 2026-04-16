@@ -7,7 +7,8 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -88,25 +89,25 @@ public class BuffToolkit {
      */
     public void awardBuffToTown(int townId) {
         // Get town
-        Optional<Town> townOpt = TownsToolkit.getTownById(townId);
+        Optional<TownData> townOpt = TownsToolkit.getTownById(townId);
         if (townOpt.isEmpty()) {
             plugin.log("Cannot award buff - town not found: " + townId);
             return;
         }
 
-        Town town = townOpt.get();
+        TownData town = townOpt.get();
 
         // Calculate expiry time
         long durationMillis = config.getBuffDurationHours() * 60 * 60 * 1000L;
         long expiryTime = System.currentTimeMillis() + durationMillis;
 
         // Create buff
-        TownBuff buff = new TownBuff(townId, town.getName(), expiryTime);
+        TownBuff buff = new TownBuff(townId, town.name(), expiryTime);
         activeTownBuffs.put(townId, buff);
 
         // Apply to all online members
         int appliedCount = 0;
-        for (UUID memberId : town.getMembers().keySet()) {
+        for (UUID memberId : town.memberUuids()) {
             Player player = Bukkit.getPlayer(memberId);
             if (player != null && player.isOnline()) {
                 applyBuffToPlayer(player, expiryTime);
@@ -116,12 +117,12 @@ public class BuffToolkit {
 
         // Broadcast to server
         Component message = Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
-                .append(Component.text(town.getName() + " has won the territory control! ", NamedTextColor.WHITE))
+                .append(Component.text(town.name() + " has won the territory control! ", NamedTextColor.WHITE))
                 .append(Component.text("Members receive Acting Speed bonus for " +
                                        config.getBuffDurationHours() + " hours!", NamedTextColor.GREEN));
         Bukkit.getServer().sendMessage(message);
 
-        plugin.log("Awarded Acting Speed buff to town " + town.getName() +
+        plugin.log("Awarded Acting Speed buff to town " + town.name() +
                    " (" + appliedCount + " online members)");
 
         // Save to file
@@ -167,12 +168,12 @@ public class BuffToolkit {
      */
     public void handlePlayerJoin(Player player) {
         // Check if player's town has an active buff
-        Optional<Town> townOpt = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
         if (townOpt.isEmpty()) {
             return;
         }
 
-        TownBuff buff = activeTownBuffs.get(townOpt.get().getId());
+        TownBuff buff = activeTownBuffs.get(townOpt.get().id());
         if (buff != null && !buff.isExpired()) {
             // Reapply buff
             applyBuffToPlayer(player, buff.expiryTime());
@@ -200,9 +201,9 @@ public class BuffToolkit {
                 plugin.log("Town buff expired for " + buff.townName());
 
                 // Remove buff from all online members
-                Optional<Town> townOpt = TownsToolkit.getTownById(entry.getKey());
+                Optional<TownData> townOpt = TownsToolkit.getTownById(entry.getKey());
                 if (townOpt.isPresent()) {
-                    for (UUID memberId : townOpt.get().getMembers().keySet()) {
+                    for (UUID memberId : townOpt.get().memberUuids()) {
                         Player player = Bukkit.getPlayer(memberId);
                         if (player != null && player.isOnline()) {
                             removeBuffFromPlayer(player);

@@ -16,6 +16,9 @@ import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -214,13 +217,13 @@ public class ExclusionCommand {
     @Execute(name = "exclusion balance")
     @Permission("cosmos.admin")
     public void exclusionBalance(@Context CommandSender sender, @Arg String townName) {
-        Optional<net.william278.husktowns.town.Town> townOpt = net.mysterria.cosmos.toolkit.TownsToolkit.getTown(townName);
+        Optional<TownData> townOpt = TownsToolkit.getTown(townName);
         if (townOpt.isEmpty()) {
             sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                     .append(Component.text("Town '" + townName + "' not found.", NamedTextColor.RED)));
             return;
         }
-        int townId = townOpt.get().getId();
+        int townId = townOpt.get().id();
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(townId);
         sender.sendMessage(Component.text("=== " + townName + " Balance ===").color(NamedTextColor.GOLD));
         for (ResourceType type : ResourceType.values()) {

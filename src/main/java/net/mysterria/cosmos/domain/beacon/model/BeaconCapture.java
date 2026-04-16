@@ -2,7 +2,7 @@ package net.mysterria.cosmos.domain.beacon.model;
 
 import lombok.Getter;
 import lombok.Setter;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
 
 /**
  * Tracks the capture state of a Spirit Beacon
@@ -40,7 +40,7 @@ public class BeaconCapture {
      * @param capturingTown The town attempting to capture (nullable if decaying)
      * @param maxPoints Maximum capture points needed
      */
-    public void updateProgress(double delta, Town capturingTown, double maxPoints) {
+    public void updateProgress(double delta, TownData capturingTown, double maxPoints) {
         long now = System.currentTimeMillis();
 
         // Track ownership time if beacon is owned
@@ -57,7 +57,7 @@ public class BeaconCapture {
         // Check if fully captured
         if (captureProgress >= maxPoints && capturingTown != null) {
             // Check if this is a new owner
-            if (!(owningTownId == capturingTown.getId())) {
+            if (!(owningTownId == capturingTown.id())) {
                 setOwner(capturingTown);
             }
         }
@@ -70,9 +70,9 @@ public class BeaconCapture {
     /**
      * Set the owning town
      */
-    private void setOwner(Town town) {
-        this.owningTownId = town.getId();
-        this.owningTownName = town.getName();
+    private void setOwner(TownData town) {
+        this.owningTownId = town.id();
+        this.owningTownName = town.name();
         this.contested = false;
     }
 

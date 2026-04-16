@@ -9,8 +9,8 @@ import net.mysterria.cosmos.domain.beacon.model.PlayerBeaconUIState;
 import net.mysterria.cosmos.domain.beacon.model.SpiritBeacon;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.task.BeaconParticleTask;
-import net.mysterria.cosmos.toolkit.TownsToolkit;
-import net.william278.husktowns.town.Town;
+import net.mysterria.cosmos.toolkit.towns.TownData;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.boss.BarColor;
@@ -119,7 +119,7 @@ public class BeaconUIManager {
      * Update actionbar message for a player
      */
     private void updateActionBar(Player player, BeaconCapture capture, SpiritBeacon beacon, PlayerBeaconUIState state) {
-        Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> playerTown = TownsToolkit.getPlayerTown(player);
         boolean isObserver = playerTown.isEmpty();
 
         String message;
@@ -157,8 +157,8 @@ public class BeaconUIManager {
     /**
      * Build actionbar message for participant (with-town) players
      */
-    private String buildParticipantActionBar(BeaconCapture capture, SpiritBeacon beacon, Town playerTown) {
-        boolean isOwnedByPlayer = capture.isOwnedBy(playerTown.getId());
+    private String buildParticipantActionBar(BeaconCapture capture, SpiritBeacon beacon, TownData playerTown) {
+        boolean isOwnedByPlayer = capture.isOwnedBy(playerTown.id());
         int percent = (int) ((capture.getCaptureProgress() / config.getBeaconCapturePoints()) * 100);
 
         if (capture.isContested()) {
@@ -231,10 +231,10 @@ public class BeaconUIManager {
         bossBar.setProgress(progress);
 
         // Update color based on ownership
-        Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> playerTown = TownsToolkit.getPlayerTown(player);
         if (capture.isContested()) {
             bossBar.setColor(BarColor.YELLOW);
-        } else if (playerTown.isPresent() && capture.isOwnedBy(playerTown.get().getId())) {
+        } else if (playerTown.isPresent() && capture.isOwnedBy(playerTown.get().id())) {
             bossBar.setColor(BarColor.GREEN);
         } else if (capture.getOwningTownId() != 0) {
             bossBar.setColor(BarColor.RED);
@@ -281,7 +281,7 @@ public class BeaconUIManager {
         }
 
         // Add beacon status for each beacon
-        Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> playerTown = TownsToolkit.getPlayerTown(player);
         int score = 15;  // Start from top
 
         int beaconIndex = 0;
@@ -311,7 +311,7 @@ public class BeaconUIManager {
     /**
      * Build scoreboard line for a beacon using Team prefix/suffix
      */
-    private void buildScoreboardLine(Team team, BeaconCapture capture, SpiritBeacon beacon, Optional<Town> playerTown) {
+    private void buildScoreboardLine(Team team, BeaconCapture capture, SpiritBeacon beacon, Optional<TownData> playerTown) {
         // Extract short identifier from beacon name
         String beaconName = extractShortBeaconName(beacon.name());
         int percent = (int) ((capture.getCaptureProgress() / config.getBeaconCapturePoints()) * 100);
@@ -322,7 +322,7 @@ public class BeaconUIManager {
             team.suffix(miniMessage.deserialize(" <gradient:white:gray>" + beaconName + "</gradient>"));
         } else if (capture.getOwningTownId() != 0) {
             // Owned by a town
-            boolean isOwnedByPlayer = playerTown.isPresent() && capture.isOwnedBy(playerTown.get().getId());
+            boolean isOwnedByPlayer = playerTown.isPresent() && capture.isOwnedBy(playerTown.get().id());
             String owner = capture.getOwningTownName();
 
             // Truncate long town names
@@ -381,7 +381,7 @@ public class BeaconUIManager {
      */
     private void sendBeaconTitle(Player player, BeaconCapture capture, SpiritBeacon beacon, PlayerBeaconUIState state) {
         String beaconId = beacon.id();
-        Optional<Town> playerTown = TownsToolkit.getPlayerTown(player);
+        Optional<TownData> playerTown = TownsToolkit.getPlayerTown(player);
 
         // Minimum cooldown between titles (10 seconds)
         long titleCooldown = 10000L;
@@ -409,8 +409,8 @@ public class BeaconUIManager {
 
         // Determine what changed and send appropriate title
         if (playerTown.isPresent()) {
-            Town town = playerTown.get();
-            boolean nowOwned = capture.isOwnedBy(town.getId());
+            TownData town = playerTown.get();
+            boolean nowOwned = capture.isOwnedBy(town.id());
             boolean wasOwned = (previousHash & 0x1) == 1;  // First bit = was owned
             boolean nowContested = capture.isContested();
             boolean wasContested = ((previousHash >> 1) & 0x1) == 1;  // Second bit = was contested
@@ -434,11 +434,11 @@ public class BeaconUIManager {
     /**
      * Calculate state hash for title change detection
      */
-    private int calculateTitleStateHash(BeaconCapture capture, Optional<Town> playerTown) {
+    private int calculateTitleStateHash(BeaconCapture capture, Optional<TownData> playerTown) {
         int hash = 0;
 
         // Bit 0: Is owned by player's town
-        if (playerTown.isPresent() && capture.isOwnedBy(playerTown.get().getId())) {
+        if (playerTown.isPresent() && capture.isOwnedBy(playerTown.get().id())) {
             hash |= 0x1;
         }
 

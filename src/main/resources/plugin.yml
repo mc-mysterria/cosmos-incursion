@@ -4,9 +4,10 @@ main: net.mysterria.cosmos.CosmosIncursion
 api-version: '1.21'
 authors: [ ikeepcalm ]
 depend:
-  - HuskTowns
   - CircleOfImagination
 softdepend:
+  - HuskTowns
+  - Lands
   - BlueMap
   - squaremap
   - Citizens
