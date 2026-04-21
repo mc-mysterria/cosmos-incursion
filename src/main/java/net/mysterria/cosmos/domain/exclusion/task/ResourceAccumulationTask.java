@@ -40,7 +40,7 @@ public class ResourceAccumulationTask extends BukkitRunnable {
             for (PointOfInterest poi : pois) {
                 if (!poi.isActive()) continue;
                 if (poi.isPlayerInRange(player.getLocation())) {
-                    double rate = getRate(poi.getResourceType());
+                    double rate = deriveRate(poi);
                     double actual = poi.consumeResource(rate);
                     if (actual <= 0) continue; // depleted mid-tick, skip
                     PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
@@ -52,13 +52,14 @@ public class ResourceAccumulationTask extends BukkitRunnable {
         }
     }
 
-    private double getRate(ResourceType type) {
-        // Rates are defined in config; defaults used here
-        return switch (type) {
-            case GOLD -> 1.0;
-            case SILVER -> 2.0;
-            case GEMS -> 0.5;
-        };
+    /**
+     * Derives the per-second drain rate for a PoI so that a single player fully drains it
+     * in exactly poiDurationSeconds of uncontested standing. Multiple players speed this up.
+     */
+    private double deriveRate(PointOfInterest poi) {
+        int durationSeconds = plugin.getConfigLoader().getConfig().getPermanentZonePoiDurationSeconds();
+        if (durationSeconds <= 0) return poi.getResourceCap();
+        return poi.getResourceCap() / durationSeconds;
     }
 
     private void sendBufferActionBar(Player player, PlayerResourceBuffer buffer) {

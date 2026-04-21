@@ -145,6 +145,27 @@ rewards:
   # Duration of buff (in hours)
   buff-duration-hours: 24
 
+  # Resources deposited to the winning town's balance at the end of each incursion event.
+  # Each zone that was active contributes the reward for its tier.
+  # Example: an event with 1 GREEN + 1 RED + 1 DEATH zone gives green + red + death rewards.
+  winner-resources:
+    green:
+      gold: 10.0
+      silver: 20.0
+      gems: 5.0
+    yellow:
+      gold: 25.0
+      silver: 50.0
+      gems: 12.0
+    red:
+      gold: 50.0
+      silver: 100.0
+      gems: 25.0
+    death:
+      gold: 100.0
+      silver: 200.0
+      gems: 50.0
+
 permanent-zones:
   # Number of Points of Interest active simultaneously per zone
   poi-count: 3
@@ -168,12 +189,57 @@ permanent-zones:
   particles-enabled: true
   # How far away (blocks) players can see permanent zone particles
   particle-view-distance: 64.0
-  # Total units of resource a single PoI can yield before it depletes and vanishes
-  poi-resource-cap: 50.0
   # Minimum seconds before a depleted/expired PoI respawns (random delay in this range)
   poi-respawn-min-seconds: 120
   # Maximum seconds before a depleted/expired PoI respawns
   poi-respawn-max-seconds: 300
+
+  # Per-tier configuration for permanent extraction zones.
+  #
+  # drop-chance    — probability each inventory item slot drops on death inside the zone
+  #                  (0.0 = nothing, 1.0 = full drop). Resource buffer is always lost on death.
+  #
+  # daily-budget   — total units of each resource this zone tier can produce per 24-hour period.
+  #                  Once the budget for a resource is exhausted, no more PoIs of that type
+  #                  spawn until the next day resets. Set these to control how much players
+  #                  can earn from this zone each day.
+  #
+  # poi-cap        — maximum units a single PoI can hold for each resource type.
+  #                  The PoI's drain rate is auto-derived: rate = poi-cap / poi-duration-seconds,
+  #                  so a fully-contested PoI runs dry in exactly poi-duration-seconds.
+  #                  Example: daily-budget gems = 20, poi-cap gems = 1 → 20 gems PoIs per day,
+  #                  each containing exactly 1 gem.
+  tiers:
+    safe:
+      drop-chance: 0.0
+      daily-budget:
+        gold: 30.0
+        silver: 60.0
+        gems: 15.0
+      poi-cap:
+        gold: 3.0
+        silver: 6.0
+        gems: 1.5
+    medium:
+      drop-chance: 0.33
+      daily-budget:
+        gold: 60.0
+        silver: 150.0
+        gems: 30.0
+      poi-cap:
+        gold: 6.0
+        silver: 15.0
+        gems: 3.0
+    hard:
+      drop-chance: 1.0
+      daily-budget:
+        gold: 120.0
+        silver: 300.0
+        gems: 60.0
+      poi-cap:
+        gold: 12.0
+        silver: 30.0
+        gems: 6.0
 
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"

@@ -11,6 +11,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -59,6 +60,13 @@ public class PermanentZoneManager {
     // Per-zone queue of scheduled PoI respawn timestamps (epoch ms)
     private final Map<UUID, List<Long>> poiRespawnSchedule = new ConcurrentHashMap<>();
 
+    // Daily resource budget tracking: zoneId -> resourceType -> remaining units for today
+    private final Map<UUID, Map<ResourceType, Double>> zoneDailyBudgetRemaining = new ConcurrentHashMap<>();
+    // Epoch-ms when the current 24-hour budget period started for each zone
+    private final Map<UUID, Long> zoneDayStartMillis = new ConcurrentHashMap<>();
+
+    private static final long DAY_MILLIS = 24 * 60 * 60 * 1000L;
+
     // Town balance: townId -> resourceType -> accumulated amount
     private final Map<Integer, Map<ResourceType, Double>> townBalances = new ConcurrentHashMap<>();
     private final File balanceFile;
@@ -86,6 +94,8 @@ public class PermanentZoneManager {
         zones.remove(zoneId);
         activePoIs.remove(zoneId);
         extractionPoints.remove(zoneId);
+        zoneDailyBudgetRemaining.remove(zoneId);
+        zoneDayStartMillis.remove(zoneId);
         saveZones();
         plugin.getMapIntegration().removePermanentZoneMarker(zoneId);
     }
@@ -128,6 +138,7 @@ public class PermanentZoneManager {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", zone.getId().toString());
             entry.put("name", zone.getName());
+            entry.put("tier", zone.getTier().name());
             List<Map<String, Object>> verts = new ArrayList<>();
             for (Location v : zone.getVertices()) {
                 Map<String, Object> vEntry = new LinkedHashMap<>();
@@ -181,7 +192,14 @@ public class PermanentZoneManager {
                     plugin.log("Skipping zone '" + name + "' — fewer than 3 vertices");
                     continue;
                 }
-                zones.put(id, new PermanentZone(id, name, vertices));
+                PermanentZone zone = new PermanentZone(id, name, vertices);
+                String tierName = (String) entry.get("tier");
+                if (tierName != null) {
+                    try {
+                        zone.setTier(ExclusionZoneTier.valueOf(tierName));
+                    } catch (IllegalArgumentException ignored) {}
+                }
+                zones.put(id, zone);
             }
             plugin.log("Loaded " + zones.size() + " permanent zone(s)");
         } catch (IOException e) {
@@ -226,6 +244,71 @@ public class PermanentZoneManager {
         }
     }
 
+    // ── Daily budget helpers ─────────────────────────────────────────────────────
+
+    /**
+     * If 24 hours have elapsed since the last reset for this zone, resets the daily
+     * resource budget to the full tier values. Called before every PoI spawn attempt.
+     */
+    private void checkAndResetDailyBudget(PermanentZone zone) {
+        long now = System.currentTimeMillis();
+        long dayStart = zoneDayStartMillis.getOrDefault(zone.getId(), 0L);
+        if (now - dayStart >= DAY_MILLIS) {
+            CosmosConfig.ExclusionZoneTierConfig tierConfig =
+                    plugin.getConfigLoader().getConfig().getExclusionTierConfigs().get(zone.getTier());
+            Map<ResourceType, Double> budget = new EnumMap<>(ResourceType.class);
+            if (tierConfig != null) {
+                budget.putAll(tierConfig.dailyBudget());
+            }
+            zoneDailyBudgetRemaining.put(zone.getId(), budget);
+            zoneDayStartMillis.put(zone.getId(), now);
+            plugin.log("Daily budget reset for zone '" + zone.getName() + "': " + budget);
+        }
+    }
+
+    /**
+     * Returns a shuffled list of resource types that still have daily budget remaining for this zone.
+     * Types with no remaining budget are excluded so PoIs of those types stop spawning.
+     */
+    private List<ResourceType> availableResourceTypes(PermanentZone zone, Random rng) {
+        Map<ResourceType, Double> remaining = zoneDailyBudgetRemaining.getOrDefault(zone.getId(), Collections.emptyMap());
+        List<ResourceType> available = new ArrayList<>();
+        for (ResourceType type : ResourceType.values()) {
+            if (remaining.getOrDefault(type, 0.0) > 0.001) {
+                available.add(type);
+            }
+        }
+        Collections.shuffle(available, rng);
+        return available;
+    }
+
+    /**
+     * Allocates a PoI's resource cap from the daily budget.
+     * Returns the actual cap granted (≤ poiCap config and ≤ remaining budget).
+     * Returns 0 if the budget for that type is exhausted.
+     */
+    private double allocatePoiCap(PermanentZone zone, ResourceType type) {
+        CosmosConfig config = plugin.getConfigLoader().getConfig();
+        CosmosConfig.ExclusionZoneTierConfig tierConfig = config.getExclusionTierConfigs().get(zone.getTier());
+        if (tierConfig == null) return 0;
+
+        double maxPoiCap = tierConfig.poiCap().getOrDefault(type, 0.0);
+        Map<ResourceType, Double> remaining = zoneDailyBudgetRemaining.computeIfAbsent(
+                zone.getId(), k -> new EnumMap<>(ResourceType.class));
+        double rem = remaining.getOrDefault(type, 0.0);
+        double actual = Math.min(maxPoiCap, rem);
+        if (actual <= 0.001) return 0;
+
+        remaining.put(type, rem - actual);
+        return actual;
+    }
+
+    /** Returns the daily budget remaining for a given zone and resource (for display/admin use). */
+    public Map<ResourceType, Double> getDailyBudgetRemaining(PermanentZone zone) {
+        return Collections.unmodifiableMap(
+                zoneDailyBudgetRemaining.getOrDefault(zone.getId(), Collections.emptyMap()));
+    }
+
     // ── PoI / Extraction management ──────────────────────────────────────────────
 
     public void spawnPoIsForZone(PermanentZone zone) {
@@ -238,19 +321,25 @@ public class PermanentZoneManager {
         // Clear any stale respawn schedule so fresh PoIs spawn immediately on zone init
         poiRespawnSchedule.remove(zone.getId());
 
+        checkAndResetDailyBudget(zone);
+
         CosmosConfig config = plugin.getConfigLoader().getConfig();
         int count = config.getPermanentZonePoiCount();
         long durationMillis = config.getPermanentZonePoiDurationSeconds() * 1000L;
         double poiRadius = config.getPermanentZonePoiCaptureRadius();
-        double resourceCap = config.getPermanentZonePoiResourceCap();
-        ResourceType[] types = ResourceType.values();
         var rng = ThreadLocalRandom.current();
 
         List<PointOfInterest> pois = new ArrayList<>();
         for (int i = 0; i < count; i++) {
+            List<ResourceType> available = availableResourceTypes(zone, rng);
+            if (available.isEmpty()) break; // all daily budgets exhausted
+
+            ResourceType type = available.get(0);
+            double cap = allocatePoiCap(zone, type);
+            if (cap <= 0) break;
+
             Location loc = randomLocationInsideZone(zone, rng);
-            ResourceType type = types[rng.nextInt(types.length)];
-            PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, resourceCap);
+            PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, cap);
             pois.add(poi);
             spawnDisplayEntityForPoI(poi);
         }
@@ -263,16 +352,16 @@ public class PermanentZoneManager {
      * respawns for each one, then spawns any scheduled PoIs whose delay has elapsed.
      */
     public void rotatePoIs(PermanentZone zone) {
+        checkAndResetDailyBudget(zone);
+
         List<PointOfInterest> pois = activePoIs.computeIfAbsent(zone.getId(), k -> new ArrayList<>());
         List<Long> schedule = poiRespawnSchedule.computeIfAbsent(zone.getId(), k -> new ArrayList<>());
 
         CosmosConfig config = plugin.getConfigLoader().getConfig();
         long durationMillis = config.getPermanentZonePoiDurationSeconds() * 1000L;
         double poiRadius = config.getPermanentZonePoiCaptureRadius();
-        double resourceCap = config.getPermanentZonePoiResourceCap();
         int minDelay = config.getPermanentZonePoiRespawnMinSeconds();
         int maxDelay = config.getPermanentZonePoiRespawnMaxSeconds();
-        ResourceType[] types = ResourceType.values();
         var rng = ThreadLocalRandom.current();
 
         boolean changed = false;
@@ -290,18 +379,22 @@ public class PermanentZoneManager {
 
         // Spawn scheduled PoIs whose delay has elapsed
         long now = System.currentTimeMillis();
-        boolean spawned = false;
         List<Long> ready = schedule.stream().filter(t -> now >= t).toList();
         if (!ready.isEmpty()) {
             schedule.removeAll(ready);
             for (int i = 0; i < ready.size(); i++) {
+                List<ResourceType> available = availableResourceTypes(zone, rng);
+                if (available.isEmpty()) break; // daily budget exhausted for all types
+
+                ResourceType type = available.get(0);
+                double cap = allocatePoiCap(zone, type);
+                if (cap <= 0) break;
+
                 Location loc = randomLocationInsideZone(zone, rng);
-                ResourceType type = types[rng.nextInt(types.length)];
-                PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, resourceCap);
+                PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, cap);
                 pois.add(poi);
                 spawnDisplayEntityForPoI(poi);
                 announcePoISpawned(zone, poi);
-                spawned = true;
             }
             changed = true;
         }

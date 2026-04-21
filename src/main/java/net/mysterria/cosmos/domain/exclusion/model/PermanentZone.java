@@ -2,6 +2,7 @@ package net.mysterria.cosmos.domain.exclusion.model;
 
 import lombok.Getter;
 import lombok.Setter;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import org.bukkit.Location;
 import org.bukkit.World;
 
@@ -24,6 +25,9 @@ public class PermanentZone {
 
     @Setter
     private boolean active = true;
+
+    @Setter
+    private ExclusionZoneTier tier = ExclusionZoneTier.MEDIUM;
 
     public PermanentZone(UUID id, String name, List<Location> vertices) {
         this.id = id;

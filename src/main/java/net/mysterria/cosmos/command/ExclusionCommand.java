@@ -11,6 +11,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
@@ -49,6 +50,7 @@ public class ExclusionCommand {
                     ? "(" + (int) centroid.getX() + ", " + (int) centroid.getZ() + ")"
                     : "(no vertices)";
             sender.sendMessage(Component.text("- " + zone.getName(), NamedTextColor.YELLOW)
+                    .append(Component.text(" [" + zone.getTier().name() + "]", tierColor(zone.getTier())))
                     .append(Component.text(" centroid=" + pos, NamedTextColor.WHITE))
                     .append(Component.text(" verts=" + zone.getVertices().size(), NamedTextColor.GRAY))
                     .append(Component.text(" PoIs=" + mgr.getActivePoIs(zone).size() + " EPs=" + mgr.getActiveExtractionPoints(zone).size(), NamedTextColor.AQUA)));
@@ -196,14 +198,59 @@ public class ExclusionCommand {
         }
         PermanentZone zone = zoneOpt.get();
         sender.sendMessage(Component.text("=== " + zone.getName() + " ===").color(NamedTextColor.GOLD));
+        sender.sendMessage(Component.text("Tier: ", NamedTextColor.YELLOW)
+                .append(Component.text(zone.getTier().name(), tierColor(zone.getTier()))));
         sender.sendMessage(Component.text("Active PoIs: ", NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(mgr.getActivePoIs(zone).size()), NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("Active Extraction Points: ", NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(mgr.getActiveExtractionPoints(zone).size()), NamedTextColor.WHITE)));
+
+        Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double> remaining = mgr.getDailyBudgetRemaining(zone);
+        if (!remaining.isEmpty()) {
+            sender.sendMessage(Component.text("Daily Budget Remaining: ", NamedTextColor.YELLOW));
+            for (net.mysterria.cosmos.domain.exclusion.model.source.ResourceType type : net.mysterria.cosmos.domain.exclusion.model.source.ResourceType.values()) {
+                double rem = remaining.getOrDefault(type, 0.0);
+                sender.sendMessage(Component.text("  " + type.name() + ": ", NamedTextColor.GRAY)
+                        .append(Component.text(String.format("%.2f", rem), NamedTextColor.WHITE)));
+            }
+        } else {
+            sender.sendMessage(Component.text("Daily Budget Remaining: ", NamedTextColor.YELLOW)
+                    .append(Component.text("(resets on first PoI spawn)", NamedTextColor.DARK_GRAY)));
+        }
+
         mgr.getActivePoIs(zone).forEach(poi ->
                 sender.sendMessage(Component.text("  PoI: ", NamedTextColor.GRAY)
                         .append(Component.text(poi.getResourceType().name(), NamedTextColor.AQUA))
+                        .append(Component.text(" cap=" + String.format("%.2f", poi.getResourceCap()), NamedTextColor.WHITE))
+                        .append(Component.text(" rem=" + String.format("%.2f", poi.getResourcesRemaining()), NamedTextColor.GREEN))
                         .append(Component.text(" expires in " + ((poi.getActiveUntil() - System.currentTimeMillis()) / 1000) + "s", NamedTextColor.DARK_GRAY))));
+    }
+
+    @Execute(name = "exclusion tier")
+    @Permission("cosmos.admin")
+    public void exclusionTier(@Context CommandSender sender, @Arg String name, @Arg String tierName) {
+        PermanentZoneManager mgr = plugin.getPermanentZoneManager();
+        Optional<PermanentZone> zoneOpt = mgr.getZone(name);
+        if (zoneOpt.isEmpty()) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                    .append(Component.text("Zone '" + name + "' not found.", NamedTextColor.RED)));
+            return;
+        }
+        ExclusionZoneTier tier;
+        try {
+            tier = ExclusionZoneTier.valueOf(tierName.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                    .append(Component.text("Unknown tier '" + tierName + "'. Valid: SAFE, MEDIUM, HARD", NamedTextColor.RED)));
+            return;
+        }
+        PermanentZone zone = zoneOpt.get();
+        zone.setTier(tier);
+        mgr.saveZones();
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+                .append(Component.text("Zone '" + name + "' tier set to ", NamedTextColor.GREEN))
+                .append(Component.text(tier.name(), NamedTextColor.YELLOW))
+                .append(Component.text(".", NamedTextColor.GREEN)));
     }
 
     @Execute(name = "exclusion reload")
@@ -212,6 +259,14 @@ public class ExclusionCommand {
         plugin.getPermanentZoneManager().loadZones();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Permanent zones reloaded from file.", NamedTextColor.GREEN)));
+    }
+
+    private NamedTextColor tierColor(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE -> NamedTextColor.GREEN;
+            case MEDIUM -> NamedTextColor.YELLOW;
+            case HARD -> NamedTextColor.RED;
+        };
     }
 
     @Execute(name = "exclusion balance")

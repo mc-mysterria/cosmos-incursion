@@ -4,6 +4,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.combat.service.KillTracker;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
@@ -103,7 +104,16 @@ public class PlayerDeathListener implements Listener {
         PermanentZone pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
         if (pZone == null) return;
 
-        dropBufferAsItems(victim, victim.getLocation());
+        // Apply inventory item drops based on permanent zone tier
+        ExclusionZoneTier tier = pZone.getTier();
+        double dropChance = plugin.getConfigLoader().getConfig().getExclusionTierConfigs()
+                .getOrDefault(tier, plugin.getConfigLoader().getConfig().getExclusionTierConfigs().get(ExclusionZoneTier.MEDIUM))
+                .dropChance();
+        Location deathLocation = victim.getLocation();
+        event.getDrops().clear();
+        dropItemsWithChance(victim, deathLocation, dropChance);
+
+        dropBufferAsItems(victim, deathLocation);
         plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
     }
 

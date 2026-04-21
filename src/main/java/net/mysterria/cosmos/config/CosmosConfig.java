@@ -2,6 +2,8 @@ package net.mysterria.cosmos.config;
 
 import lombok.Getter;
 import lombok.Setter;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
+import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 
 import java.util.EnumMap;
@@ -11,12 +13,22 @@ import java.util.Map;
 @Setter
 public class CosmosConfig {
 
-    /**
-     * Per-tier settings for drop chance, reward, and particle color.
-     * particleR/G/B are 0-255 RGB values for zone boundary particles.
-     */
+    /** Per-tier settings for incursion zone drop chance, reward command, and particle color. */
     public record ZoneTierConfig(double dropChance, String rewardCommand,
                                  int particleR, int particleG, int particleB) {}
+
+    /**
+     * Per-tier settings for permanent extraction zones.
+     * dailyBudget  — total units of each resource the zone can produce per 24-hour period.
+     * poiCap       — maximum units a single PoI can hold; caps how much each PoI allocates from the budget.
+     * dropChance   — probability each inventory slot drops on death inside the zone (0.0–1.0).
+     *
+     * Accumulation rate is auto-derived: rate = poiCap / poiDurationSeconds,
+     * so a fully-contested PoI drains in exactly its configured lifetime.
+     */
+    public record ExclusionZoneTierConfig(double dropChance,
+                                          Map<ResourceType, Double> dailyBudget,
+                                          Map<ResourceType, Double> poiCap) {}
 
 
     // Event settings
@@ -26,9 +38,16 @@ public class CosmosConfig {
     private int durationMinutes = 30;
     private int countdownSeconds = 60;
 
-    // Zone tier configuration (populated by ConfigManager)
+    // Incursion zone tier configuration (populated by ConfigLoader)
     private Map<ZoneTier, ZoneTierConfig> tierConfigs = new EnumMap<>(ZoneTier.class);
     private Map<ZoneTier, Integer> tierDistribution = new EnumMap<>(ZoneTier.class);
+
+    // Permanent zone tier configuration (populated by ConfigLoader)
+    private Map<ExclusionZoneTier, ExclusionZoneTierConfig> exclusionTierConfigs = new EnumMap<>(ExclusionZoneTier.class);
+
+    // Per-tier resources deposited to the winning town at the end of an incursion event.
+    // The total reward = sum of the reward for each zone's tier that was active in the event.
+    private Map<ZoneTier, Map<ResourceType, Double>> eventWinnerResourcesByTier = new EnumMap<>(ZoneTier.class);
 
     // Zone settings
     private int zoneBaseCount = 2;
@@ -97,7 +116,6 @@ public class CosmosConfig {
     private double permanentZoneExtractionExitBuffer = 15.0;
     private boolean permanentZoneParticlesEnabled = true;
     private double permanentZoneParticleViewDistance = 64.0;
-    private double permanentZonePoiResourceCap = 50.0;
     private int permanentZonePoiRespawnMinSeconds = 120;
     private int permanentZonePoiRespawnMaxSeconds = 300;
 

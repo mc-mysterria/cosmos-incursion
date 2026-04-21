@@ -241,6 +241,24 @@ public class EventManager {
 
                     // Award Acting Speed buff to winning town
                     buffToolkit.awardBuffToTown(winningTownId);
+
+                    // Deposit per-tier resources to winning town: one reward entry per zone in the event
+                    java.util.Map<net.mysterria.cosmos.domain.incursion.model.source.ZoneTier, java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double>> rewardsByTier =
+                            config.getEventWinnerResourcesByTier();
+                    java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double> totalReward =
+                            new java.util.EnumMap<>(net.mysterria.cosmos.domain.exclusion.model.source.ResourceType.class);
+                    for (IncursionZone zone : activeEvent.getIncursionZones()) {
+                        java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double> tierReward =
+                                rewardsByTier.get(zone.getTier());
+                        if (tierReward != null) {
+                            tierReward.forEach((type, amount) ->
+                                    totalReward.merge(type, amount, Double::sum));
+                        }
+                    }
+                    if (!totalReward.isEmpty()) {
+                        plugin.getPermanentZoneManager().depositToTown(winningTownId, totalReward);
+                        plugin.log("Deposited event winner resources to town " + winningTownId + ": " + totalReward);
+                    }
                 } else {
                     plugin.log("No winning town (no beacons were captured)");
                 }

@@ -2,6 +2,8 @@ package net.mysterria.cosmos.config;
 
 import lombok.Getter;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
+import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -130,9 +132,64 @@ public class ConfigLoader {
         config.setPermanentZoneExtractionExitBuffer(fileConfig.getDouble("permanent-zones.extraction-exit-buffer", 15.0));
         config.setPermanentZoneParticlesEnabled(fileConfig.getBoolean("permanent-zones.particles-enabled", true));
         config.setPermanentZoneParticleViewDistance(fileConfig.getDouble("permanent-zones.particle-view-distance", 64.0));
-        config.setPermanentZonePoiResourceCap(fileConfig.getDouble("permanent-zones.poi-resource-cap", 50.0));
         config.setPermanentZonePoiRespawnMinSeconds(fileConfig.getInt("permanent-zones.poi-respawn-min-seconds", 120));
         config.setPermanentZonePoiRespawnMaxSeconds(fileConfig.getInt("permanent-zones.poi-respawn-max-seconds", 300));
+
+        // Permanent zone tier configuration
+        Map<ExclusionZoneTier, CosmosConfig.ExclusionZoneTierConfig> exclusionTierConfigs = new EnumMap<>(ExclusionZoneTier.class);
+        double[] defaultExclusionDropChances = {0.0, 0.33, 1.0}; // SAFE, MEDIUM, HARD
+        // daily-budget defaults: total units per resource produced by the zone per 24 hours
+        double[][] defaultDailyBudget = {
+                {30.0,  60.0, 15.0},   // SAFE:   gold, silver, gems
+                {60.0, 150.0, 30.0},   // MEDIUM: gold, silver, gems
+                {120.0, 300.0, 60.0}   // HARD:   gold, silver, gems
+        };
+        // poi-cap defaults: max units a single PoI can hold for each resource type
+        double[][] defaultPoiCap = {
+                {3.0, 6.0, 1.5},   // SAFE
+                {6.0, 15.0, 3.0},  // MEDIUM
+                {12.0, 30.0, 6.0}  // HARD
+        };
+        ExclusionZoneTier[] exclusionTiers = ExclusionZoneTier.values();
+        for (int i = 0; i < exclusionTiers.length; i++) {
+            ExclusionZoneTier tier = exclusionTiers[i];
+            String key = tier.configKey();
+            double dropChance = fileConfig.getDouble("permanent-zones.tiers." + key + ".drop-chance", defaultExclusionDropChances[i]);
+
+            Map<ResourceType, Double> dailyBudget = new EnumMap<>(ResourceType.class);
+            dailyBudget.put(ResourceType.GOLD,   fileConfig.getDouble("permanent-zones.tiers." + key + ".daily-budget.gold",   defaultDailyBudget[i][0]));
+            dailyBudget.put(ResourceType.SILVER, fileConfig.getDouble("permanent-zones.tiers." + key + ".daily-budget.silver", defaultDailyBudget[i][1]));
+            dailyBudget.put(ResourceType.GEMS,   fileConfig.getDouble("permanent-zones.tiers." + key + ".daily-budget.gems",   defaultDailyBudget[i][2]));
+
+            Map<ResourceType, Double> poiCap = new EnumMap<>(ResourceType.class);
+            poiCap.put(ResourceType.GOLD,   fileConfig.getDouble("permanent-zones.tiers." + key + ".poi-cap.gold",   defaultPoiCap[i][0]));
+            poiCap.put(ResourceType.SILVER, fileConfig.getDouble("permanent-zones.tiers." + key + ".poi-cap.silver", defaultPoiCap[i][1]));
+            poiCap.put(ResourceType.GEMS,   fileConfig.getDouble("permanent-zones.tiers." + key + ".poi-cap.gems",   defaultPoiCap[i][2]));
+
+            exclusionTierConfigs.put(tier, new CosmosConfig.ExclusionZoneTierConfig(dropChance, dailyBudget, poiCap));
+        }
+        config.setExclusionTierConfigs(exclusionTierConfigs);
+
+        // Resources awarded to the winning town per zone tier conquered in an incursion event.
+        // Total reward = sum of these values for each zone that was active in the event.
+        double[][] defaultWinnerResources = {
+                {10.0, 20.0,  5.0},   // GREEN:  gold, silver, gems
+                {25.0, 50.0, 12.0},   // YELLOW: gold, silver, gems
+                {50.0, 100.0, 25.0},  // RED:    gold, silver, gems
+                {100.0, 200.0, 50.0}  // DEATH:  gold, silver, gems
+        };
+        Map<ZoneTier, Map<ResourceType, Double>> winnerResourcesByTier = new EnumMap<>(ZoneTier.class);
+        ZoneTier[] incursionTiers = ZoneTier.values();
+        for (int i = 0; i < incursionTiers.length; i++) {
+            ZoneTier tier = incursionTiers[i];
+            String key = tier.configKey();
+            Map<ResourceType, Double> reward = new EnumMap<>(ResourceType.class);
+            reward.put(ResourceType.GOLD,   fileConfig.getDouble("rewards.winner-resources." + key + ".gold",   defaultWinnerResources[i][0]));
+            reward.put(ResourceType.SILVER, fileConfig.getDouble("rewards.winner-resources." + key + ".silver", defaultWinnerResources[i][1]));
+            reward.put(ResourceType.GEMS,   fileConfig.getDouble("rewards.winner-resources." + key + ".gems",   defaultWinnerResources[i][2]));
+            winnerResourcesByTier.put(tier, reward);
+        }
+        config.setEventWinnerResourcesByTier(winnerResourcesByTier);
 
         // Messages
         config.setMsgEventStarting(fileConfig.getString("messages.event-starting",
