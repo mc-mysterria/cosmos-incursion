@@ -7,8 +7,15 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Runs every 5 ticks. Handles zone entry/exit tracking and acts as a
@@ -19,6 +26,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 public class PermanentZonePlayerTask extends BukkitRunnable {
 
     private final PermanentZoneManager permanentZoneManager;
+    private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
 
     public PermanentZonePlayerTask(PermanentZoneManager permanentZoneManager) {
         this.permanentZoneManager = permanentZoneManager;
@@ -76,7 +84,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                 player.teleport(new Location(outside.getWorld(), x, y, z,
                     outside.getYaw(), outside.getPitch()));
                 player.sendActionBar(Component.text("You cannot leave ", NamedTextColor.RED)
-                    .append(Component.text(zone.getName(), NamedTextColor.YELLOW))
+                    .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.YELLOW))
                     .append(Component.text(" while carrying resources!", NamedTextColor.RED)));
                 return;
             }
@@ -86,24 +94,55 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         double y = centroid.getWorld().getHighestBlockYAt(centroid) + 1.0;
         player.teleport(new Location(centroid.getWorld(), centroid.getX(), y, centroid.getZ()));
         player.sendActionBar(Component.text("You cannot leave ", NamedTextColor.RED)
-            .append(Component.text(zone.getName(), NamedTextColor.YELLOW))
+            .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.YELLOW))
             .append(Component.text(" while carrying resources!", NamedTextColor.RED)));
     }
 
     private void onEnter(Player player, PermanentZone zone) {
+        showZoneBossBar(player, zone);
         player.sendActionBar(
             Component.text("Entered extraction zone: ", NamedTextColor.DARK_RED)
-                .append(Component.text(zone.getName(), NamedTextColor.RED))
+                .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.RED))
                 .append(Component.text(" | You cannot leave while carrying resources!", NamedTextColor.DARK_RED))
         );
     }
 
     private void onExit(Player player, PermanentZone zone) {
         permanentZoneManager.cancelExtractionChannel(player.getUniqueId());
+        removeZoneBossBar(player);
         player.sendActionBar(
             Component.text("You have left ", NamedTextColor.GRAY)
-                .append(Component.text(zone.getName(), NamedTextColor.WHITE))
+                .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.WHITE))
         );
+    }
+
+    private void showZoneBossBar(Player player, PermanentZone zone) {
+        removeZoneBossBar(player);
+
+        BarColor barColor = switch (zone.getTier()) {
+            case SAFE   -> BarColor.GREEN;
+            case MEDIUM -> BarColor.YELLOW;
+            case HARD   -> BarColor.RED;
+        };
+        String barTitle = switch (zone.getTier()) {
+            case SAFE   -> "Safe PvP Zone — " + formatZoneName(zone.getName()) + " | No inventory drops on death";
+            case MEDIUM -> "⚠ Medium PvP Zone — " + formatZoneName(zone.getName()) + " | ~33% item drop rate";
+            case HARD   -> "⚠ Hardcore PvP Zone — " + formatZoneName(zone.getName()) + " | ALL items drop on death!";
+        };
+
+        BossBar bar = Bukkit.createBossBar(barTitle, barColor, BarStyle.SOLID);
+        bar.setProgress(1.0);
+        bar.addPlayer(player);
+        zoneBossBars.put(player.getUniqueId(), bar);
+    }
+
+    private void removeZoneBossBar(Player player) {
+        BossBar bar = zoneBossBars.remove(player.getUniqueId());
+        if (bar != null) bar.removePlayer(player);
+    }
+
+    private static String formatZoneName(String name) {
+        return name.replace('_', ' ');
     }
 
     private boolean zonesEqual(PermanentZone a, PermanentZone b) {

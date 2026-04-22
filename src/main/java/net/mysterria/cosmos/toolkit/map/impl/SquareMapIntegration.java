@@ -1,13 +1,14 @@
 package net.mysterria.cosmos.toolkit.map.impl;
 
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.model.SpiritBeacon;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -16,7 +17,10 @@ import xyz.jpenilla.squaremap.api.Point;
 import xyz.jpenilla.squaremap.api.marker.Marker;
 import xyz.jpenilla.squaremap.api.marker.MarkerOptions;
 
+import javax.imageio.ImageIO;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.*;
 import java.util.List;
 
@@ -40,6 +44,8 @@ public class SquareMapIntegration implements MapIntegration {
     // zone UUID → set of PoI/EP marker keys currently on the map
     private final Map<UUID, Set<Key>> zonePoiKeys = new HashMap<>();
     private final Map<UUID, Set<Key>> zoneExtractionKeys = new HashMap<>();
+    // resource type → squaremap icon key (populated if icons are configured)
+    private final Map<ResourceType, Key> registeredPoiIconKeys = new EnumMap<>(ResourceType.class);
 
     public SquareMapIntegration(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -67,9 +73,33 @@ public class SquareMapIntegration implements MapIntegration {
                         });
             }
 
+            registerPoiIcons();
             plugin.log("squaremap integration enabled");
         } catch (Exception e) {
             plugin.log("squaremap not available: " + e.getMessage());
+        }
+    }
+
+    private void registerPoiIcons() {
+        Map<ResourceType, String> paths = plugin.getConfigLoader().getConfig().getPoiIconPaths();
+        int size = plugin.getConfigLoader().getConfig().getPoiIconSize();
+        for (ResourceType type : ResourceType.values()) {
+            String path = paths.get(type);
+            if (path == null || path.isBlank()) continue;
+            File iconFile = new File(plugin.getDataFolder(), path);
+            if (!iconFile.exists()) {
+                plugin.log("squaremap: PoI icon not found: " + iconFile.getPath());
+                continue;
+            }
+            try {
+                BufferedImage img = ImageIO.read(iconFile);
+                Key iconKey = Key.of("cosmos_poi_" + type.name().toLowerCase());
+                api.iconRegistry().register(iconKey, img);
+                registeredPoiIconKeys.put(type, iconKey);
+                plugin.log("squaremap: registered PoI icon for " + type.name());
+            } catch (Exception e) {
+                plugin.log("squaremap: failed to register PoI icon for " + type.name() + ": " + e.getMessage());
+            }
         }
     }
 
@@ -84,17 +114,15 @@ public class SquareMapIntegration implements MapIntegration {
     public void createZoneMarker(IncursionZone zone) {
         if (!isAvailable()) return;
         try {
-            CosmosConfig.ZoneTierConfig cfg = plugin.getConfigLoader().getConfig()
-                    .getTierConfigs().get(zone.getTier());
-
-            Color fill = new Color(cfg.particleR(), cfg.particleG(), cfg.particleB(), 38);   // ~15% opacity
-            Color stroke = new Color(cfg.particleR(), cfg.particleG(), cfg.particleB(), 153);  // ~60% opacity
+            Color fill = incursionTierFillColor(zone.getTier());
+            Color stroke = incursionTierStrokeColor(zone.getTier());
 
             MarkerOptions options = MarkerOptions.builder()
                     .fillColor(fill)
                     .strokeColor(stroke)
                     .strokeWeight(3)
-                    .clickTooltip("[" + zone.getTier().name() + "] Cosmos Incursion – " + zone.getName())
+                    .clickTooltip("[" + zone.getTier().name() + "] " + formatZoneName(zone.getName())
+                            + " | " + incursionTierDescription(zone.getTier()))
                     .build();
 
             var circle = Marker.circle(
@@ -257,14 +285,15 @@ public class SquareMapIntegration implements MapIntegration {
             }
             if (points.size() < 3) return;
 
-            Color fill = new Color(220, 120, 0, 45);    // amber ~18%
-            Color stroke = new Color(255, 160, 0, 200); // bright amber ~78%
+            Color fill = exclusionTierFillColor(zone.getTier());
+            Color stroke = exclusionTierStrokeColor(zone.getTier());
 
             MarkerOptions options = MarkerOptions.builder()
                     .fillColor(fill)
                     .strokeColor(stroke)
                     .strokeWeight(3)
-                    .clickTooltip("⚔ Permanent Zone: " + zone.getName())
+                    .clickTooltip("⚔ " + formatZoneName(zone.getName())
+                            + " [" + zone.getTier().name() + "] | " + exclusionTierDescription(zone.getTier()))
                     .build();
 
             var polygon = Marker.polygon(points).markerOptions(options);
@@ -313,13 +342,14 @@ public class SquareMapIntegration implements MapIntegration {
             Set<Key> newKeys = new HashSet<>();
             for (PointOfInterest poi : pois) {
                 if (!poi.isActive()) continue;
+                String tooltip = poiLabel(poi.getResourceType()) + " — " + formatZoneName(zone.getName());
                 Color fill = poiFillColor(poi.getResourceType());
                 Color stroke = poiStrokeColor(poi.getResourceType());
                 MarkerOptions opts = MarkerOptions.builder()
                         .fillColor(fill)
                         .strokeColor(stroke)
                         .strokeWeight(2)
-                        .clickTooltip(poiLabel(poi.getResourceType()) + " — " + zone.getName())
+                        .clickTooltip(tooltip)
                         .build();
                 var circle = Marker.circle(
                         Point.of(poi.getLocation().getX(), poi.getLocation().getZ()),
@@ -328,6 +358,20 @@ public class SquareMapIntegration implements MapIntegration {
                 Key key = poiKey(poi.getId());
                 layerProvider.addMarker(key, circle);
                 newKeys.add(key);
+
+                // Add icon marker at PoI center if a custom icon is configured for this resource type
+                Key iconKey = registeredPoiIconKeys.get(poi.getResourceType());
+                if (iconKey != null) {
+                    int iconSize = plugin.getConfigLoader().getConfig().getPoiIconSize();
+                    MarkerOptions iconOpts = MarkerOptions.builder().clickTooltip(tooltip).build();
+                    var iconMarker = Marker.icon(
+                            Point.of(poi.getLocation().getX(), poi.getLocation().getZ()),
+                            iconKey, iconSize, iconSize
+                    ).markerOptions(iconOpts);
+                    Key iKey = poiIconKey(poi.getId());
+                    layerProvider.addMarker(iKey, iconMarker);
+                    newKeys.add(iKey);
+                }
             }
             zonePoiKeys.put(zone.getId(), newKeys);
         } catch (Exception e) {
@@ -349,7 +393,7 @@ public class SquareMapIntegration implements MapIntegration {
                         .fillColor(fill)
                         .strokeColor(stroke)
                         .strokeWeight(2)
-                        .clickTooltip("⬆ Extraction Point — " + zone.getName())
+                        .clickTooltip("⬆ Extraction Point — " + formatZoneName(zone.getName()))
                         .build();
                 var circle = Marker.circle(
                         Point.of(ep.getLocation().getX(), ep.getLocation().getZ()),
@@ -372,6 +416,61 @@ public class SquareMapIntegration implements MapIntegration {
                 try { layerProvider.removeMarker(k); } catch (Exception ignored) {}
             }
         }
+    }
+
+    private static String formatZoneName(String name) {
+        return name.replace('_', ' ');
+    }
+
+    private static Color incursionTierFillColor(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> new Color(0, 200, 0, 40);
+            case YELLOW -> new Color(220, 180, 0, 40);
+            case RED    -> new Color(200, 0, 0, 40);
+            case DEATH  -> new Color(20, 0, 20, 60);
+        };
+    }
+
+    private static Color incursionTierStrokeColor(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> new Color(0, 220, 0, 200);
+            case YELLOW -> new Color(255, 215, 0, 200);
+            case RED    -> new Color(255, 0, 0, 200);
+            case DEATH  -> new Color(40, 0, 40, 230);
+        };
+    }
+
+    private static String incursionTierDescription(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> "No item drops on death";
+            case YELLOW -> "~33% of items drop on death";
+            case RED    -> "All items drop on death";
+            case DEATH  -> "All items lost + sequence regression";
+        };
+    }
+
+    private static Color exclusionTierFillColor(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> new Color(0, 200, 0, 40);
+            case MEDIUM -> new Color(220, 180, 0, 40);
+            case HARD   -> new Color(200, 0, 0, 40);
+        };
+    }
+
+    private static Color exclusionTierStrokeColor(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> new Color(0, 220, 0, 200);
+            case MEDIUM -> new Color(255, 215, 0, 200);
+            case HARD   -> new Color(255, 0, 0, 200);
+        };
+    }
+
+    private static String exclusionTierDescription(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> "No inventory drops on death";
+            case MEDIUM -> "~33% item drop rate on death";
+            case HARD   -> "All items drop on death";
+        };
     }
 
     private static Color poiFillColor(ResourceType type) {
@@ -419,6 +518,10 @@ public class SquareMapIntegration implements MapIntegration {
 
     private static Key poiKey(UUID id) {
         return Key.of("poi_" + id.toString().replace("-", ""));
+    }
+
+    private static Key poiIconKey(UUID id) {
+        return Key.of("poi_icon_" + id.toString().replace("-", ""));
     }
 
     private static Key extractionKey(UUID id) {

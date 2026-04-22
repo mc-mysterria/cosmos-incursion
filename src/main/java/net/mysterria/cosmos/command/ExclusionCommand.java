@@ -99,6 +99,7 @@ public class ExclusionCommand {
             mgr.spawnPoIsForZone(zone);
             mgr.spawnExtractionPoints(zone);
         }
+        plugin.refreshPermanentZoneMarkers();
     }
 
     @Execute(name = "exclusion vertex remove")
@@ -120,6 +121,7 @@ public class ExclusionCommand {
         }
         zone.removeVertex(index - 1); // 1-based → 0-based
         mgr.saveZones();
+        plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Vertex #" + index + " removed from '" + name + "'.", NamedTextColor.GREEN)));
     }
@@ -247,6 +249,7 @@ public class ExclusionCommand {
         PermanentZone zone = zoneOpt.get();
         zone.setTier(tier);
         mgr.saveZones();
+        plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Zone '" + name + "' tier set to ", NamedTextColor.GREEN))
                 .append(Component.text(tier.name(), NamedTextColor.YELLOW))
@@ -257,6 +260,7 @@ public class ExclusionCommand {
     @Permission("cosmos.admin")
     public void exclusionReload(@Context CommandSender sender) {
         plugin.getPermanentZoneManager().loadZones();
+        plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Permanent zones reloaded from file.", NamedTextColor.GREEN)));
     }

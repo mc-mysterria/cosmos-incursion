@@ -414,7 +414,7 @@ public class PermanentZoneManager {
             .append(Component.text("A ", NamedTextColor.WHITE))
             .append(Component.text(poi.getResourceType().name(), color))
             .append(Component.text(" Point of Interest has emerged in ", NamedTextColor.WHITE))
-            .append(Component.text(zone.getName(), NamedTextColor.YELLOW))
+            .append(Component.text(zone.getName().replace('_', ' '), NamedTextColor.YELLOW))
             .append(Component.text("! Contest it before it runs dry.", NamedTextColor.WHITE));
         Bukkit.broadcast(msg);
     }

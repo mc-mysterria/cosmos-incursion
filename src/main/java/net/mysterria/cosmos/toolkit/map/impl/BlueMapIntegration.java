@@ -11,13 +11,19 @@ import de.bluecolored.bluemap.api.markers.ShapeMarker;
 import de.bluecolored.bluemap.api.math.Color;
 import de.bluecolored.bluemap.api.math.Shape;
 import net.mysterria.cosmos.CosmosIncursion;
-import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.beacon.model.SpiritBeacon;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import org.bukkit.entity.Player;
 
@@ -36,6 +42,8 @@ public class BlueMapIntegration implements MapIntegration {
     // zone UUID → set of marker IDs (PoI / extraction points) for bulk removal
     private final Map<UUID, Set<String>> zonePoiMarkerIds;
     private final Map<UUID, Set<String>> zoneExtractionMarkerIds;
+    // resource type → icon address relative to BlueMap web root (populated if icons are configured)
+    private final Map<ResourceType, String> registeredPoiIconAddresses = new EnumMap<>(ResourceType.class);
     private BlueMapAPI api;
     private MarkerSet markerSet;
 
@@ -94,6 +102,33 @@ public class BlueMapIntegration implements MapIntegration {
             plugin.log("Error creating BlueMap marker set: " + e.getMessage());
             e.printStackTrace();
         }
+        registerPoiIcons();
+    }
+
+    private void registerPoiIcons() {
+        if (api == null) return;
+        Map<ResourceType, String> paths = plugin.getConfigLoader().getConfig().getPoiIconPaths();
+        int size = plugin.getConfigLoader().getConfig().getPoiIconSize();
+        try {
+            Path webRoot = api.getWebApp().getWebRoot();
+            Path iconDir = webRoot.resolve("cosmos-icons");
+            Files.createDirectories(iconDir);
+            for (ResourceType type : ResourceType.values()) {
+                String path = paths.get(type);
+                if (path == null || path.isBlank()) continue;
+                File iconFile = new File(plugin.getDataFolder(), path);
+                if (!iconFile.exists()) {
+                    plugin.log("BlueMap: PoI icon not found: " + iconFile.getPath());
+                    continue;
+                }
+                String destName = "poi_" + type.name().toLowerCase() + ".png";
+                Files.copy(iconFile.toPath(), iconDir.resolve(destName), StandardCopyOption.REPLACE_EXISTING);
+                registeredPoiIconAddresses.put(type, "cosmos-icons/" + destName);
+                plugin.log("BlueMap: registered PoI icon for " + type.name());
+            }
+        } catch (Exception e) {
+            plugin.log("BlueMap: failed to register PoI icons: " + e.getMessage());
+        }
     }
 
     /**
@@ -123,18 +158,13 @@ public class BlueMapIntegration implements MapIntegration {
 
             Shape shape = new Shape(circlePoints);
 
-            // Derive marker color from zone tier
-            CosmosConfig.ZoneTierConfig tierCfg = plugin.getConfigLoader().getConfig()
-                    .getTierConfigs().get(incursionZone.getTier());
-            int r = tierCfg.particleR(), g = tierCfg.particleG(), b = tierCfg.particleB();
-            String tierLabel = incursionZone.getTier().name();
-
             // Create shape marker
             ShapeMarker marker = ShapeMarker.builder()
-                    .label("[" + tierLabel + "] Cosmos Incursion - " + incursionZone.getName())
+                    .label("[" + incursionZone.getTier().name() + "] " + formatZoneName(incursionZone.getName())
+                            + " | " + incursionTierDescription(incursionZone.getTier()))
                     .shape(shape, (float) incursionZone.getCenter().getY())
-                    .fillColor(new Color(r, g, b, 0.15f))
-                    .lineColor(new Color(r, g, b, 0.6f))
+                    .fillColor(incursionTierFillColor(incursionZone.getTier()))
+                    .lineColor(incursionTierStrokeColor(incursionZone.getTier()))
                     .lineWidth(3)
                     .depthTestEnabled(false)
                     .build();
@@ -377,10 +407,11 @@ public class BlueMapIntegration implements MapIntegration {
             Shape shape = new Shape(points);
 
             ShapeMarker marker = ShapeMarker.builder()
-                    .label("⚔ Permanent Zone: " + zone.getName())
+                    .label("⚔ " + formatZoneName(zone.getName())
+                            + " [" + zone.getTier().name() + "] | " + exclusionTierDescription(zone.getTier()))
                     .shape(shape, (float) avgY)
-                    .fillColor(new Color(220, 120, 0, 0.18f))
-                    .lineColor(new Color(255, 160, 0, 0.78f))
+                    .fillColor(exclusionTierFillColor(zone.getTier()))
+                    .lineColor(exclusionTierStrokeColor(zone.getTier()))
                     .lineWidth(3)
                     .depthTestEnabled(false)
                     .build();
@@ -430,8 +461,9 @@ public class BlueMapIntegration implements MapIntegration {
                 List<Vector2d> pts = createCirclePoints(
                         poi.getLocation().getX(), poi.getLocation().getZ(),
                         poi.getExtractionRadius(), 24);
+                String label = poiLabel(poi.getResourceType()) + " — " + formatZoneName(zone.getName());
                 ShapeMarker marker = ShapeMarker.builder()
-                        .label(poiLabel(poi.getResourceType()) + " — " + zone.getName())
+                        .label(label)
                         .shape(new Shape(pts), (float) poi.getLocation().getY())
                         .fillColor(poiFillColor(poi.getResourceType()))
                         .lineColor(poiLineColor(poi.getResourceType()))
@@ -441,6 +473,21 @@ public class BlueMapIntegration implements MapIntegration {
                 String id = "poi_" + poi.getId();
                 markerSet.put(id, marker);
                 newIds.add(id);
+
+                // Add POI icon marker at the PoI center if a custom icon is configured
+                String iconAddress = registeredPoiIconAddresses.get(poi.getResourceType());
+                if (iconAddress != null) {
+                    int iconSize = plugin.getConfigLoader().getConfig().getPoiIconSize();
+                    int anchor = iconSize / 2;
+                    POIMarker iconMarker = POIMarker.builder()
+                            .label(label)
+                            .position(poi.getLocation().getX(), poi.getLocation().getY(), poi.getLocation().getZ())
+                            .icon(iconAddress, anchor, anchor)
+                            .build();
+                    String iconId = "poi_icon_" + poi.getId();
+                    markerSet.put(iconId, iconMarker);
+                    newIds.add(iconId);
+                }
             }
             zonePoiMarkerIds.put(zone.getId(), newIds);
         } catch (Exception e) {
@@ -460,7 +507,7 @@ public class BlueMapIntegration implements MapIntegration {
                         ep.getLocation().getX(), ep.getLocation().getZ(),
                         ep.getCaptureRadius(), 24);
                 ShapeMarker marker = ShapeMarker.builder()
-                        .label("⬆ Extraction Point — " + zone.getName())
+                        .label("⬆ Extraction Point — " + formatZoneName(zone.getName()))
                         .shape(new Shape(pts), (float) ep.getLocation().getY())
                         .fillColor(new Color(0, 200, 220, 0.20f))
                         .lineColor(new Color(0, 220, 255, 0.78f))
@@ -508,9 +555,61 @@ public class BlueMapIntegration implements MapIntegration {
         };
     }
 
-    /**
-     * Check if BlueMap API is available
-     */
+    private static String formatZoneName(String name) {
+        return name.replace('_', ' ');
+    }
+
+    private static Color incursionTierFillColor(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> new Color(0, 200, 0, 0.16f);
+            case YELLOW -> new Color(220, 180, 0, 0.16f);
+            case RED    -> new Color(200, 0, 0, 0.16f);
+            case DEATH  -> new Color(20, 0, 20, 0.24f);
+        };
+    }
+
+    private static Color incursionTierStrokeColor(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> new Color(0, 220, 0, 0.78f);
+            case YELLOW -> new Color(255, 215, 0, 0.78f);
+            case RED    -> new Color(255, 0, 0, 0.78f);
+            case DEATH  -> new Color(40, 0, 40, 0.90f);
+        };
+    }
+
+    private static String incursionTierDescription(ZoneTier tier) {
+        return switch (tier) {
+            case GREEN  -> "No item drops on death";
+            case YELLOW -> "~33% of items drop on death";
+            case RED    -> "All items drop on death";
+            case DEATH  -> "All items lost + sequence regression";
+        };
+    }
+
+    private static Color exclusionTierFillColor(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> new Color(0, 200, 0, 0.16f);
+            case MEDIUM -> new Color(220, 180, 0, 0.16f);
+            case HARD   -> new Color(200, 0, 0, 0.16f);
+        };
+    }
+
+    private static Color exclusionTierStrokeColor(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> new Color(0, 220, 0, 0.78f);
+            case MEDIUM -> new Color(255, 215, 0, 0.78f);
+            case HARD   -> new Color(255, 0, 0, 0.78f);
+        };
+    }
+
+    private static String exclusionTierDescription(ExclusionZoneTier tier) {
+        return switch (tier) {
+            case SAFE   -> "No inventory drops on death";
+            case MEDIUM -> "~33% item drop rate on death";
+            case HARD   -> "All items drop on death";
+        };
+    }
+
     public boolean isAvailable() {
         return api != null;
     }

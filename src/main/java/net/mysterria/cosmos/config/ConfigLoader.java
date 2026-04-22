@@ -135,6 +135,14 @@ public class ConfigLoader {
         config.setPermanentZonePoiRespawnMinSeconds(fileConfig.getInt("permanent-zones.poi-respawn-min-seconds", 120));
         config.setPermanentZonePoiRespawnMaxSeconds(fileConfig.getInt("permanent-zones.poi-respawn-max-seconds", 300));
 
+        // Permanent zone PoI map icons
+        Map<ResourceType, String> poiIconPaths = new EnumMap<>(ResourceType.class);
+        poiIconPaths.put(ResourceType.GOLD,   fileConfig.getString("permanent-zones.poi-icons.gold",   ""));
+        poiIconPaths.put(ResourceType.SILVER, fileConfig.getString("permanent-zones.poi-icons.silver", ""));
+        poiIconPaths.put(ResourceType.GEMS,   fileConfig.getString("permanent-zones.poi-icons.gems",   ""));
+        config.setPoiIconPaths(poiIconPaths);
+        config.setPoiIconSize(fileConfig.getInt("permanent-zones.poi-icons.size", 32));
+
         // Permanent zone tier configuration
         Map<ExclusionZoneTier, CosmosConfig.ExclusionZoneTierConfig> exclusionTierConfigs = new EnumMap<>(ExclusionZoneTier.class);
         double[] defaultExclusionDropChances = {0.0, 0.33, 1.0}; // SAFE, MEDIUM, HARD

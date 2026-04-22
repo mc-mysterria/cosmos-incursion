@@ -174,7 +174,7 @@ public class BeaconManager {
      */
     private void createBeaconForZone(IncursionZone zone, Location location, int counter) {
         String beaconId = "beacon_" + counter;
-        String beaconName = zone.getName() + " - Beacon";
+        String beaconName = zone.getName().replace('_', ' ') + " - Beacon";
 
         SpiritBeacon beacon = new SpiritBeacon(beaconId, beaconName, location);
         beacons.put(beaconId, beacon);

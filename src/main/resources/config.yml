@@ -194,6 +194,17 @@ permanent-zones:
   # Maximum seconds before a depleted/expired PoI respawns
   poi-respawn-max-seconds: 300
 
+  # Custom icons shown on the map for each PoI resource type.
+  # Set to a file path relative to the CosmosIncursion plugin data folder
+  # (e.g., "icons/gold_ingot.png"). Leave empty to use the default colored circle.
+  # Icons must be PNG files. Recommended size: 32x32 pixels.
+  poi-icons:
+    gold: ""
+    silver: ""
+    gems: ""
+    # Display size of icons on the map in pixels
+    size: 32
+
   # Per-tier configuration for permanent extraction zones.
   #
   # drop-chance    — probability each inventory item slot drops on death inside the zone

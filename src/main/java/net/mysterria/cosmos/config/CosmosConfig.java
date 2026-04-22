@@ -104,6 +104,10 @@ public class CosmosConfig {
     private double actingSpeedBonus = 1.10;
     private int buffDurationHours = 24;
 
+    // Permanent zone PoI map icons
+    private Map<ResourceType, String> poiIconPaths = new EnumMap<>(ResourceType.class);
+    private int poiIconSize = 32;
+
     // Permanent zones
     private int permanentZonePoiCount = 3;
     private int permanentZonePoiDurationSeconds = 300;

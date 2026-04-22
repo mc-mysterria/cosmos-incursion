@@ -17,6 +17,9 @@ import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -47,8 +50,8 @@ public class ZoneCheckTask extends BukkitRunnable {
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final Map<UUID, Long> lastConsentPrompt;
-
-    private final Map<UUID, Map<Double, Long>> lastWarningTime; // Track last warning time per distance tier
+    private final Map<UUID, Map<Double, Long>> lastWarningTime;
+    private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
 
     public ZoneCheckTask(CosmosIncursion plugin, ZoneManager zoneManager,
                          PlayerStateManager playerStateManager, EffectsToolkit effectsToolkit,
@@ -67,8 +70,15 @@ public class ZoneCheckTask extends BukkitRunnable {
 
     @Override
     public void run() {
-        // Only check when event is active
+        // Only check when event is active; clean up any leftover boss bars on transition
         if (eventManager.getState() != EventState.ACTIVE) {
+            if (!zoneBossBars.isEmpty()) {
+                for (Map.Entry<UUID, BossBar> entry : new HashMap<>(zoneBossBars).entrySet()) {
+                    Player p = Bukkit.getPlayer(entry.getKey());
+                    if (p != null) entry.getValue().removePlayer(p);
+                }
+                zoneBossBars.clear();
+            }
             return;
         }
 
@@ -195,7 +205,7 @@ public class ZoneCheckTask extends BukkitRunnable {
 
                 if (lastWarn == null || (now - lastWarn) > WARNING_COOLDOWN) {
                     // Show warning based on distance
-                    String warningMessage = getWarningMessage(distanceFromEdge, nearestZone.getName());
+                    String warningMessage = getWarningMessage(distanceFromEdge, formatZoneName(nearestZone.getName()));
                     player.sendMessage(miniMessage.deserialize(warningMessage));
 
                     // Play warning sound
@@ -341,16 +351,11 @@ public class ZoneCheckTask extends BukkitRunnable {
     }
 
     private void onZoneEntry(Player player, IncursionZone incursionZone) {
-        // Calculate player tier
         PlayerTier tier = playerStateManager.calculateTier(player);
 
-        // Register player state
         playerStateManager.registerEntry(player, incursionZone, tier);
-
-        // Update zone tracking
         zoneManager.updatePlayerZone(player, incursionZone);
 
-        // Tier color for display
         String tierColor = switch (incursionZone.getTier()) {
             case GREEN  -> "green";
             case YELLOW -> "yellow";
@@ -358,24 +363,14 @@ public class ZoneCheckTask extends BukkitRunnable {
             case DEATH  -> "dark_red";
         };
 
-        // Display warning title
         Component title = miniMessage.deserialize(config.getMsgZoneEntry());
         Component subtitle = miniMessage.deserialize(
-                "<white>You have entered <" + tierColor + ">" + incursionZone.getName()
+                "<white>You have entered <" + tierColor + ">" + formatZoneName(incursionZone.getName())
                 + " [" + incursionZone.getTier() + "]</" + tierColor + "></white>"
         );
+        player.showTitle(Title.title(title, subtitle,
+                Title.Times.times(Duration.ofMillis(500), Duration.ofMillis(3000), Duration.ofMillis(1000))));
 
-        player.showTitle(Title.title(
-                title,
-                subtitle,
-                Title.Times.times(
-                        Duration.ofMillis(500),
-                        Duration.ofMillis(3000),
-                        Duration.ofMillis(1000)
-                )
-        ));
-
-        // Action bar message based on zone tier
         String tierMessage = switch (incursionZone.getTier()) {
             case GREEN  -> "<green>⚠ GREEN ZONE — PvP enabled. No item loss on death.</green>";
             case YELLOW -> "<yellow>⚠ YELLOW ZONE — PvP enabled. ~33% item loss on death!</yellow>";
@@ -384,38 +379,62 @@ public class ZoneCheckTask extends BukkitRunnable {
                     ? "<dark_red>☠ DEATH ZONE — ALL items + sequence regression! You are SPIRIT WEIGHT!</dark_red>"
                     : "<dark_red>☠ DEATH ZONE — ALL items + sequence regression!</dark_red>";
         };
-
         player.sendActionBar(miniMessage.deserialize(tierMessage));
 
-        // Apply tier-specific effects
-        effectsToolkit.applyEffects(player, tier);
+        // Persistent boss bar showing zone name and risk while inside
+        showZoneBossBar(player, incursionZone);
 
+        effectsToolkit.applyEffects(player, tier);
         plugin.log("Player " + player.getName() + " entered zone: " + incursionZone.getName() + " (" + tier + ")");
     }
 
     private void onZoneExit(Player player) {
         IncursionZone exitedZone = playerStateManager.getState(player).getIncursionZone();
 
-        // Remove all zone effects
         effectsToolkit.removeEffects(player);
-
-        // Unregister player state
         playerStateManager.registerExit(player);
-
-        // Update zone tracking
         zoneManager.updatePlayerZone(player, null);
 
-        // Send exit message
+        removeZoneBossBar(player);
+
         Component message = miniMessage.deserialize(config.getMsgZoneExit());
         player.sendMessage(message);
-
-        player.sendActionBar(miniMessage.deserialize(
-                "<green>✓ You are now safe - Safe mode restrictions removed</green>"
-        ));
+        player.sendActionBar(miniMessage.deserialize("<green>✓ You are now safe</green>"));
 
         if (exitedZone != null) {
             plugin.log("Player " + player.getName() + " exited zone: " + exitedZone.getName());
         }
+    }
+
+    private void showZoneBossBar(Player player, IncursionZone zone) {
+        removeZoneBossBar(player); // clean up any existing bar first
+
+        BarColor barColor = switch (zone.getTier()) {
+            case GREEN  -> BarColor.GREEN;
+            case YELLOW -> BarColor.YELLOW;
+            case RED    -> BarColor.RED;
+            case DEATH  -> BarColor.PURPLE;
+        };
+        String barTitle = switch (zone.getTier()) {
+            case GREEN  -> "⬟ GREEN ZONE — " + formatZoneName(zone.getName()) + " | No item drops on death";
+            case YELLOW -> "⚠ YELLOW ZONE — " + formatZoneName(zone.getName()) + " | ~33% item loss on death";
+            case RED    -> "⚠ RED ZONE — " + formatZoneName(zone.getName()) + " | ALL items lost on death!";
+            case DEATH  -> "☠ DEATH ZONE — " + formatZoneName(zone.getName()) + " | ALL items + sequence regression!";
+        };
+
+        BossBar bar = Bukkit.createBossBar(barTitle, barColor, BarStyle.SOLID);
+        bar.setProgress(1.0);
+        bar.addPlayer(player);
+        zoneBossBars.put(player.getUniqueId(), bar);
+    }
+
+    private void removeZoneBossBar(Player player) {
+        BossBar bar = zoneBossBars.remove(player.getUniqueId());
+        if (bar != null) bar.removePlayer(player);
+    }
+
+    private static String formatZoneName(String name) {
+        return name.replace('_', ' ');
     }
 
 }

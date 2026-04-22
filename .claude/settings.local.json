@@ -29,7 +29,8 @@
       "Bash(javap -p me/angeschossen/lands/api/events/land/create/LandPreCreateEvent.class)",
       "Bash(javap -p me/angeschossen/lands/api/events/player/PlayerNullableEvent.class)",
       "Bash(javap -p -c me/angeschossen/lands/api/handler/APIHandler.class)",
-      "Bash(javap -p me/angeschossen/lands/api/handler/LandsIntegrationFactory.class)"
+      "Bash(javap -p me/angeschossen/lands/api/handler/LandsIntegrationFactory.class)",
+      "Bash(xargs grep *)"
     ]
   }
 }

@@ -366,7 +366,7 @@ public class EventManager {
             Location center = zone.getCenter();
             String coordMessage = String.format(
                     "<gray>• <yellow>%s</yellow>: X: <white>%.0f</white>, Y: <white>%.0f</white>, Z: <white>%.0f</white></gray>",
-                    zone.getName(),
+                    zone.getName().replace('_', ' '),
                     center.getX(),
                     center.getY(),
                     center.getZ()

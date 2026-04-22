@@ -414,11 +414,16 @@ public final class CosmosIncursion extends JavaPlugin {
 
     public void reloadPlugin() {
         log("Reloading Cosmos Incursion configuration...");
-
-        // Reload configuration
         configLoader.reload();
-
+        refreshPermanentZoneMarkers();
         log("Configuration reloaded successfully!");
+    }
+
+    public void refreshPermanentZoneMarkers() {
+        mapIntegration.removeAllPermanentZoneMarkers();
+        for (PermanentZone zone : permanentZoneManager.getAllZones()) {
+            mapIntegration.createPermanentZoneMarker(zone);
+        }
     }
 
     public void log(String message) {

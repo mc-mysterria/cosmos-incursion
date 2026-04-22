@@ -158,7 +158,7 @@ public class ExclusionZoneListener implements Listener {
 
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
             .append(Component.text("You cannot leave ", NamedTextColor.RED))
-            .append(Component.text(zone.getName(), NamedTextColor.YELLOW))
+            .append(Component.text(zone.getName().replace('_', ' '), NamedTextColor.YELLOW))
             .append(Component.text(" while carrying resources. Use an extraction point first.", NamedTextColor.RED)));
     }
 }
