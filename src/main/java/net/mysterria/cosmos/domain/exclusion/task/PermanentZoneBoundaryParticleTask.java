@@ -82,12 +82,16 @@ public class PermanentZoneBoundaryParticleTask extends BukkitRunnable {
                 double x = a.getX() + t * dx;
                 double z = a.getZ() + t * dz;
 
-                int groundY = world.getHighestBlockYAt((int) x, (int) z);
+                // Never force-load chunks — getHighestBlockYAt causes syncLoad on unloaded chunks
+                if (!world.isChunkLoaded((int) x >> 4, (int) z >> 4)) continue;
 
-                // Check if any player is close enough horizontally to bother rendering
+                // Check for nearby players before the expensive ground-Y lookup
+                double roughY = a.getY() + t * (b.getY() - a.getY());
                 Collection<Player> nearby = world.getNearbyPlayers(
-                    new Location(world, x, groundY, z), VIEW_DISTANCE);
+                    new Location(world, x, roughY, z), VIEW_DISTANCE);
                 if (nearby.isEmpty()) continue;
+
+                int groundY = world.getHighestBlockYAt((int) x, (int) z);
 
                 // Spawn a full vertical wall from ground up to WALL_HEIGHT.
                 // This ensures the boundary is visible from any elevation: valley, cliff, or sky.
