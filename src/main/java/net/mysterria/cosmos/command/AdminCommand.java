@@ -10,6 +10,8 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.domain.market.model.ShopItem;
+import net.mysterria.cosmos.toolkit.CoiItemResolver;
 import net.mysterria.cosmos.toolkit.item.PaperAngelToolkit;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
@@ -22,11 +24,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
-
-
-import java.util.Optional;
+import java.util.UUID;
 
 @Command(name = "cosmos")
 public class AdminCommand {
@@ -300,7 +301,7 @@ public class AdminCommand {
         }
     }
 
-    // ── Shop admin command ───────────────────────────────────────────────────────
+    // ── Shop admin commands ──────────────────────────────────────────────────────
 
     @Execute(name = "admin shop")
     @Permission("cosmos.admin")
@@ -311,6 +312,46 @@ public class AdminCommand {
             return;
         }
         plugin.getZoneShopAdminGUI().open(player);
+    }
+
+    /**
+     * Adds a COI item directly to the shop with no initial price.
+     * Use the shop editor GUI afterward to set prices.
+     *
+     * <p>Examples:
+     * <pre>
+     *   /cosmos admin shop addcoi char-fool-9
+     *   /cosmos admin shop addcoi ingredients-hermit-8
+     *   /cosmos admin shop addcoi main-ingredients-hermit-8
+     * </pre>
+     */
+    @Execute(name = "admin shop addcoi")
+    @Permission("cosmos.admin")
+    public void adminShopAddCoi(@Context CommandSender sender, @Arg String coiId) {
+        // Validate by attempting resolution
+        boolean valid;
+        if (CoiItemResolver.isMultiItem(coiId)) {
+            valid = !CoiItemResolver.resolveItems(coiId).isEmpty();
+        } else {
+            valid = CoiItemResolver.resolveItem(coiId) != null;
+        }
+
+        if (!valid) {
+            sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                .append(Component.text("Unknown COI item ID: ", NamedTextColor.RED))
+                .append(Component.text(coiId, NamedTextColor.YELLOW))
+                .append(Component.text(". Check pathway name and sequence (0-9).", NamedTextColor.RED)));
+            return;
+        }
+
+        ShopItem item = new ShopItem(UUID.randomUUID(), coiId, new EnumMap<>(ResourceType.class));
+        plugin.getZoneShopManager().addItem(item);
+        plugin.getZoneShopManager().save();
+
+        sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+            .append(Component.text("Added COI item ", NamedTextColor.GREEN))
+            .append(Component.text(coiId, NamedTextColor.AQUA))
+            .append(Component.text(". Open /cosmos admin shop to set prices.", NamedTextColor.GREEN)));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

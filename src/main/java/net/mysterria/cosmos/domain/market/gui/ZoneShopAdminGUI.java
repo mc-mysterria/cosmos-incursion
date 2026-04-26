@@ -8,12 +8,15 @@ import net.kyori.adventure.text.format.TextDecoration;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
+import net.mysterria.cosmos.toolkit.CoiItemResolver;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * Admin GUI for managing the zone shop.
@@ -21,11 +24,12 @@ import java.util.*;
  * <p>Slots 0–44 are shop slots. All interactions are explicitly handled:
  * <ul>
  *   <li>Click an empty slot while holding an item → places that item into the shop slot.</li>
- *   <li>Left-click or right-click an occupied slot → opens the price editor.</li>
- *   <li>Shift-click an occupied slot → removes the item and returns it to your inventory.</li>
- *   <li>Click an occupied slot while holding a different item → swaps them.</li>
+ *   <li>Left-click or right-click an occupied vanilla slot → opens the price editor.</li>
+ *   <li>Shift-click an occupied vanilla slot → removes the item and returns it to your inventory.</li>
+ *   <li>Shift-click an occupied COI slot → removes the COI entry (item not returned).</li>
+ *   <li>Click an occupied slot while holding a different item → swaps them (vanilla only).</li>
  * </ul>
- * Row 6 (slots 45–53) holds control buttons: Save, Clear All, Help, Close.
+ * Row 6 (slots 45–53) holds control buttons: Save, Clear All, Help, COI Catalog, Close.
  */
 public class ZoneShopAdminGUI {
 
@@ -38,9 +42,9 @@ public class ZoneShopAdminGUI {
     // ── Open ────────────────────────────────────────────────────────────────────
 
     public void open(Player player) {
-        // Per-session state — shared across all lambdas in this GUI session
-        Map<Integer, ItemStack> slotItems = new HashMap<>();               // slot → clean item
-        Map<Integer, Map<ResourceType, Double>> sessionPrices = new HashMap<>(); // slot → prices
+        Map<Integer, ItemStack> slotItems      = new HashMap<>();
+        Map<Integer, String>    slotCoiIds     = new HashMap<>();
+        Map<Integer, Map<ResourceType, Double>> sessionPrices = new HashMap<>();
 
         Gui gui = Gui.gui()
             .title(Component.text("✦ Zone Shop — Admin Editor", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
@@ -52,74 +56,82 @@ public class ZoneShopAdminGUI {
         for (int i = 0; i < 45; i++) {
             if (i < existing.size()) {
                 ShopItem si = existing.get(i);
-                slotItems.put(i, si.getItem());
+                ItemStack display = si.getItem();
+                slotItems.put(i, display);
                 sessionPrices.put(i, new EnumMap<>(si.getPrices()));
-                setOccupied(gui, player, i, si.getItem(), slotItems, sessionPrices);
+                if (si.isCoi()) slotCoiIds.put(i, si.getCoiItemId());
+                setOccupied(gui, player, i, display, slotItems, sessionPrices, slotCoiIds);
             } else {
-                setEmpty(gui, player, i, slotItems, sessionPrices);
+                setEmpty(gui, player, i, slotItems, sessionPrices, slotCoiIds);
             }
         }
 
         // Control row
-        gui.setItem(45, saveButton(player, gui, slotItems, sessionPrices));
-        gui.setItem(47, clearAllButton(player, gui, slotItems, sessionPrices));
+        gui.setItem(45, saveButton(player, gui, slotItems, sessionPrices, slotCoiIds));
+        gui.setItem(47, clearAllButton(player, gui, slotItems, sessionPrices, slotCoiIds));
         gui.setItem(49, helpButton());
+        gui.setItem(51, coiCatalogButton(player, gui, slotItems, sessionPrices, slotCoiIds));
         gui.setItem(53, closeButton(player));
         GuiItem glass = glassPane();
-        for (int s : new int[]{46, 48, 50, 51, 52}) gui.setItem(s, glass);
+        for (int s : new int[]{46, 48, 50, 52}) gui.setItem(s, glass);
 
         gui.open(player);
     }
 
     // ── Slot state helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Registers an occupied GuiItem for the given slot and syncs it to the physical inventory.
-     * Must be called whenever the slot's item or prices change.
-     */
     private void setOccupied(Gui gui, Player player, int slot, ItemStack item,
-            Map<Integer, ItemStack> slotItems, Map<Integer, Map<ResourceType, Double>> sessionPrices) {
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
 
         Map<ResourceType, Double> prices = sessionPrices.computeIfAbsent(slot, k -> new EnumMap<>(ResourceType.class));
-        ItemStack display = priceAnnotated(item, prices);
+        String coiId = slotCoiIds.get(slot);
+        ItemStack display = priceAnnotated(item, prices, coiId);
 
         GuiItem gi = new GuiItem(display, event -> {
             event.setCancelled(true);
-            ItemStack cursor = event.getCursor();
-            boolean hasCursor = cursor != null && cursor.getType() != Material.AIR;
+            ItemStack cursor   = event.getCursor();
+            boolean hasCursor  = cursor != null && cursor.getType() != Material.AIR;
 
             if (event.isShiftClick()) {
-                // Remove from shop, return clean item to player
+                // Vanilla items: return to player. COI items: just remove from shop.
+                if (!slotCoiIds.containsKey(slot)) {
+                    player.getInventory().addItem(item.clone());
+                }
+                slotCoiIds.remove(slot);
                 slotItems.remove(slot);
                 sessionPrices.remove(slot);
-                player.getInventory().addItem(item.clone());
-                setEmpty(gui, player, slot, slotItems, sessionPrices);
+                setEmpty(gui, player, slot, slotItems, sessionPrices, slotCoiIds);
                 syncSlot(gui, slot);
 
             } else if (hasCursor) {
-                // Swap: take cursor item into shop, push current item back to cursor
+                // Swap: place cursor item into slot, push current vanilla item back to cursor.
                 ItemStack placed = cursor.clone();
-                event.getWhoClicked().setItemOnCursor(item.clone());
+                if (!slotCoiIds.containsKey(slot)) {
+                    event.getWhoClicked().setItemOnCursor(item.clone());
+                } else {
+                    event.getWhoClicked().setItemOnCursor(null);
+                    slotCoiIds.remove(slot);
+                }
                 slotItems.put(slot, placed);
                 sessionPrices.put(slot, new EnumMap<>(ResourceType.class));
-                setOccupied(gui, player, slot, placed, slotItems, sessionPrices);
+                setOccupied(gui, player, slot, placed, slotItems, sessionPrices, slotCoiIds);
                 syncSlot(gui, slot);
 
             } else {
                 // Left/right click with empty hand → open price editor
-                openPriceEditor(player, gui, slot, item, slotItems, sessionPrices);
+                openPriceEditor(player, gui, slot, item, slotItems, sessionPrices, slotCoiIds);
             }
         });
 
         gui.updateItem(slot, gi);
     }
 
-    /**
-     * Registers an empty placeholder GuiItem for the given slot.
-     * Clicking it while holding an item will consume the cursor item and add it to the shop.
-     */
     private void setEmpty(Gui gui, Player player, int slot,
-            Map<Integer, ItemStack> slotItems, Map<Integer, Map<ResourceType, Double>> sessionPrices) {
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
 
         ItemStack ph = new ItemStack(Material.LIME_STAINED_GLASS_PANE);
         ItemMeta meta = ph.getItemMeta();
@@ -135,22 +147,18 @@ public class ZoneShopAdminGUI {
             if (cursor == null || cursor.getType() == Material.AIR) return;
             if (!event.isLeftClick()) return;
 
-            // Consume cursor item and register it in the shop
             ItemStack placed = cursor.clone();
             event.getWhoClicked().setItemOnCursor(null);
+            slotCoiIds.remove(slot);
             slotItems.put(slot, placed);
             sessionPrices.put(slot, new EnumMap<>(ResourceType.class));
-            setOccupied(gui, player, slot, placed, slotItems, sessionPrices);
+            setOccupied(gui, player, slot, placed, slotItems, sessionPrices, slotCoiIds);
             syncSlot(gui, slot);
         });
 
         gui.updateItem(slot, gi);
     }
 
-    /**
-     * Pushes the GuiItem registered for a slot into the physical inventory so
-     * the client sees the change immediately without a full GUI reopen.
-     */
     private void syncSlot(Gui gui, int slot) {
         GuiItem gi = gui.getGuiItem(slot);
         gui.getInventory().setItem(slot, gi != null ? gi.getItemStack() : null);
@@ -159,7 +167,9 @@ public class ZoneShopAdminGUI {
     // ── Price editor ─────────────────────────────────────────────────────────────
 
     private void openPriceEditor(Player player, Gui parentGui, int slot, ItemStack editItem,
-            Map<Integer, ItemStack> slotItems, Map<Integer, Map<ResourceType, Double>> sessionPrices) {
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
 
         Map<ResourceType, Double> prices = sessionPrices.computeIfAbsent(slot, k -> new EnumMap<>(ResourceType.class));
 
@@ -169,23 +179,19 @@ public class ZoneShopAdminGUI {
             .create();
 
         Runnable onDone = () -> {
-            // Refresh the shop slot to show updated prices, then reopen parent
-            setOccupied(parentGui, player, slot, editItem, slotItems, sessionPrices);
+            setOccupied(parentGui, player, slot, editItem, slotItems, sessionPrices, slotCoiIds);
             syncSlot(parentGui, slot);
             parentGui.open(player);
         };
 
-        // Row 0: back + item display
         editor.setItem(0, backItem(onDone));
         editor.setItem(4, displayItem(editItem));
         for (int s : new int[]{1, 2, 3, 5, 6, 7, 8}) editor.setItem(s, glassPane());
 
-        // Price rows
-        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, ResourceType.GOLD,   9);
-        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, ResourceType.SILVER, 18);
-        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, ResourceType.GEMS,   27);
+        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, ResourceType.GOLD,   9);
+        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, ResourceType.SILVER, 18);
+        buildPriceRow(editor, player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, ResourceType.GEMS,   27);
 
-        // Row 4: confirm
         for (int s : new int[]{36, 37, 38, 39, 41, 42, 43, 44}) editor.setItem(s, glassPane());
         editor.setItem(40, confirmItem(onDone));
 
@@ -193,19 +199,20 @@ public class ZoneShopAdminGUI {
     }
 
     private void buildPriceRow(Gui editor, Player player, Gui parentGui, int slot,
-            ItemStack editItem, Map<Integer, ItemStack> slotItems,
+            ItemStack editItem,
+            Map<Integer, ItemStack> slotItems,
             Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds,
             ResourceType type, int rowStart) {
 
         Map<ResourceType, Double> prices = sessionPrices.computeIfAbsent(slot, k -> new EnumMap<>(ResourceType.class));
         double current = prices.getOrDefault(type, 0.0);
         NamedTextColor color = priceColor(type);
 
-        editor.setItem(rowStart,     adjustBtn("-10", NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, -10)));
-        editor.setItem(rowStart + 1, adjustBtn("-5",  NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, -5)));
-        editor.setItem(rowStart + 2, adjustBtn("-1",  NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, -1)));
+        editor.setItem(rowStart,     adjustBtn("-10", NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, -10)));
+        editor.setItem(rowStart + 1, adjustBtn("-5",  NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, -5)));
+        editor.setItem(rowStart + 2, adjustBtn("-1",  NamedTextColor.RED,   () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, -1)));
 
-        // Current value display
         ItemStack display = new ItemStack(type.getDefaultMaterial());
         ItemMeta meta = display.getItemMeta();
         if (meta != null) {
@@ -217,9 +224,9 @@ public class ZoneShopAdminGUI {
         }
         editor.setItem(rowStart + 3, new GuiItem(display, e -> e.setCancelled(true)));
 
-        editor.setItem(rowStart + 4, adjustBtn("+1",  NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, 1)));
-        editor.setItem(rowStart + 5, adjustBtn("+5",  NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, 5)));
-        editor.setItem(rowStart + 6, adjustBtn("+10", NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, type, 10)));
+        editor.setItem(rowStart + 4, adjustBtn("+1",  NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, 1)));
+        editor.setItem(rowStart + 5, adjustBtn("+5",  NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, 5)));
+        editor.setItem(rowStart + 6, adjustBtn("+10", NamedTextColor.GREEN, () -> adjustAndReopen(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds, type, 10)));
 
         editor.setItem(rowStart + 7, glassPane());
 
@@ -234,8 +241,10 @@ public class ZoneShopAdminGUI {
     }
 
     private void adjustAndReopen(Player player, Gui parentGui, int slot,
-            ItemStack editItem, Map<Integer, ItemStack> slotItems,
+            ItemStack editItem,
+            Map<Integer, ItemStack> slotItems,
             Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds,
             ResourceType type, double delta) {
 
         Map<ResourceType, Double> prices = sessionPrices.computeIfAbsent(slot, k -> new EnumMap<>(ResourceType.class));
@@ -243,14 +252,15 @@ public class ZoneShopAdminGUI {
         if (updated <= 0) prices.remove(type);
         else prices.put(type, updated);
 
-        // Reopen the price editor to display the updated value
-        openPriceEditor(player, parentGui, slot, editItem, slotItems, sessionPrices);
+        openPriceEditor(player, parentGui, slot, editItem, slotItems, sessionPrices, slotCoiIds);
     }
 
     // ── Control buttons ──────────────────────────────────────────────────────────
 
     private GuiItem saveButton(Player player, Gui gui,
-            Map<Integer, ItemStack> slotItems, Map<Integer, Map<ResourceType, Double>> sessionPrices) {
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
 
         ItemStack item = new ItemStack(Material.NETHER_STAR);
         ItemMeta meta = item.getItemMeta();
@@ -275,7 +285,11 @@ public class ZoneShopAdminGUI {
                     int s = e.getKey();
                     Map<ResourceType, Double> prices =
                         sessionPrices.getOrDefault(s, new EnumMap<>(ResourceType.class));
-                    newItems.add(new ShopItem(UUID.randomUUID(), e.getValue(), prices));
+                    if (slotCoiIds.containsKey(s)) {
+                        newItems.add(new ShopItem(UUID.randomUUID(), slotCoiIds.get(s), prices));
+                    } else {
+                        newItems.add(new ShopItem(UUID.randomUUID(), e.getValue(), prices));
+                    }
                 });
             shopManager.setItems(newItems);
             shopManager.save();
@@ -286,7 +300,9 @@ public class ZoneShopAdminGUI {
     }
 
     private GuiItem clearAllButton(Player player, Gui gui,
-            Map<Integer, ItemStack> slotItems, Map<Integer, Map<ResourceType, Double>> sessionPrices) {
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
 
         ItemStack item = new ItemStack(Material.TNT);
         ItemMeta meta = item.getItemMeta();
@@ -294,7 +310,9 @@ public class ZoneShopAdminGUI {
             meta.displayName(Component.text("✖ Clear All Slots", NamedTextColor.RED, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                Component.text("Returns all items to your inventory.", NamedTextColor.GRAY)
+                Component.text("Returns vanilla items to your inventory.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false),
+                Component.text("COI items are simply removed.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false),
                 Component.text("You must still click Save to apply.", NamedTextColor.YELLOW)
                     .decoration(TextDecoration.ITALIC, false)
@@ -304,17 +322,68 @@ public class ZoneShopAdminGUI {
 
         return new GuiItem(item, event -> {
             event.setCancelled(true);
-            for (ItemStack stack : slotItems.values()) {
-                player.getInventory().addItem(stack.clone());
+            for (Map.Entry<Integer, ItemStack> e : slotItems.entrySet()) {
+                if (!slotCoiIds.containsKey(e.getKey())) {
+                    player.getInventory().addItem(e.getValue().clone());
+                }
             }
             slotItems.clear();
+            slotCoiIds.clear();
             sessionPrices.clear();
             for (int s = 0; s < 45; s++) {
-                setEmpty(gui, player, s, slotItems, sessionPrices);
+                setEmpty(gui, player, s, slotItems, sessionPrices, slotCoiIds);
                 syncSlot(gui, s);
             }
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("All slots cleared. Items returned. Click Save to apply.", NamedTextColor.YELLOW)));
+                .append(Component.text("All slots cleared. Click Save to apply.", NamedTextColor.YELLOW)));
+        });
+    }
+
+    private GuiItem coiCatalogButton(Player player, Gui gui,
+            Map<Integer, ItemStack> slotItems,
+            Map<Integer, Map<ResourceType, Double>> sessionPrices,
+            Map<Integer, String> slotCoiIds) {
+
+        ItemStack item = new ItemStack(Material.ENCHANTING_TABLE);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("⚗ COI Item Catalog", NamedTextColor.DARK_AQUA, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(
+                Component.text("Browse chars, potions, recipes,", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false),
+                Component.text("and ingredient bundles from COI.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false)
+            ));
+            item.setItemMeta(meta);
+        }
+
+        return new GuiItem(item, event -> {
+            event.setCancelled(true);
+
+            Consumer<String> onSelect = coiId -> {
+                for (int slot = 0; slot < 45; slot++) {
+                    if (!slotItems.containsKey(slot)) {
+                        ItemStack display;
+                        if (CoiItemResolver.isMultiItem(coiId)) {
+                            List<ItemStack> bundle = CoiItemResolver.resolveItems(coiId);
+                            display = bundle.isEmpty() ? new ItemStack(Material.CHEST) : bundle.get(0).clone();
+                        } else {
+                            ItemStack resolved = CoiItemResolver.resolveItem(coiId);
+                            display = resolved != null ? resolved : new ItemStack(Material.BARRIER);
+                        }
+                        slotItems.put(slot, display);
+                        slotCoiIds.put(slot, coiId);
+                        sessionPrices.put(slot, new EnumMap<>(ResourceType.class));
+                        setOccupied(gui, player, slot, display, slotItems, sessionPrices, slotCoiIds);
+                        syncSlot(gui, slot);
+                        break;
+                    }
+                }
+                gui.open(player);
+            };
+
+            new CoiCatalogGUI(onSelect, () -> gui.open(player)).openMain(player);
         });
     }
 
@@ -330,6 +399,8 @@ public class ZoneShopAdminGUI {
                 Component.text("• Left/right-click occupied slot → set price.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false),
                 Component.text("• Shift-click occupied slot → remove item.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false),
+                Component.text("• ⚗ COI Catalog → add COI items by pathway/sequence.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false),
                 Component.text("• Click ✔ Save Shop when done.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false)
@@ -355,8 +426,7 @@ public class ZoneShopAdminGUI {
 
     // ── Item builders ─────────────────────────────────────────────────────────────
 
-    /** Returns a copy of the item with current prices appended to its lore. */
-    private ItemStack priceAnnotated(ItemStack base, Map<ResourceType, Double> prices) {
+    private ItemStack priceAnnotated(ItemStack base, Map<ResourceType, Double> prices, @Nullable String coiId) {
         ItemStack copy = base.clone();
         ItemMeta meta = copy.getItemMeta();
         if (meta == null) return copy;
@@ -364,6 +434,12 @@ public class ZoneShopAdminGUI {
         List<Component> lore = new ArrayList<>();
         if (meta.hasLore() && meta.lore() != null) lore.addAll(Objects.requireNonNull(meta.lore()));
         lore.add(Component.empty());
+
+        if (coiId != null) {
+            lore.add(Component.text("COI: " + coiId, NamedTextColor.DARK_AQUA)
+                .decoration(TextDecoration.ITALIC, false));
+        }
+
         lore.add(Component.text("── Price ──", NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
 
         boolean anyPrice = prices.values().stream().anyMatch(v -> v > 0);
@@ -446,9 +522,9 @@ public class ZoneShopAdminGUI {
 
     private NamedTextColor priceColor(ResourceType type) {
         return switch (type) {
-            case GOLD -> NamedTextColor.GOLD;
+            case GOLD   -> NamedTextColor.GOLD;
             case SILVER -> NamedTextColor.WHITE;
-            case GEMS -> NamedTextColor.GREEN;
+            case GEMS   -> NamedTextColor.GREEN;
         };
     }
 }

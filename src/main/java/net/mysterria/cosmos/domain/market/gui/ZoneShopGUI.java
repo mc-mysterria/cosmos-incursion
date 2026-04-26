@@ -46,13 +46,13 @@ public class ZoneShopGUI {
         List<ShopItem> allItems = shopManager.getItems();
 
         int totalPages = Math.max(1, (int) Math.ceil(allItems.size() / (double) PAGE_SIZE));
-        int safePage = Math.max(0, Math.min(page, totalPages - 1));
-        int start = safePage * PAGE_SIZE;
-        int end = Math.min(start + PAGE_SIZE, allItems.size());
+        int safePage   = Math.max(0, Math.min(page, totalPages - 1));
+        int start      = safePage * PAGE_SIZE;
+        int end        = Math.min(start + PAGE_SIZE, allItems.size());
         List<ShopItem> pageItems = allItems.subList(start, end);
 
         String townName = townOpt.map(TownData::name).orElse("No Town");
-        int townId = townOpt.map(TownData::id).orElse(-1);
+        int townId      = townOpt.map(TownData::id).orElse(-1);
 
         Gui gui = Gui.gui()
             .title(Component.text("✦ Zone Shop — " + townName, NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
@@ -60,21 +60,18 @@ public class ZoneShopGUI {
             .disableAllInteractions()
             .create();
 
-        // Populate shop items
         for (int i = 0; i < pageItems.size(); i++) {
             ShopItem si = pageItems.get(i);
             gui.setItem(i, shopItemButton(player, gui, si, townId, townOpt, safePage));
         }
 
         // Bottom row
-        // Slot 45: prev page
         if (safePage > 0) {
             gui.setItem(45, navArrow("← Previous", () -> open(player, safePage - 1)));
         } else {
             gui.setItem(45, glass());
         }
 
-        // Slot 47: balance display
         if (townOpt.isPresent()) {
             Map<ResourceType, Double> balance = zoneManager.getTownBalance(townId);
             gui.setItem(47, balanceItem(townName, balance));
@@ -82,20 +79,15 @@ public class ZoneShopGUI {
             gui.setItem(47, noTownItem());
         }
 
-        // Slot 49: decorative title
         gui.setItem(49, shopSignItem(allItems.size(), safePage + 1, totalPages));
-
-        // Slot 51: page indicator
         gui.setItem(51, glass());
 
-        // Slot 53: next page
         if (safePage < totalPages - 1) {
             gui.setItem(53, navArrow("Next →", () -> open(player, safePage + 1)));
         } else {
             gui.setItem(53, glass());
         }
 
-        // Remaining bottom slots: glass
         for (int s : new int[]{46, 48, 50, 52}) gui.setItem(s, glass());
 
         gui.open(player);
@@ -137,12 +129,19 @@ public class ZoneShopGUI {
                 }
             }
 
-            // Check inventory space
-            ItemStack toGive = si.getItem();
-            if (!hasInventorySpace(player, toGive)) {
+            // Check inventory space for all granted items
+            List<ItemStack> toGive = si.getItems();
+            if (toGive.isEmpty()) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+                    .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
                 return;
+            }
+            for (ItemStack stack : toGive) {
+                if (!hasInventorySpace(player, stack)) {
+                    player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+                    return;
+                }
             }
 
             // Deduct resources
@@ -152,20 +151,25 @@ public class ZoneShopGUI {
                 return;
             }
 
-            // Give item
-            player.getInventory().addItem(toGive);
+            // Give all items
+            for (ItemStack stack : toGive) {
+                player.getInventory().addItem(stack);
+            }
 
-            // Success message
-            Component itemName = toGive.getItemMeta() != null && toGive.getItemMeta().hasDisplayName()
-                ? Objects.requireNonNull(toGive.getItemMeta().displayName())
-                : Component.text(toGive.getType().name().replace('_', ' '), NamedTextColor.WHITE);
+            // Success message — use display name of primary item
+            ItemStack primary = si.getItem();
+            Component itemName = primary.getItemMeta() != null && primary.getItemMeta().hasDisplayName()
+                ? Objects.requireNonNull(primary.getItemMeta().displayName())
+                : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
 
-            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+            Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Purchased ", NamedTextColor.GREEN))
-                .append(itemName)
-                .append(Component.text("!", NamedTextColor.GREEN)));
+                .append(itemName);
+            if (toGive.size() > 1) {
+                msg = msg.append(Component.text(" +" + (toGive.size() - 1) + " more", NamedTextColor.GRAY));
+            }
+            player.sendMessage(msg.append(Component.text("!", NamedTextColor.GREEN)));
 
-            // Refresh GUI
             open(player, page);
         });
     }
@@ -173,7 +177,7 @@ public class ZoneShopGUI {
     // ── Inventory space check ────────────────────────────────────────────────────
 
     private boolean hasInventorySpace(Player player, ItemStack item) {
-        int needed = item.getAmount();
+        int needed    = item.getAmount();
         int available = 0;
         for (ItemStack slot : player.getInventory().getStorageContents()) {
             if (slot == null || slot.getType() == Material.AIR) {
@@ -191,16 +195,24 @@ public class ZoneShopGUI {
     private ItemStack buildShopDisplay(ShopItem si, int townId) {
         ItemStack base = si.getItem();
         ItemStack copy = base.clone();
-        ItemMeta meta = copy.getItemMeta();
+        ItemMeta meta  = copy.getItemMeta();
         if (meta == null) return copy;
 
         List<Component> lore = new ArrayList<>();
         if (meta.hasLore() && meta.lore() != null) lore.addAll(Objects.requireNonNull(meta.lore()));
+
+        // For multi-item COI bundles, indicate bundle size
+        List<ItemStack> allItems = si.getItems();
+        if (allItems.size() > 1) {
+            lore.add(Component.text("Bundle: " + allItems.size() + " items granted", NamedTextColor.AQUA)
+                .decoration(TextDecoration.ITALIC, false));
+        }
+
         lore.add(Component.empty());
         lore.add(Component.text("── Price ──", NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
 
         Map<ResourceType, Double> balance = townId >= 0 ? zoneManager.getTownBalance(townId) : Collections.emptyMap();
-        Map<ResourceType, Double> prices = si.getPrices();
+        Map<ResourceType, Double> prices  = si.getPrices();
 
         if (prices.isEmpty() || prices.values().stream().allMatch(v -> v <= 0)) {
             lore.add(Component.text("No price set", NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
@@ -227,7 +239,7 @@ public class ZoneShopGUI {
 
     private GuiItem balanceItem(String townName, Map<ResourceType, Double> balance) {
         ItemStack item = new ItemStack(Material.GOLD_INGOT);
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta  = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("⚖ " + townName + " Balance", NamedTextColor.GOLD, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
@@ -235,9 +247,9 @@ public class ZoneShopGUI {
             for (ResourceType rt : ResourceType.values()) {
                 double val = balance.getOrDefault(rt, 0.0);
                 NamedTextColor col = switch (rt) {
-                    case GOLD -> NamedTextColor.GOLD;
+                    case GOLD   -> NamedTextColor.GOLD;
                     case SILVER -> NamedTextColor.WHITE;
-                    case GEMS -> NamedTextColor.GREEN;
+                    case GEMS   -> NamedTextColor.GREEN;
                 };
                 lore.add(Component.text(String.format("  %s: %.1f", rt.displayName(), val), col)
                     .decoration(TextDecoration.ITALIC, false));
@@ -250,7 +262,7 @@ public class ZoneShopGUI {
 
     private GuiItem noTownItem() {
         ItemStack item = new ItemStack(Material.BARRIER);
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta  = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("No Town Found", NamedTextColor.RED, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
@@ -263,7 +275,7 @@ public class ZoneShopGUI {
 
     private GuiItem shopSignItem(int total, int page, int totalPages) {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta  = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("Zone Shop", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
@@ -280,7 +292,7 @@ public class ZoneShopGUI {
 
     private GuiItem navArrow(String label, Runnable action) {
         ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta  = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text(label, NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
@@ -293,7 +305,7 @@ public class ZoneShopGUI {
     }
 
     private GuiItem glass() {
-        ItemStack g = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemStack g   = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta meta = g.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text(" ").decoration(TextDecoration.ITALIC, false));
