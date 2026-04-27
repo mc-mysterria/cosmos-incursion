@@ -54,6 +54,11 @@ public class PermanentZoneManager {
     // Per-player active extraction channel
     private final Map<UUID, ExtractionChannelState> extractionChannels = new ConcurrentHashMap<>();
 
+    // Per-player PoI stay tracking: playerId -> poiId
+    private final Map<UUID, UUID> playerCurrentPoI = new ConcurrentHashMap<>();
+    // Per-player PoI stay start: playerId -> timestamp
+    private final Map<UUID, Long> playerPoIStayStart = new ConcurrentHashMap<>();
+
     // PoI UUID → live ItemDisplay entity (for rotation and cleanup)
     private final Map<UUID, Entity> poiDisplayEntities = new ConcurrentHashMap<>();
 
@@ -546,6 +551,25 @@ public class PermanentZoneManager {
     public void clearBuffer(UUID playerId) {
         buffers.remove(playerId);
         extractionChannels.remove(playerId);
+    }
+
+    public void updatePoIStay(UUID playerId, UUID poiId) {
+        if (poiId == null) {
+            playerCurrentPoI.remove(playerId);
+            playerPoIStayStart.remove(playerId);
+            return;
+        }
+        UUID current = playerCurrentPoI.get(playerId);
+        if (!poiId.equals(current)) {
+            playerCurrentPoI.put(playerId, poiId);
+            playerPoIStayStart.put(playerId, System.currentTimeMillis());
+        }
+    }
+
+    public long getPoIStayMillis(UUID playerId) {
+        Long start = playerPoIStayStart.get(playerId);
+        if (start == null) return 0;
+        return System.currentTimeMillis() - start;
     }
 
     /** Returns snapshot and removes the buffer entry. */

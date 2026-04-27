@@ -179,8 +179,6 @@ permanent-zones:
   poi-capture-radius: 8.0
   # Radius (blocks) within which a player can begin an extraction channel
   extraction-radius: 6.0
-  # Units of each resource drained from buffer per second during extraction (legacy, unused by channel mechanic)
-  extraction-rate-per-second: 5.0
   # How long (seconds) a player must stand at an extraction point to extract resources
   extraction-channel-seconds: 10
   # How many blocks outside the zone boundary the player is teleported after successful extraction
@@ -193,6 +191,19 @@ permanent-zones:
   poi-respawn-min-seconds: 120
   # Maximum seconds before a depleted/expired PoI respawns
   poi-respawn-max-seconds: 300
+
+  # Base extraction rate from a PoI
+  # Example: 1.0 amount per 10 seconds (ticks every second, so 0.1/s)
+  poi-base-amount: 1.0
+  poi-base-interval: 10
+
+  # Bonus extraction rate for staying at the PoI
+  # For every bonus-interval (seconds) a player stays, the amount extracted per base-interval
+  # increases by bonus-amount.
+  # Example: base 1.0/10s, bonus 0.5 every 30s.
+  # At 0s-29s: 1.0/10s. At 30s-59s: 1.5/10s. At 60s+: 2.0/10s.
+  poi-bonus-amount: 0.5
+  poi-bonus-interval: 30
 
   # Custom icons shown on the map for each PoI resource type.
   # Set to a file path relative to the CosmosIncursion plugin data folder
@@ -216,10 +227,9 @@ permanent-zones:
   #                  can earn from this zone each day.
   #
   # poi-cap        — maximum units a single PoI can hold for each resource type.
-  #                  The PoI's drain rate is auto-derived: rate = poi-cap / poi-duration-seconds,
-  #                  so a fully-contested PoI runs dry in exactly poi-duration-seconds.
-  #                  Example: daily-budget gems = 20, poi-cap gems = 1 → 20 gems PoIs per day,
-  #                  each containing exactly 1 gem.
+  #                  Extraction rate is defined by poi-base-amount/interval above.
+  #                  Multiple players at once will drain the PoI faster.
+  #                  Example: daily-budget gems = 20, poi-cap gems = 5 -> up to 4 gems PoIs per day.
   tiers:
     safe:
       drop-chance: 0.0

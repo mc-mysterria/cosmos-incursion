@@ -127,13 +127,16 @@ public class ConfigLoader {
         config.setPermanentZoneExtractionPointDurationSeconds(fileConfig.getInt("permanent-zones.extraction-point-duration-seconds", 180));
         config.setPermanentZonePoiCaptureRadius(fileConfig.getDouble("permanent-zones.poi-capture-radius", 8.0));
         config.setPermanentZoneExtractionRadius(fileConfig.getDouble("permanent-zones.extraction-radius", 6.0));
-        config.setPermanentZoneExtractionRatePerSecond(fileConfig.getDouble("permanent-zones.extraction-rate-per-second", 5.0));
         config.setPermanentZoneExtractionChannelSeconds(fileConfig.getInt("permanent-zones.extraction-channel-seconds", 10));
         config.setPermanentZoneExtractionExitBuffer(fileConfig.getDouble("permanent-zones.extraction-exit-buffer", 15.0));
         config.setPermanentZoneParticlesEnabled(fileConfig.getBoolean("permanent-zones.particles-enabled", true));
         config.setPermanentZoneParticleViewDistance(fileConfig.getDouble("permanent-zones.particle-view-distance", 64.0));
         config.setPermanentZonePoiRespawnMinSeconds(fileConfig.getInt("permanent-zones.poi-respawn-min-seconds", 120));
         config.setPermanentZonePoiRespawnMaxSeconds(fileConfig.getInt("permanent-zones.poi-respawn-max-seconds", 300));
+        config.setPermanentZonePoiBaseAmount(fileConfig.getDouble("permanent-zones.poi-base-amount", 1.0));
+        config.setPermanentZonePoiBaseInterval(fileConfig.getInt("permanent-zones.poi-base-interval", 10));
+        config.setPermanentZonePoiBonusAmount(fileConfig.getDouble("permanent-zones.poi-bonus-amount", 0.5));
+        config.setPermanentZonePoiBonusInterval(fileConfig.getInt("permanent-zones.poi-bonus-interval", 30));
 
         // Permanent zone PoI map icons
         Map<ResourceType, String> poiIconPaths = new EnumMap<>(ResourceType.class);
