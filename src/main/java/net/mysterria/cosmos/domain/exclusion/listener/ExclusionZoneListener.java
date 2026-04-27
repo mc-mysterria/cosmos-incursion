@@ -122,9 +122,9 @@ public class ExclusionZoneListener implements Listener {
             victim.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                 .append(Component.text(killer.getName(), NamedTextColor.RED))
                 .append(Component.text(" took your resources.", NamedTextColor.DARK_RED)));
-        }
 
-        permanentZoneManager.clearBuffer(victim.getUniqueId());
+            permanentZoneManager.clearBuffer(victim.getUniqueId());
+        }
     }
 
     private void notifyKiller(Player killer, String victimName, Map<ResourceType, Double> loot) {

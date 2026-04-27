@@ -31,6 +31,7 @@ public class DeathHandler {
     private final MiniMessage miniMessage;
 
     private final ConcurrentHashMap<UUID, Long> lastDeathPenaltyTime = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, ItemStack[]> savedInventories = new ConcurrentHashMap<>();
 
     public DeathHandler(CosmosIncursion plugin, PlayerStateManager playerStateManager, KillTracker killTracker) {
         this.plugin = plugin;
@@ -38,6 +39,28 @@ public class DeathHandler {
         this.rewardHandler = new RewardHandler(plugin, killTracker);
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
+    }
+
+    /**
+     * Stores items that should be kept after death.
+     * @param uuid Player UUID
+     * @param items Items to restore on respawn
+     */
+    public void storeSavedItems(UUID uuid, ItemStack[] items) {
+        if (items == null || items.length == 0) return;
+        savedInventories.put(uuid, items);
+    }
+
+    /**
+     * Restores saved items to a player.
+     * @param player The player to restore items to
+     */
+    public void restoreSavedItems(Player player) {
+        ItemStack[] items = savedInventories.remove(player.getUniqueId());
+        if (items != null) {
+            player.getInventory().setContents(items);
+            plugin.log("Restored " + items.length + " items to " + player.getName() + " after respawn");
+        }
     }
 
     /**

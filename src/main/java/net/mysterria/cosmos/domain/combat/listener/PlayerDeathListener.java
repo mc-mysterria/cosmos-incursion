@@ -40,7 +40,7 @@ public class PlayerDeathListener implements Listener {
         this.deathHandler = deathHandler;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
 
@@ -76,7 +76,8 @@ public class PlayerDeathListener implements Listener {
         event.getDrops().clear();
 
         // Manually drop items according to tier drop chance, then clear inventory
-        dropItemsWithChance(victim, deathLocation, dropChance);
+        ItemStack[] keptItems = dropItemsWithChance(victim, deathLocation, dropChance);
+        deathHandler.storeSavedItems(victim.getUniqueId(), keptItems);
 
         // Process death penalties (regression logic — only applies in DEATH tier)
         deathHandler.handleZoneDeath(victim, killer, deathLocation, tier);
@@ -94,7 +95,7 @@ public class PlayerDeathListener implements Listener {
     }
 
     /** Called when player dies outside an incursion zone but inside a permanent zone. */
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerDeathInPermanentZone(PlayerDeathEvent event) {
         Player victim = event.getEntity();
         if (victim.hasMetadata("NPC")) return;
@@ -111,7 +112,8 @@ public class PlayerDeathListener implements Listener {
                 .dropChance();
         Location deathLocation = victim.getLocation();
         event.getDrops().clear();
-        dropItemsWithChance(victim, deathLocation, dropChance);
+        ItemStack[] keptItems = dropItemsWithChance(victim, deathLocation, dropChance);
+        deathHandler.storeSavedItems(victim.getUniqueId(), keptItems);
 
         dropBufferAsItems(victim, deathLocation);
         plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
@@ -132,48 +134,30 @@ public class PlayerDeathListener implements Listener {
     }
 
     /**
-     * Drops items from the victim's inventory according to dropChance, then clears the inventory.
-     * dropChance == 0.0 → nothing dropped (GREEN zone).
-     * dropChance == 1.0 → everything dropped (RED / DEATH zone).
-     * Values in between drop each item slot independently with that probability.
+     * Drops items from the victim's inventory according to dropChance, clears the physical inventory,
+     * and returns the items that were NOT dropped.
+     *
+     * @return Array of items to be restored on respawn
      */
-    private void dropItemsWithChance(Player victim, Location loc, double dropChance) {
+    private ItemStack[] dropItemsWithChance(Player victim, Location loc, double dropChance) {
         var rng = ThreadLocalRandom.current();
         var inv = victim.getInventory();
+        ItemStack[] contents = inv.getContents(); // Includes main, armor, and offhand
 
-        for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack item = inv.getItem(i);
+        for (int i = 0; i < contents.length; i++) {
+            ItemStack item = contents[i];
             if (item == null || item.getType() == Material.AIR) continue;
+
             if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
-                loc.getWorld().dropItemNaturally(loc, item.clone());
+                if (loc.getWorld() != null) {
+                    loc.getWorld().dropItemNaturally(loc, item.clone());
+                }
+                contents[i] = null; // Mark as dropped, will not be restored
             }
         }
 
-        // Armor slots
-        for (ItemStack armor : new ItemStack[]{
-                inv.getHelmet(), inv.getChestplate(), inv.getLeggings(), inv.getBoots()
-        }) {
-            if (armor == null || armor.getType() == Material.AIR) continue;
-            if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
-                loc.getWorld().dropItemNaturally(loc, armor.clone());
-            }
-        }
-
-        // Off-hand
-        ItemStack offHand = inv.getItemInOffHand();
-        if (offHand.getType() != Material.AIR) {
-            if (dropChance >= 1.0 || (dropChance > 0.0 && rng.nextDouble() < dropChance)) {
-                loc.getWorld().dropItemNaturally(loc, offHand.clone());
-            }
-        }
-
-        // Always clear inventory regardless of drop chance
+        // Always clear physical inventory to prevent other plugins (like Graves) from seeing items
         inv.clear();
-        inv.setHelmet(null);
-        inv.setChestplate(null);
-        inv.setLeggings(null);
-        inv.setBoots(null);
-        inv.setItemInOffHand(null);
+        return contents;
     }
-
 }

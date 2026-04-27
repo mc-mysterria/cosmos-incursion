@@ -15,6 +15,7 @@ import net.mysterria.cosmos.domain.beacon.listener.BeaconProtectionListener;
 import net.mysterria.cosmos.domain.beacon.service.BeaconManager;
 import net.mysterria.cosmos.domain.beacon.service.BeaconUIManager;
 import net.mysterria.cosmos.domain.combat.listener.PaperAngelListener;
+import net.mysterria.cosmos.domain.combat.listener.PlayerRespawnListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerDeathListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
@@ -239,6 +240,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker, deathHandler), this);
+        getServer().getPluginManager().registerEvents(new PlayerRespawnListener(deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(this, combatLogHandler, buffToolkit, beaconUIManager), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(combatLogHandler, buffToolkit), this);
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
