@@ -492,7 +492,7 @@ public class PermanentZoneManager {
         poiDisplayEntities.put(poi.getId(), display);
     }
 
-    private void removeDisplayEntity(UUID poiId) {
+    public void removeDisplayEntity(UUID poiId) {
         Entity entity = poiDisplayEntities.remove(poiId);
         if (entity != null && !entity.isDead()) {
             entity.remove();

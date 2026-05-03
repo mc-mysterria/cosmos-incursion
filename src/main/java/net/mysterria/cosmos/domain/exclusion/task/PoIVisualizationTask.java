@@ -76,7 +76,10 @@ public class PoIVisualizationTask extends BukkitRunnable {
             if (!zone.isActive()) continue;
 
             for (PointOfInterest poi : permanentZoneManager.getActivePoIs(zone)) {
-                if (!poi.isActive()) continue;
+                if (!poi.isActive()) {
+                    permanentZoneManager.removeDisplayEntity(poi.getId());
+                    continue;
+                }
                 rotateDisplayEntity(permanentZoneManager.getPoIDisplayEntity(poi.getId()));
                 spawnPoIParticles(poi);
             }
