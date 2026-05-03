@@ -21,6 +21,7 @@ import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -349,7 +350,7 @@ public class PermanentZoneManager {
             spawnDisplayEntityForPoI(poi);
         }
         activePoIs.put(zone.getId(), pois);
-        plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
+        plugin.getMapIntegration().syncPermanentZonePoIs(zone, poisVisibleOnMap(zone, pois));
     }
 
     /**
@@ -405,7 +406,7 @@ public class PermanentZoneManager {
         }
 
         if (changed) {
-            plugin.getMapIntegration().syncPermanentZonePoIs(zone, pois);
+            plugin.getMapIntegration().syncPermanentZonePoIs(zone, poisVisibleOnMap(zone, pois));
         }
     }
 
@@ -421,7 +422,32 @@ public class PermanentZoneManager {
             .append(Component.text(" Point of Interest has emerged in ", NamedTextColor.WHITE))
             .append(Component.text(zone.getName().replace('_', ' '), NamedTextColor.YELLOW))
             .append(Component.text("! Contest it before it runs dry.", NamedTextColor.WHITE));
-        Bukkit.broadcast(msg);
+        for (Map.Entry<UUID, PermanentZone> entry : playerZones.entrySet()) {
+            if (!entry.getValue().getId().equals(zone.getId())) continue;
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null) player.sendMessage(msg);
+        }
+    }
+
+    /**
+     * Filters {@code pois} to those that have at least one zone player within
+     * 35 % of the zone's approximate radius. Used to suppress remote PoI markers
+     * on the minimap until a player is close enough to discover them.
+     */
+    private List<PointOfInterest> poisVisibleOnMap(PermanentZone zone, List<PointOfInterest> pois) {
+        double threshold = zone.getApproximateRadius() * 0.35;
+        double thresholdSq = threshold * threshold;
+        return pois.stream().filter(poi -> {
+            Location poiLoc = poi.getLocation();
+            for (Map.Entry<UUID, PermanentZone> entry : playerZones.entrySet()) {
+                if (!entry.getValue().getId().equals(zone.getId())) continue;
+                Player player = Bukkit.getPlayer(entry.getKey());
+                if (player != null && player.getLocation().distanceSquared(poiLoc) <= thresholdSq) {
+                    return true;
+                }
+            }
+            return false;
+        }).toList();
     }
 
     public void spawnExtractionPoints(PermanentZone zone) {
