@@ -68,6 +68,12 @@ public class PlayerDeathListener implements Listener {
         if (zoneState != null && zoneState.getIncursionZone() != null) {
             tier = zoneState.getIncursionZone().getTier();
         }
+
+        // GREEN zones only protect inventory against player kills — environmental/mob deaths are not processed
+        if (tier == ZoneTier.GREEN && killer == null) {
+            return;
+        }
+
         double dropChance = plugin.getConfigLoader().getConfig().getTierConfigs().get(tier).dropChance();
 
         // IMPORTANT: Clear event drops FIRST to prevent any default drops.
@@ -105,8 +111,13 @@ public class PlayerDeathListener implements Listener {
         PermanentZone pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
         if (pZone == null) return;
 
-        // Apply inventory item drops based on permanent zone tier
+        // SAFE zones only protect inventory against player kills — environmental/mob deaths are not processed
         ExclusionZoneTier tier = pZone.getTier();
+        if (tier == ExclusionZoneTier.SAFE && event.getEntity().getKiller() == null) {
+            return;
+        }
+
+        // Apply inventory item drops based on permanent zone tier
         double dropChance = plugin.getConfigLoader().getConfig().getExclusionTierConfigs()
                 .getOrDefault(tier, plugin.getConfigLoader().getConfig().getExclusionTierConfigs().get(ExclusionZoneTier.MEDIUM))
                 .dropChance();
