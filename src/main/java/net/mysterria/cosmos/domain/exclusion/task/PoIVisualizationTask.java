@@ -57,9 +57,13 @@ public class PoIVisualizationTask extends BukkitRunnable {
     private static final float RING_PARTICLE_SIZE = 1.8f;
     private static final float BEAM_PARTICLE_SIZE = 2.2f;
 
+    /** Runs every 5 ticks; 40 runs = 200 ticks = 10 seconds. */
+    private static final int CLEANUP_INTERVAL = 40;
+
     private final CosmosIncursion plugin;
     private final PermanentZoneManager permanentZoneManager;
     private double ringAngleOffset = 0;
+    private int cleanupTick = 0;
 
     public PoIVisualizationTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager) {
         this.plugin = plugin;
@@ -80,14 +84,33 @@ public class PoIVisualizationTask extends BukkitRunnable {
                     permanentZoneManager.removeDisplayEntity(poi.getId());
                     continue;
                 }
-                rotateDisplayEntity(permanentZoneManager.getPoIDisplayEntity(poi.getId()));
-                spawnPoIParticles(poi);
+
+                Location center = poi.getLocation();
+                World world = center.getWorld();
+                if (world == null) continue;
+
+                boolean playerNearby = !world.getNearbyPlayers(center, VIEW_DISTANCE).isEmpty();
+
+                if (playerNearby) {
+                    if (permanentZoneManager.getPoIDisplayEntity(poi.getId()) == null) {
+                        permanentZoneManager.spawnDisplayEntityForPoI(poi);
+                    }
+                    rotateDisplayEntity(permanentZoneManager.getPoIDisplayEntity(poi.getId()));
+                    spawnPoIParticles(poi);
+                } else {
+                    permanentZoneManager.removeDisplayEntity(poi.getId());
+                }
             }
 
             for (ExtractionPoint ep : permanentZoneManager.getActiveExtractionPoints(zone)) {
                 if (!ep.isActive()) continue;
                 spawnExtractionPointParticles(ep);
             }
+        }
+
+        if (++cleanupTick >= CLEANUP_INTERVAL) {
+            cleanupTick = 0;
+            permanentZoneManager.cleanupOrphanedDisplaysNearPlayers();
         }
     }
 

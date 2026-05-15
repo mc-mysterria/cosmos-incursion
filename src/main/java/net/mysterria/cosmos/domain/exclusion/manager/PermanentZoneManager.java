@@ -347,7 +347,6 @@ public class PermanentZoneManager {
             Location loc = randomLocationInsideZone(zone, rng);
             PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, cap);
             pois.add(poi);
-            spawnDisplayEntityForPoI(poi);
         }
         activePoIs.put(zone.getId(), pois);
         plugin.getMapIntegration().syncPermanentZonePoIs(zone, poisVisibleOnMap(zone, pois));
@@ -399,7 +398,6 @@ public class PermanentZoneManager {
                 Location loc = randomLocationInsideZone(zone, rng);
                 PointOfInterest poi = new PointOfInterest(loc, type, poiRadius, durationMillis, cap);
                 pois.add(poi);
-                spawnDisplayEntityForPoI(poi);
                 announcePoISpawned(zone, poi);
             }
             changed = true;
@@ -498,7 +496,7 @@ public class PermanentZoneManager {
 
     // ── ItemDisplay entity management ────────────────────────────────────────────
 
-    private void spawnDisplayEntityForPoI(PointOfInterest poi) {
+    public void spawnDisplayEntityForPoI(PointOfInterest poi) {
         Location loc = poi.getLocation().clone().add(0, 1.5, 0);
         World world = loc.getWorld();
         if (world == null) return;
@@ -541,6 +539,26 @@ public class PermanentZoneManager {
                 if (entity instanceof ItemDisplay
                         && entity.getPersistentDataContainer().has(key)) {
                     entity.remove();
+                }
+            }
+        }
+    }
+
+    /**
+     * Scans entities near online players and removes any ItemDisplay with a PoI material
+     * that carries the poi_display PDC tag but is not tracked in poiDisplayEntities.
+     * Called periodically as a safety net for displays that slipped through normal cleanup.
+     */
+    public void cleanupOrphanedDisplaysNearPlayers() {
+        NamespacedKey key = plugin.getKey("poi_display");
+        Set<Entity> tracked = new HashSet<>(poiDisplayEntities.values());
+        for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
+            for (Entity entity : player.getWorld().getNearbyEntities(
+                    player.getLocation(), 80, 80, 80)) {
+                if (!(entity instanceof ItemDisplay display)) continue;
+                if (tracked.contains(display)) continue;
+                if (display.getPersistentDataContainer().has(key)) {
+                    display.remove();
                 }
             }
         }

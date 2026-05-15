@@ -297,13 +297,19 @@ public class EventManager {
             return;
         }
 
-        // Set countdown
-        activeEvent.setCountdown(config.getCountdownSeconds());
-
-        // Generate zones
-        ZonePlacerToolkit placementStrategy = new ZonePlacerToolkit(plugin);
-        int zoneCount = placementStrategy.calculateZoneCount();
-        List<IncursionZone> incursionZones = placementStrategy.generateZones(zoneCount);
+        // Generate zones BEFORE setting the countdown so a generation failure cancels cleanly
+        List<IncursionZone> incursionZones;
+        try {
+            ZonePlacerToolkit placementStrategy = new ZonePlacerToolkit(plugin);
+            int zoneCount = placementStrategy.calculateZoneCount();
+            incursionZones = placementStrategy.generateZones(zoneCount);
+        } catch (Exception e) {
+            plugin.log("Exception during zone generation, aborting event: " + e.getMessage());
+            broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event cancelled - zone generation failed</white>");
+            activeEvent = null;
+            transitionTo(EventState.IDLE);
+            return;
+        }
 
         if (incursionZones.isEmpty()) {
             plugin.log("Failed to generate any zones, aborting event");
@@ -312,6 +318,9 @@ public class EventManager {
             transitionTo(EventState.IDLE);
             return;
         }
+
+        // Set countdown only after zones are confirmed
+        activeEvent.setCountdown(config.getCountdownSeconds());
 
         // Register zones
         zoneManager.clearAllZones();
@@ -329,6 +338,14 @@ public class EventManager {
     private void onEnterActive() {
         if (activeEvent == null) {
             plugin.log("Warning: Entering ACTIVE state with no active event");
+            transitionTo(EventState.IDLE);
+            return;
+        }
+
+        if (activeEvent.getIncursionZones().isEmpty()) {
+            plugin.log("Warning: Entering ACTIVE state with no zones — aborting event");
+            broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event cancelled - no zones were generated</white>");
+            activeEvent = null;
             transitionTo(EventState.IDLE);
             return;
         }
