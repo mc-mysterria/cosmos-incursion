@@ -15,6 +15,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDismountEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
@@ -56,9 +59,9 @@ public class IncursionZoneHorseListener implements Listener {
         ItemStack saddle = buildSaddle();
         player.getInventory().addItem(saddle);
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
-            .append(Component.text("You received a ", NamedTextColor.GRAY))
-            .append(Component.text("Zone Saddle", NamedTextColor.GOLD))
-            .append(Component.text(". Right-click to summon a mount (requires no carried resources).", NamedTextColor.GRAY)));
+                .append(Component.text("You received a ", NamedTextColor.GRAY))
+                .append(Component.text("Zone Saddle", NamedTextColor.GOLD))
+                .append(Component.text(". Right-click to summon a mount (requires no carried resources).", NamedTextColor.GRAY)));
     }
 
     /**
@@ -94,7 +97,7 @@ public class IncursionZoneHorseListener implements Listener {
 
         if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) {
             player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
-                .append(Component.text("This saddle only works inside extraction zones.", NamedTextColor.RED)));
+                    .append(Component.text("This saddle only works inside extraction zones.", NamedTextColor.RED)));
             return;
         }
 
@@ -105,7 +108,7 @@ public class IncursionZoneHorseListener implements Listener {
 
         if (hasAnyTownResources(player)) {
             player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
-                .append(Component.text("You cannot summon a mount while your town has gathered resources from a Point of Interest.", NamedTextColor.RED)));
+                    .append(Component.text("You cannot summon a mount while your town has gathered resources from a Point of Interest.", NamedTextColor.RED)));
             return;
         }
 
@@ -136,6 +139,39 @@ public class IncursionZoneHorseListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getInventory().getHolder() instanceof Horse horse)) return;
+        if (!horse.getPersistentDataContainer().has(
+                plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN)) return;
+        // Block direct clicks on slot 0 (saddle slot) and shift-clicks that would auto-move into it
+        boolean targetsSlot0 = event.getRawSlot() == 0
+                || (event.getAction() == org.bukkit.event.inventory.InventoryAction.MOVE_TO_OTHER_INVENTORY
+                && event.getClickedInventory() != event.getInventory());
+        if (targetsSlot0) {
+            event.setCancelled(true);
+            ((Player) event.getWhoClicked()).updateInventory();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getInventory().getHolder() instanceof Horse horse)) return;
+        if (!horse.getPersistentDataContainer().has(
+                plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN)) return;
+        if (event.getRawSlots().contains(0)) {
+            event.setCancelled(true);
+            ((Player) event.getWhoClicked()).updateInventory();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerDropItem(PlayerDropItemEvent event) {
+        if (isCosmosSaddle(event.getItemDrop().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         cleanupPlayer(event.getPlayer());
@@ -159,7 +195,7 @@ public class IncursionZoneHorseListener implements Listener {
         horse.setCustomNameVisible(false);
         horse.getInventory().setSaddle(new ItemStack(Material.SADDLE));
         horse.getPersistentDataContainer().set(
-            plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN, true);
+                plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN, true);
 
         playerHorses.put(player.getUniqueId(), horse.getUniqueId());
         horse.addPassenger(player);
@@ -207,18 +243,19 @@ public class IncursionZoneHorseListener implements Listener {
         ItemStack saddle = new ItemStack(Material.SADDLE);
         ItemMeta meta = saddle.getItemMeta();
         meta.displayName(Component.text("Zone Saddle", NamedTextColor.GOLD)
-            .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
         meta.lore(List.of(
-            Component.text("Right-click to summon a fast mount.", NamedTextColor.GRAY)
-                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false),
-            Component.text("Requires no gathered resources.", NamedTextColor.DARK_GRAY)
-                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false),
-            Component.text("Only works inside incursion zones.", NamedTextColor.DARK_GRAY)
-                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false)
+                Component.text("Right-click to summon a fast mount.", NamedTextColor.GRAY)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false),
+                Component.text("Requires no gathered resources.", NamedTextColor.DARK_GRAY)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false),
+                Component.text("Only works inside incursion zones.", NamedTextColor.DARK_GRAY)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false)
         ));
         meta.getPersistentDataContainer().set(
-            plugin.getKey("cosmos_incursion_saddle"), PersistentDataType.BOOLEAN, true);
+                plugin.getKey("cosmos_incursion_saddle"), PersistentDataType.BOOLEAN, true);
         saddle.setItemMeta(meta);
         return saddle;
     }
 }
+
