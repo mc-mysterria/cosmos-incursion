@@ -128,7 +128,9 @@ public class ZonePlacerToolkit {
         double centerX = townLocations.stream().mapToDouble(Location::getX).average().orElse(0);
         double centerZ = townLocations.stream().mapToDouble(Location::getZ).average().orElse(0);
 
-        // Calculate average distance from center to towns
+        // Calculate average distance from center to towns.
+        // When there is only one town, avgDistance collapses to 0, so enforce a floor so
+        // candidates are placed far enough away from town claims to pass validation.
         double avgDistance = townLocations.stream()
                 .mapToDouble(loc -> {
                     double dx = loc.getX() - centerX;
@@ -137,11 +139,12 @@ public class ZonePlacerToolkit {
                 })
                 .average()
                 .orElse(1000.0);
+        double effectiveDistance = Math.max(avgDistance, 1000.0);
 
         // Generate candidates with randomness
         int candidateCount = count * 8; // Generate more candidates for better variety
-        double minRadius = avgDistance * 0.5; // Minimum 50% of distance to towns
-        double maxRadius = avgDistance * 0.9; // Maximum 90% of distance to towns
+        double minRadius = effectiveDistance * 0.5;
+        double maxRadius = effectiveDistance * 0.9;
 
         for (int i = 0; i < candidateCount; i++) {
             // Random angle instead of evenly distributed
@@ -221,9 +224,8 @@ public class ZonePlacerToolkit {
      * Check if a biome is an ocean biome
      */
     private boolean isOceanBiome(Biome biome) {
-        return biome.translationKey().contains("OCEAN") ||
-               biome.translationKey().contains("DEEP") ||
-               biome == Biome.RIVER;
+        String key = biome.translationKey();
+        return key.contains("ocean") || key.contains("deep") || key.contains("river");
     }
 
     /**
