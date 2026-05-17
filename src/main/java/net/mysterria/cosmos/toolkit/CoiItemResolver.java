@@ -10,10 +10,8 @@ import java.util.regex.Pattern;
 
 public class CoiItemResolver {
 
-    private static final Pattern TYPED_ITEM =
-        Pattern.compile("^(char|potion|recipe)-([a-z]+)-(\\d)$");
-    private static final Pattern INGREDIENT_ITEM =
-        Pattern.compile("^(ingredients|main-ingredients|supplementary-ingredients)-([a-z]+)-(\\d)$");
+    private static final Pattern TYPED_ITEM = Pattern.compile("^(char|potion|recipe)-([a-z]+)-(\\d)$");
+    private static final Pattern INGREDIENT_ITEM = Pattern.compile("^(ingredients|main-ingredients|supplementary-ingredients)-([a-z]+)-(\\d)$");
 
     private CoiItemResolver() {}
 

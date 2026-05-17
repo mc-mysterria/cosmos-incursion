@@ -19,6 +19,8 @@ import net.mysterria.cosmos.domain.combat.listener.PlayerRespawnListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerDeathListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
+import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneCompassListener;
+import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
 import net.mysterria.cosmos.domain.combat.service.CombatLogHandler;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
 import net.mysterria.cosmos.domain.combat.service.KillTracker;
@@ -92,6 +94,9 @@ public final class CosmosIncursion extends JavaPlugin {
     private ConsentGUI consentGUI;
     private BeaconUIManager beaconUIManager;
     private CosmosGuideGUI guideGUI;
+
+    // Zone item handlers
+    private IncursionZoneHorseListener incursionZoneHorseListener;
 
     private LiteCommands<CommandSender> liteCommands;
 
@@ -239,6 +244,8 @@ public final class CosmosIncursion extends JavaPlugin {
     }
 
     private void registerListeners() {
+        incursionZoneHorseListener = new IncursionZoneHorseListener(this, permanentZoneManager);
+
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker, deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerRespawnListener(deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(this, combatLogHandler, buffToolkit, beaconUIManager), this);
@@ -247,6 +254,8 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
         getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneListener(permanentZoneManager), this);
+        getServer().getPluginManager().registerEvents(new ExclusionZoneCompassListener(this), this);
+        getServer().getPluginManager().registerEvents(incursionZoneHorseListener, this);
 
         // Soft-depend zone protection listeners — only register if the respective plugin is active
         if (huskTownsAPI != null) {
@@ -286,8 +295,8 @@ public final class CosmosIncursion extends JavaPlugin {
         }, 6000L, 6000L);  // 5 minutes = 6000 ticks
 
         // Permanent zone tasks
-        new PermanentZonePlayerTask(permanentZoneManager).runTaskTimer(this, 0L, 5L);
-        new ResourceAccumulationTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
+        new PermanentZonePlayerTask(this, permanentZoneManager, incursionZoneHorseListener).runTaskTimer(this, 0L, 5L);
+        new ResourceAccumulationTask(this, permanentZoneManager, incursionZoneHorseListener).runTaskTimer(this, 0L, 20L);
         new ExtractionTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
         new PoIRotationTask(permanentZoneManager).runTaskTimer(this, 0L, 20L);
         new PermanentZoneBoundaryParticleTask(this, permanentZoneManager).runTaskTimer(this, 0L, 40L);
@@ -427,6 +436,11 @@ public final class CosmosIncursion extends JavaPlugin {
             mapIntegration.createPermanentZoneMarker(zone);
         }
     }
+
+    public ZoneManager getZoneManager() { return zoneManager; }
+    public EventManager getEventManager() { return eventManager; }
+    public PlayerStateManager getPlayerStateManager() { return playerStateManager; }
+    public PermanentZoneManager getPermanentZoneManager() { return permanentZoneManager; }
 
     public void log(String message) {
         Component debugMessage = Component.text("[CI] ").color(NamedTextColor.GOLD).append(Component.text(message).color(NamedTextColor.WHITE));

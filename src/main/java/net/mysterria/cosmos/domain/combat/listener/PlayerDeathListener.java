@@ -3,9 +3,7 @@ package net.mysterria.cosmos.domain.combat.listener;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
-import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
-import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.combat.service.KillTracker;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import net.mysterria.cosmos.domain.incursion.model.PlayerZoneState;
@@ -88,15 +86,23 @@ public class PlayerDeathListener implements Listener {
         // Process death penalties (regression logic — only applies in DEATH tier)
         deathHandler.handleZoneDeath(victim, killer, deathLocation, tier);
 
-        // Drop any permanent zone carry buffer as items
+        // Handle resource buffer on death in incursion zone.
+        // Resources are never turned into physical items — they are either transferred to
+        // the killer (handled by ExclusionZoneListener at HIGH priority) or simply voided.
         PermanentZone pZone = plugin.getPermanentZoneManager().getZoneAt(deathLocation);
         if (pZone == null) {
-            // Player might be in permanent zone but not incursion zone, check separately
             pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
         }
         if (pZone != null) {
-            dropBufferAsItems(victim, deathLocation);
-            plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
+            plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId());
+            boolean hasKiller = killer != null && !killer.equals(victim);
+            if (!hasKiller) {
+                // No killer — void the resources silently
+                plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
+                victim.sendMessage(net.kyori.adventure.text.Component.text("[Cosmos] ", net.kyori.adventure.text.format.NamedTextColor.DARK_RED)
+                    .append(net.kyori.adventure.text.Component.text("Your carried resources were lost.", net.kyori.adventure.text.format.NamedTextColor.RED)));
+            }
+            // If killer exists: ExclusionZoneListener (HIGH priority) transfers the buffer.
         }
     }
 
@@ -126,22 +132,14 @@ public class PlayerDeathListener implements Listener {
         ItemStack[] keptItems = dropItemsWithChance(victim, deathLocation, dropChance);
         deathHandler.storeSavedItems(victim.getUniqueId(), keptItems);
 
-        dropBufferAsItems(victim, deathLocation);
-        plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
-    }
-
-    private void dropBufferAsItems(Player victim, Location loc) {
-        PlayerResourceBuffer buffer = plugin.getPermanentZoneManager().getBuffer(victim.getUniqueId());
-        if (buffer.isEmpty()) return;
-        for (ResourceType type : ResourceType.values()) {
-            double amount = buffer.get(type);
-            if (amount < 1.0) continue;
-            int count = (int) amount;
-            if (loc.getWorld() != null) {
-                org.bukkit.inventory.ItemStack stack = new org.bukkit.inventory.ItemStack(type.getDefaultMaterial(), Math.min(count, 64));
-                loc.getWorld().dropItemNaturally(loc, stack);
-            }
+        // Resources are never physical items — void if no killer, else ExclusionZoneListener transfers.
+        Player killerP = victim.getKiller();
+        boolean hasKiller = killerP != null && !killerP.equals(victim);
+        if (!hasKiller) {
+            plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
         }
+
+        plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId());
     }
 
     /**
@@ -171,4 +169,5 @@ public class PlayerDeathListener implements Listener {
         inv.clear();
         return contents;
     }
+
 }

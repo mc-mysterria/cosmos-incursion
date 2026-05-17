@@ -30,7 +30,9 @@
       "Bash(javap -p me/angeschossen/lands/api/events/player/PlayerNullableEvent.class)",
       "Bash(javap -p -c me/angeschossen/lands/api/handler/APIHandler.class)",
       "Bash(javap -p me/angeschossen/lands/api/handler/LandsIntegrationFactory.class)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(Get-ChildItem -Path \"F:\\\\Mysterria\\\\CosmosIncursion\\\\src\\\\main\\\\java\\\\net\\\\mysterria\\\\cosmos\\\\domain\\\\exclusion\" -Recurse -File)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

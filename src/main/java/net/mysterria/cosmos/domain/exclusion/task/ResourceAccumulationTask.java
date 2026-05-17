@@ -8,6 +8,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -22,10 +23,13 @@ public class ResourceAccumulationTask extends BukkitRunnable {
 
     private final CosmosIncursion plugin;
     private final PermanentZoneManager permanentZoneManager;
+    private final IncursionZoneHorseListener horseListener;
 
-    public ResourceAccumulationTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager) {
+    public ResourceAccumulationTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager,
+                                    IncursionZoneHorseListener horseListener) {
         this.plugin = plugin;
         this.permanentZoneManager = permanentZoneManager;
+        this.horseListener = horseListener;
     }
 
     @Override
@@ -56,7 +60,15 @@ public class ResourceAccumulationTask extends BukkitRunnable {
                 double actual = activePoi.consumeResource(rate);
                 if (actual <= 0) continue; // depleted mid-tick, skip
                 PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
+                boolean wasEmpty = buffer.isEmpty();
                 buffer.add(activePoi.getResourceType(), actual);
+                if (wasEmpty) {
+                    // First resource gain: reveal on live map and dismount horse
+                    if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
+                        plugin.getMapIntegration().showPlayerOnMap(player);
+                    }
+                    horseListener.cleanupPlayer(player);
+                }
                 sendBufferActionBar(player, buffer);
             }
         }

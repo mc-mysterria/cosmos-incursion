@@ -73,6 +73,13 @@ public class PermanentZoneManager {
 
     private static final long DAY_MILLIS = 24 * 60 * 60 * 1000L;
 
+    // Players currently hidden on the live map (entered zone but have no resources yet)
+    private final Set<UUID> mapHiddenPlayers = ConcurrentHashMap.newKeySet();
+
+    // Death cooldown: player cannot re-enter any permanent zone for 1 hour after dying inside
+    private static final long ZONE_DEATH_COOLDOWN_MS = 3_600_000L;
+    private final Map<UUID, Long> zoneDeathTimes = new ConcurrentHashMap<>();
+
     // Town balance: townId -> resourceType -> accumulated amount
     private final Map<Integer, Map<ResourceType, Double>> townBalances = new ConcurrentHashMap<>();
     private final File balanceFile;
@@ -622,6 +629,40 @@ public class PermanentZoneManager {
         extractionChannels.remove(playerId);
         if (buf == null || buf.isEmpty()) return Collections.emptyMap();
         return buf.snapshot();
+    }
+
+    // ── Map visibility tracking ──────────────────────────────────────────────────
+
+    public void markMapHidden(UUID playerId) {
+        mapHiddenPlayers.add(playerId);
+    }
+
+    public boolean isMapHidden(UUID playerId) {
+        return mapHiddenPlayers.contains(playerId);
+    }
+
+    /** Removes the hidden flag. Returns true if the player was actually hidden (caller should show them). */
+    public boolean clearMapHidden(UUID playerId) {
+        return mapHiddenPlayers.remove(playerId);
+    }
+
+    // ── Zone death cooldown ──────────────────────────────────────────────────────
+
+    public void recordZoneDeath(UUID playerId) {
+        zoneDeathTimes.put(playerId, System.currentTimeMillis());
+    }
+
+    public boolean isOnZoneDeathCooldown(UUID playerId) {
+        Long time = zoneDeathTimes.get(playerId);
+        if (time == null) return false;
+        return System.currentTimeMillis() - time < ZONE_DEATH_COOLDOWN_MS;
+    }
+
+    public long getZoneDeathCooldownRemainingSeconds(UUID playerId) {
+        Long time = zoneDeathTimes.get(playerId);
+        if (time == null) return 0;
+        long remaining = ZONE_DEATH_COOLDOWN_MS - (System.currentTimeMillis() - time);
+        return Math.max(0, remaining / 1000);
     }
 
     // ── Player zone tracking ─────────────────────────────────────────────────────

@@ -111,6 +111,16 @@ public class ZoneCheckTask extends BukkitRunnable {
 
         // Player is in a zone but not tracked
         if (currentZone != null && !isTracked) {
+            // Check incursion death cooldown — block re-entry for 1 hour after dying in zone
+            if (playerStateManager.isOnIncursionDeathCooldown(player.getUniqueId())) {
+                pushPlayerOutOfZone(player, currentZone);
+                long remaining = playerStateManager.getIncursionCooldownRemainingSeconds(player.getUniqueId());
+                player.sendMessage(miniMessage.deserialize(
+                    "<red>[Cosmos] You died in this incursion. You cannot re-enter for <yellow>"
+                    + formatCooldown(remaining) + "</yellow>.</red>"));
+                return;
+            }
+
             // Check consent for this zone's specific tier
             if (!consentGUI.hasConsented(player, currentZone.getTier())) {
                 // Push player out of zone to a safe location
@@ -435,6 +445,15 @@ public class ZoneCheckTask extends BukkitRunnable {
 
     private static String formatZoneName(String name) {
         return name.replace('_', ' ');
+    }
+
+    private static String formatCooldown(long totalSeconds) {
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        if (hours > 0) return hours + "h " + minutes + "m " + seconds + "s";
+        if (minutes > 0) return minutes + "m " + seconds + "s";
+        return seconds + "s";
     }
 
 }

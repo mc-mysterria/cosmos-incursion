@@ -409,6 +409,26 @@ public class SquareMapIntegration implements MapIntegration {
         }
     }
 
+    @Override
+    public void hidePlayerOnMap(Player player) {
+        if (!isAvailable()) return;
+        try {
+            api.playerManager().hide(player.getUniqueId(), true);
+        } catch (Exception e) {
+            plugin.log("squaremap: error hiding player on map: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void showPlayerOnMap(Player player) {
+        if (!isAvailable()) return;
+        try {
+            api.playerManager().show(player.getUniqueId(), true);
+        } catch (Exception e) {
+            plugin.log("squaremap: error showing player on map: " + e.getMessage());
+        }
+    }
+
     private void removeZoneSubMarkers(UUID zoneId, Map<UUID, Set<Key>> keyMap) {
         Set<Key> keys = keyMap.remove(zoneId);
         if (keys != null) {

@@ -59,4 +59,10 @@ public interface MapIntegration {
     void syncPermanentZonePoIs(PermanentZone zone, List<PointOfInterest> pois);
 
     void syncPermanentZoneExtractionPoints(PermanentZone zone, List<ExtractionPoint> eps);
+
+    // --- Player map visibility ---
+
+    default void hidePlayerOnMap(Player player) {}
+
+    default void showPlayerOnMap(Player player) {}
 }
