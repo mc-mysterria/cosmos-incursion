@@ -51,6 +51,14 @@ public class TownsToolkit {
         return Optional.ofNullable(landsIntegration.getLandByName(name));
     }
 
+    public static boolean isPlayerInCombat(Player player) {
+        if (!hasLands()) return false;
+        LandPlayer lp = landsIntegration.getLandPlayer(player.getUniqueId());
+        if (lp == null) return false;
+        var tag = lp.getCombatTag();
+        return tag != null && tag.getTimeLeft() > 0;
+    }
+
     // ── Unified town-data API ────────────────────────────────────────────────────
 
     public static List<TownData> getTowns() {

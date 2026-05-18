@@ -106,6 +106,12 @@ public class IncursionZoneHorseListener implements Listener {
             return;
         }
 
+        if (TownsToolkit.isPlayerInCombat(player)) {
+            player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                    .append(Component.text("You cannot summon a mount while in combat.", NamedTextColor.RED)));
+            return;
+        }
+
         if (hasAnyTownResources(player)) {
             player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                     .append(Component.text("You cannot summon a mount while your town has gathered resources from a Point of Interest.", NamedTextColor.RED)));
@@ -175,6 +181,26 @@ public class IncursionZoneHorseListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         cleanupPlayer(event.getPlayer());
+    }
+
+    public boolean hasActiveHorse(Player player) {
+        return playerHorses.containsKey(player.getUniqueId());
+    }
+
+    /** Force-dismount a player from their cosmos horse due to combat. Saddle is returned. */
+    public void dismountForCombat(Player player) {
+        UUID horseId = playerHorses.remove(player.getUniqueId());
+        if (horseId == null) return;
+        Entity horse = Bukkit.getEntity(horseId);
+        if (horse != null && !horse.isDead()) {
+            horse.eject();
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!horse.isDead()) horse.remove();
+            }, 1L);
+        }
+        giveSaddle(player);
+        player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                .append(Component.text("You were dismounted — cannot ride while in combat!", NamedTextColor.RED)));
     }
 
     // ── Internals ────────────────────────────────────────────────────────────────

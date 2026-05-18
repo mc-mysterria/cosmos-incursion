@@ -11,6 +11,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
+import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -78,6 +79,11 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                     onEnter(player, currentZone);
                 }
                 permanentZoneManager.updatePlayerZone(player.getUniqueId(), currentZone);
+            }
+
+            // Force-dismount if player enters combat while riding a cosmos horse
+            if (currentZone != null && horseListener.hasActiveHorse(player) && TownsToolkit.isPlayerInCombat(player)) {
+                horseListener.dismountForCombat(player);
             }
 
             // Update compass and ensure saddle for players already tracked in a zone
