@@ -94,7 +94,7 @@ public class PlayerDeathListener implements Listener {
             pZone = plugin.getPermanentZoneManager().getPlayerZone(victim.getUniqueId());
         }
         if (pZone != null) {
-            plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId());
+            plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId(), pZone.getId());
             boolean hasKiller = killer != null && !killer.equals(victim);
             if (!hasKiller) {
                 // No killer — void the resources silently
@@ -139,7 +139,7 @@ public class PlayerDeathListener implements Listener {
             plugin.getPermanentZoneManager().clearBuffer(victim.getUniqueId());
         }
 
-        plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId());
+        plugin.getPermanentZoneManager().recordZoneDeath(victim.getUniqueId(), pZone.getId());
     }
 
     /**

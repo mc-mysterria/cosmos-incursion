@@ -76,9 +76,9 @@ public class PermanentZoneManager {
     // Players currently hidden on the live map (entered zone but have no resources yet)
     private final Set<UUID> mapHiddenPlayers = ConcurrentHashMap.newKeySet();
 
-    // Death cooldown: player cannot re-enter any permanent zone for 1 hour after dying inside
+    // Death cooldown: player cannot re-enter the specific zone they died in for 1 hour
     private static final long ZONE_DEATH_COOLDOWN_MS = 3_600_000L;
-    private final Map<UUID, Long> zoneDeathTimes = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<UUID, Long>> zoneDeathTimes = new ConcurrentHashMap<>();
 
     // Town balance: townId -> resourceType -> accumulated amount
     private final Map<Integer, Map<ResourceType, Double>> townBalances = new ConcurrentHashMap<>();
@@ -648,18 +648,22 @@ public class PermanentZoneManager {
 
     // ── Zone death cooldown ──────────────────────────────────────────────────────
 
-    public void recordZoneDeath(UUID playerId) {
-        zoneDeathTimes.put(playerId, System.currentTimeMillis());
+    public void recordZoneDeath(UUID playerId, UUID zoneId) {
+        zoneDeathTimes.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>()).put(zoneId, System.currentTimeMillis());
     }
 
-    public boolean isOnZoneDeathCooldown(UUID playerId) {
-        Long time = zoneDeathTimes.get(playerId);
+    public boolean isOnZoneDeathCooldown(UUID playerId, UUID zoneId) {
+        Map<UUID, Long> byZone = zoneDeathTimes.get(playerId);
+        if (byZone == null) return false;
+        Long time = byZone.get(zoneId);
         if (time == null) return false;
         return System.currentTimeMillis() - time < ZONE_DEATH_COOLDOWN_MS;
     }
 
-    public long getZoneDeathCooldownRemainingSeconds(UUID playerId) {
-        Long time = zoneDeathTimes.get(playerId);
+    public long getZoneDeathCooldownRemainingSeconds(UUID playerId, UUID zoneId) {
+        Map<UUID, Long> byZone = zoneDeathTimes.get(playerId);
+        if (byZone == null) return 0;
+        Long time = byZone.get(zoneId);
         if (time == null) return 0;
         long remaining = ZONE_DEATH_COOLDOWN_MS - (System.currentTimeMillis() - time);
         return Math.max(0, remaining / 1000);

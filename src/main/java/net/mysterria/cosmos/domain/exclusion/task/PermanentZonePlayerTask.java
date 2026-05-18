@@ -67,9 +67,9 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
             if (!zonesEqual(currentZone, trackedZone)) {
                 if (trackedZone != null) onExit(player, trackedZone);
                 if (currentZone != null) {
-                    if (permanentZoneManager.isOnZoneDeathCooldown(player.getUniqueId())) {
+                    if (permanentZoneManager.isOnZoneDeathCooldown(player.getUniqueId(), currentZone.getId())) {
                         pushOutsideZone(player, currentZone);
-                        long remaining = permanentZoneManager.getZoneDeathCooldownRemainingSeconds(player.getUniqueId());
+                        long remaining = permanentZoneManager.getZoneDeathCooldownRemainingSeconds(player.getUniqueId(), currentZone.getId());
                         player.sendActionBar(Component.text("Cannot enter — cooldown: ", NamedTextColor.RED)
                             .append(Component.text(formatCooldown(remaining), NamedTextColor.YELLOW)));
                         // Do NOT update tracked zone — keep it null so this check fires every tick
