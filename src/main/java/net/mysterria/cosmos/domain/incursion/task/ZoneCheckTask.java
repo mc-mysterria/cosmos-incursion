@@ -14,6 +14,7 @@ import net.mysterria.cosmos.domain.incursion.model.source.PlayerTier;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
 import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
+import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -47,6 +48,7 @@ public class ZoneCheckTask extends BukkitRunnable {
     private final EffectsToolkit effectsToolkit;
     private final EventManager eventManager;
     private final ConsentGUI consentGUI;
+    private final GSitZoneListener gsitZoneListener;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final Map<UUID, Long> lastConsentPrompt;
@@ -55,13 +57,15 @@ public class ZoneCheckTask extends BukkitRunnable {
 
     public ZoneCheckTask(CosmosIncursion plugin, ZoneManager zoneManager,
                          PlayerStateManager playerStateManager, EffectsToolkit effectsToolkit,
-                         EventManager eventManager, ConsentGUI consentGUI) {
+                         EventManager eventManager, ConsentGUI consentGUI,
+                         GSitZoneListener gsitZoneListener) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.playerStateManager = playerStateManager;
         this.effectsToolkit = effectsToolkit;
         this.eventManager = eventManager;
         this.consentGUI = consentGUI;
+        this.gsitZoneListener = gsitZoneListener;
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.lastConsentPrompt = new HashMap<>();
@@ -395,6 +399,9 @@ public class ZoneCheckTask extends BukkitRunnable {
         showZoneBossBar(player, incursionZone);
 
         effectsToolkit.applyEffects(player, tier);
+
+        if (gsitZoneListener != null) gsitZoneListener.dismountIfSitting(player);
+
         plugin.log("Player " + player.getName() + " entered zone: " + incursionZone.getName() + " (" + tier + ")");
     }
 

@@ -10,6 +10,7 @@ import net.mysterria.cosmos.domain.exclusion.model.ExtractionPoint;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
+import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
@@ -38,13 +39,15 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     private final CosmosIncursion plugin;
     private final PermanentZoneManager permanentZoneManager;
     private final IncursionZoneHorseListener horseListener;
+    private final GSitZoneListener gsitZoneListener;
     private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
 
     public PermanentZonePlayerTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager,
-                                   IncursionZoneHorseListener horseListener) {
+                                   IncursionZoneHorseListener horseListener, GSitZoneListener gsitZoneListener) {
         this.plugin = plugin;
         this.permanentZoneManager = permanentZoneManager;
         this.horseListener = horseListener;
+        this.gsitZoneListener = gsitZoneListener;
     }
 
     @Override
@@ -140,6 +143,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         showZoneBossBar(player, zone);
         giveCompass(player, zone);
         horseListener.giveSaddle(player);
+        if (gsitZoneListener != null) gsitZoneListener.dismountIfSitting(player);
         permanentZoneManager.markMapHidden(player.getUniqueId());
         plugin.getMapIntegration().hidePlayerOnMap(player);
         player.sendActionBar(

@@ -20,6 +20,7 @@ import net.mysterria.cosmos.domain.combat.listener.PlayerDeathListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
 import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneCompassListener;
+import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
 import net.mysterria.cosmos.domain.combat.service.CombatLogHandler;
 import net.mysterria.cosmos.domain.combat.service.DeathHandler;
@@ -99,6 +100,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     // Zone item handlers
     private IncursionZoneHorseListener incursionZoneHorseListener;
+    private GSitZoneListener gsitZoneListener;
 
     private LiteCommands<CommandSender> liteCommands;
 
@@ -249,6 +251,12 @@ public final class CosmosIncursion extends JavaPlugin {
     private void registerListeners() {
         incursionZoneHorseListener = new IncursionZoneHorseListener(this, permanentZoneManager);
 
+        if (getServer().getPluginManager().getPlugin("GSit") != null) {
+            gsitZoneListener = new GSitZoneListener(playerStateManager, permanentZoneManager);
+            getServer().getPluginManager().registerEvents(gsitZoneListener, this);
+            log("GSit integration active — sitting/riding blocked in PvP zones");
+        }
+
         getServer().getPluginManager().registerEvents(new PlayerDeathListener(this, playerStateManager, killTracker, deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerRespawnListener(deathHandler), this);
         getServer().getPluginManager().registerEvents(new PlayerQuitListener(this, combatLogHandler, buffToolkit, beaconUIManager), this);
@@ -278,7 +286,7 @@ public final class CosmosIncursion extends JavaPlugin {
         new EventCheckTask(eventManager).runTaskTimer(this, 0L, 20L);
 
         // Zone check task - runs every 5 ticks (4 times per second) for reliable zone detection
-        new ZoneCheckTask(this, zoneManager, playerStateManager, effectsToolkit, eventManager, consentGUI).runTaskTimer(this, 0L, 5L);
+        new ZoneCheckTask(this, zoneManager, playerStateManager, effectsToolkit, eventManager, consentGUI, gsitZoneListener).runTaskTimer(this, 0L, 5L);
 
         // Hollow Body cleanup task - runs every 30 seconds
         if (citizensToolkit.isAvailable()) {
@@ -298,7 +306,7 @@ public final class CosmosIncursion extends JavaPlugin {
         }, 6000L, 6000L);  // 5 minutes = 6000 ticks
 
         // Permanent zone tasks
-        new PermanentZonePlayerTask(this, permanentZoneManager, incursionZoneHorseListener).runTaskTimer(this, 0L, 5L);
+        new PermanentZonePlayerTask(this, permanentZoneManager, incursionZoneHorseListener, gsitZoneListener).runTaskTimer(this, 0L, 5L);
         new ResourceAccumulationTask(this, permanentZoneManager, incursionZoneHorseListener).runTaskTimer(this, 0L, 20L);
         new ExtractionTask(this, permanentZoneManager).runTaskTimer(this, 0L, 20L);
         new PoIRotationTask(permanentZoneManager).runTaskTimer(this, 0L, 20L);
