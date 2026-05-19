@@ -416,7 +416,74 @@ public class CosmosGuideGUI {
             )
         ));
 
+        // Show purchase history button only to mayors/admins
+        if (TownsToolkit.canManageTownShop(player)) {
+            gui.setItem(20, clickItem(
+                Material.BOOK,
+                Component.text("Purchase History", NamedTextColor.AQUA, TextDecoration.BOLD),
+                List.of(line("View recent shop purchases.", NamedTextColor.GRAY)),
+                () -> openTransactionHistory(player, town, 0)
+            ));
+        }
+
         gui.setItem(22, backItem(() -> openMainMenu(player)));
+        gui.open(player);
+    }
+
+    public void openTransactionHistory(Player player, TownData town, int page) {
+        var logger = plugin.getShopTransactionLogger();
+        var allTx  = logger.getHistory(town.id());
+
+        int pageSize   = 45;
+        int totalPages = Math.max(1, (int) Math.ceil(allTx.size() / (double) pageSize));
+        int safePage   = Math.max(0, Math.min(page, totalPages - 1));
+        int start      = safePage * pageSize;
+        int end        = Math.min(start + pageSize, allTx.size());
+        var pageTx     = allTx.subList(start, end);
+
+        Gui gui = Gui.gui()
+            .title(Component.text("Purchase History — " + town.name(), NamedTextColor.DARK_AQUA, TextDecoration.BOLD))
+            .rows(6)
+            .disableAllInteractions()
+            .create();
+
+        for (int i = 0; i < pageTx.size(); i++) {
+            var tx = pageTx.get(i);
+            ItemStack book = new ItemStack(Material.BOOK);
+            ItemMeta meta  = book.getItemMeta();
+            if (meta != null) {
+                meta.displayName(Component.text(tx.playerName(), NamedTextColor.YELLOW, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false)
+                    .append(Component.text(" → " + tx.itemName(), NamedTextColor.WHITE)
+                        .decoration(TextDecoration.ITALIC, false)));
+                meta.lore(List.of(
+                    Component.text("Cost: ", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
+                        .append(Component.text(tx.priceSummary(), NamedTextColor.WHITE).decoration(TextDecoration.ITALIC, false)),
+                    Component.text(tx.timestamp(), NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)
+                ));
+                book.setItemMeta(meta);
+            }
+            gui.setItem(i, new GuiItem(book, event -> event.setCancelled(true)));
+        }
+
+        // Bottom nav row
+        if (allTx.isEmpty()) {
+            gui.setItem(49, infoItem(Material.BARRIER,
+                Component.text("No purchases yet", NamedTextColor.GRAY, TextDecoration.BOLD),
+                List.of()));
+        }
+        if (safePage > 0) {
+            gui.setItem(45, clickItem(Material.ARROW,
+                Component.text("← Previous", NamedTextColor.YELLOW, TextDecoration.BOLD), List.of(),
+                () -> openTransactionHistory(player, town, safePage - 1)));
+        }
+        if (safePage < totalPages - 1) {
+            gui.setItem(53, clickItem(Material.ARROW,
+                Component.text("Next →", NamedTextColor.YELLOW, TextDecoration.BOLD), List.of(),
+                () -> openTransactionHistory(player, town, safePage + 1)));
+        }
+        gui.setItem(49, backItem(() -> openTownResources(player)));
+
         gui.open(player);
     }
 

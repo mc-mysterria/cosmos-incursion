@@ -5,7 +5,9 @@ import dev.triumphteam.gui.guis.GuiItem;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
+import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
@@ -26,12 +28,17 @@ public class ZoneShopGUI {
 
     private static final int PAGE_SIZE = 45;
 
+    private final CosmosIncursion plugin;
     private final ZoneShopManager shopManager;
     private final PermanentZoneManager zoneManager;
+    private final ShopTransactionLogger txLogger;
 
-    public ZoneShopGUI(ZoneShopManager shopManager, PermanentZoneManager zoneManager) {
+    public ZoneShopGUI(CosmosIncursion plugin, ZoneShopManager shopManager,
+                       PermanentZoneManager zoneManager, ShopTransactionLogger txLogger) {
+        this.plugin      = plugin;
         this.shopManager = shopManager;
         this.zoneManager = zoneManager;
+        this.txLogger    = txLogger;
     }
 
     // ── Open ────────────────────────────────────────────────────────────────────
@@ -93,6 +100,115 @@ public class ZoneShopGUI {
         gui.open(player);
     }
 
+    // ── Confirmation GUI ─────────────────────────────────────────────────────────
+
+    private void openConfirmation(Player player, ShopItem si, TownData town, int returnPage) {
+        Gui confirm = Gui.gui()
+            .title(Component.text("Confirm Purchase?", NamedTextColor.DARK_RED, TextDecoration.BOLD))
+            .rows(3)
+            .disableAllInteractions()
+            .create();
+
+        // Fill with glass
+        GuiItem pane = glass();
+        for (int i = 0; i < 27; i++) confirm.setItem(i, pane);
+
+        // Display item in center
+        confirm.setItem(13, new GuiItem(buildShopDisplay(si, town.id()), event -> event.setCancelled(true)));
+
+        // Confirm button (slots 10, 11, 12)
+        GuiItem confirmAction = new GuiItem(buildConfirmButton().getItemStack(), event -> {
+            event.setCancelled(true);
+            executePurchase(player, si, town, returnPage);
+        });
+        confirm.setItem(10, confirmAction);
+        confirm.setItem(11, confirmAction);
+        confirm.setItem(12, confirmAction);
+
+        // Cancel button (slots 14, 15, 16)
+        GuiItem cancelBtn = buildCancelButton(() -> open(player, returnPage));
+        confirm.setItem(14, cancelBtn);
+        confirm.setItem(15, cancelBtn);
+        confirm.setItem(16, cancelBtn);
+
+        confirm.open(player);
+    }
+
+    private void executePurchase(Player player, ShopItem si, TownData town, int returnPage) {
+        Map<ResourceType, Double> prices = si.getPrices();
+
+        // Re-validate balance at purchase time
+        Map<ResourceType, Double> balance = zoneManager.getTownBalance(town.id());
+        for (Map.Entry<ResourceType, Double> entry : prices.entrySet()) {
+            if (entry.getValue() <= 0) continue;
+            if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) {
+                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Your town no longer has enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
+                open(player, returnPage);
+                return;
+            }
+        }
+
+        List<ItemStack> toGive = si.getItems();
+        if (toGive.isEmpty()) {
+            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
+            open(player, returnPage);
+            return;
+        }
+        for (ItemStack stack : toGive) {
+            if (!hasInventorySpace(player, stack)) {
+                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+                open(player, returnPage);
+                return;
+            }
+        }
+
+        if (!zoneManager.deductFromTown(town.id(), prices)) {
+            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
+            open(player, returnPage);
+            return;
+        }
+
+        for (ItemStack stack : toGive) {
+            player.getInventory().addItem(stack);
+        }
+
+        ItemStack primary = si.getItem();
+        Component itemName = primary.getItemMeta() != null && primary.getItemMeta().hasDisplayName()
+            ? Objects.requireNonNull(primary.getItemMeta().displayName())
+            : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
+
+        String plainItemName = itemNamePlain(primary);
+        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
+
+        String priceSummary = txLogger.getHistory(town.id()).isEmpty() ? ""
+            : txLogger.getHistory(town.id()).get(0).priceSummary();
+
+        Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
+            .append(Component.text("Purchased ", NamedTextColor.GREEN))
+            .append(itemName);
+        if (toGive.size() > 1) {
+            msg = msg.append(Component.text(" +" + (toGive.size() - 1) + " more", NamedTextColor.GRAY));
+        }
+        player.sendMessage(msg.append(Component.text("!", NamedTextColor.GREEN)));
+
+        // Notify all online town members
+        Component broadcast = Component.text("[Shop] ", NamedTextColor.GOLD)
+            .append(Component.text(player.getName(), NamedTextColor.YELLOW))
+            .append(Component.text(" purchased ", NamedTextColor.GRAY))
+            .append(itemName)
+            .append(Component.text(" for ", NamedTextColor.GRAY))
+            .append(Component.text(priceSummary, NamedTextColor.WHITE));
+        for (Player member : TownsToolkit.getMembers(town)) {
+            if (!member.equals(player)) member.sendMessage(broadcast);
+        }
+
+        open(player, returnPage);
+    }
+
     // ── Shop item button ─────────────────────────────────────────────────────────
 
     private GuiItem shopItemButton(Player player, Gui gui, ShopItem si,
@@ -110,6 +226,13 @@ public class ZoneShopGUI {
             }
 
             TownData town = townOpt.get();
+
+            if (!TownsToolkit.canManageTownShop(player)) {
+                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Only the town mayor or a trusted member can purchase items.", NamedTextColor.RED)));
+                return;
+            }
+
             Map<ResourceType, Double> prices = si.getPrices();
 
             if (prices.isEmpty() || prices.values().stream().allMatch(v -> v <= 0)) {
@@ -118,7 +241,7 @@ public class ZoneShopGUI {
                 return;
             }
 
-            // Check town balance
+            // Quick pre-check balance before opening confirmation
             Map<ResourceType, Double> balance = zoneManager.getTownBalance(town.id());
             for (Map.Entry<ResourceType, Double> entry : prices.entrySet()) {
                 if (entry.getValue() <= 0) continue;
@@ -129,49 +252,18 @@ public class ZoneShopGUI {
                 }
             }
 
-            // Check inventory space for all granted items
-            List<ItemStack> toGive = si.getItems();
-            if (toGive.isEmpty()) {
-                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
-                return;
-            }
-            for (ItemStack stack : toGive) {
-                if (!hasInventorySpace(player, stack)) {
-                    player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
-                    return;
-                }
-            }
-
-            // Deduct resources
-            if (!zoneManager.deductFromTown(town.id(), prices)) {
-                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
-                return;
-            }
-
-            // Give all items
-            for (ItemStack stack : toGive) {
-                player.getInventory().addItem(stack);
-            }
-
-            // Success message — use display name of primary item
-            ItemStack primary = si.getItem();
-            Component itemName = primary.getItemMeta() != null && primary.getItemMeta().hasDisplayName()
-                ? Objects.requireNonNull(primary.getItemMeta().displayName())
-                : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
-
-            Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("Purchased ", NamedTextColor.GREEN))
-                .append(itemName);
-            if (toGive.size() > 1) {
-                msg = msg.append(Component.text(" +" + (toGive.size() - 1) + " more", NamedTextColor.GRAY));
-            }
-            player.sendMessage(msg.append(Component.text("!", NamedTextColor.GREEN)));
-
-            open(player, page);
+            openConfirmation(player, si, town, page);
         });
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private String itemNamePlain(ItemStack item) {
+        if (item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
+            Component name = item.getItemMeta().displayName();
+            if (name != null) return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(name);
+        }
+        return item.getType().name().replace('_', ' ');
     }
 
     // ── Inventory space check ────────────────────────────────────────────────────
@@ -301,6 +393,31 @@ public class ZoneShopGUI {
         return new GuiItem(item, event -> {
             event.setCancelled(true);
             action.run();
+        });
+    }
+
+    private GuiItem buildConfirmButton() {
+        ItemStack item = new ItemStack(Material.LIME_STAINED_GLASS_PANE);
+        ItemMeta meta  = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("✔ Confirm Purchase", NamedTextColor.GREEN, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+            item.setItemMeta(meta);
+        }
+        return new GuiItem(item, event -> event.setCancelled(true));
+    }
+
+    private GuiItem buildCancelButton(Runnable onCancel) {
+        ItemStack item = new ItemStack(Material.RED_STAINED_GLASS_PANE);
+        ItemMeta meta  = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("✗ Cancel", NamedTextColor.RED, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+            item.setItemMeta(meta);
+        }
+        return new GuiItem(item, event -> {
+            event.setCancelled(true);
+            onCancel.run();
         });
     }
 

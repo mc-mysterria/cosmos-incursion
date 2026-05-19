@@ -1,6 +1,7 @@
 package net.mysterria.cosmos.toolkit.towns;
 
 import me.angeschossen.lands.api.LandsIntegration;
+import me.angeschossen.lands.api.flags.type.Flags;
 import me.angeschossen.lands.api.land.Land;
 import me.angeschossen.lands.api.player.LandPlayer;
 import net.william278.husktowns.api.HuskTownsAPI;
@@ -49,6 +50,41 @@ public class TownsToolkit {
     public static Optional<Land> getLand(String name) {
         if (!hasLands()) return Optional.empty();
         return Optional.ofNullable(landsIntegration.getLandByName(name));
+    }
+
+    public static boolean isMayor(Player player) {
+        if (!hasLands()) return false;
+
+        LandPlayer lp = landsIntegration.getLandPlayer(player.getUniqueId());
+        if (lp == null) return false;
+
+        for (Land land : lp.getLands()) {
+            land.getOwnerUID();
+            if (land.getOwnerUID().equals(player.getUniqueId())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns true if the player can manage their town's shop purchases:
+     * the land owner (mayor) or any member with the SETTING_EDIT_LAND management flag (admin-tier).
+     */
+    public static boolean canManageTownShop(Player player) {
+        if (!hasLands()) return false;
+
+        UUID uuid = player.getUniqueId();
+
+        for (Land land : landsIntegration.getLands()) {
+            if (uuid.equals(land.getOwnerUID())) return true;
+            if (!land.isTrusted(uuid)) continue;
+            var area = land.getDefaultArea();
+            if (area != null && area.hasRoleFlag(uuid, Flags.SETTING_EDIT_LAND)) return true;
+        }
+
+        return false;
     }
 
     public static boolean isPlayerInCombat(Player player) {
@@ -124,7 +160,9 @@ public class TownsToolkit {
         return Optional.empty();
     }
 
-    /** Alias for {@link #getTownByPlayer(Player)}. */
+    /**
+     * Alias for {@link #getTownByPlayer(Player)}.
+     */
     public static Optional<TownData> getPlayerTown(Player player) {
         return getTownByPlayer(player);
     }
@@ -196,7 +234,9 @@ public class TownsToolkit {
         return locations;
     }
 
-    /** Returns {@code true} if the given location falls inside a claimed town or land. */
+    /**
+     * Returns {@code true} if the given location falls inside a claimed town or land.
+     */
     public static boolean isLocationInTownClaim(Location location) {
         if (location.getWorld() == null) return false;
 
@@ -218,7 +258,9 @@ public class TownsToolkit {
         return false;
     }
 
-    /** Returns the set of all claimed chunk coordinates in the given world. */
+    /**
+     * Returns the set of all claimed chunk coordinates in the given world.
+     */
     public static Set<ChunkPosition> getClaimedChunks(org.bukkit.World world) {
         Set<ChunkPosition> result = new HashSet<>();
 
@@ -242,7 +284,9 @@ public class TownsToolkit {
         return result;
     }
 
-    /** Returns online members of the given town as Bukkit {@link Player} objects. */
+    /**
+     * Returns online members of the given town as Bukkit {@link Player} objects.
+     */
     public static List<Player> getMembers(TownData town) {
         List<Player> result = new ArrayList<>();
         for (UUID uuid : town.memberUuids()) {

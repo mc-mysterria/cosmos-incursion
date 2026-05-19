@@ -32,7 +32,11 @@
       "Bash(javap -p me/angeschossen/lands/api/handler/LandsIntegrationFactory.class)",
       "Bash(xargs grep *)",
       "Bash(Get-ChildItem -Path \"F:\\\\Mysterria\\\\CosmosIncursion\\\\src\\\\main\\\\java\\\\net\\\\mysterria\\\\cosmos\\\\domain\\\\exclusion\" -Recurse -File)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.role.enums.RoleType)",
+      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.player.TrustedPlayer)",
+      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.framework.trusted.RoleHolder)",
+      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.framework.trusted.SimpleRole)"
     ]
   }
 }
