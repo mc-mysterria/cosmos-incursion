@@ -10,6 +10,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -36,6 +37,7 @@ public class ResourceAccumulationTask extends BukkitRunnable {
     public void run() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.hasMetadata("NPC")) continue;
+            if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) continue;
 
             PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
             if (zone == null) {
@@ -81,32 +83,32 @@ public class ResourceAccumulationTask extends BukkitRunnable {
         var config = plugin.getConfigLoader().getConfig();
         double baseAmount = config.getPermanentZonePoiBaseAmount();
         int baseInterval = Math.max(1, config.getPermanentZonePoiBaseInterval());
-        
+
         double baseRate = baseAmount / baseInterval;
-        
+
         long stayMillis = permanentZoneManager.getPoIStayMillis(player.getUniqueId());
         int staySeconds = (int) (stayMillis / 1000);
-        
+
         double bonusAmount = config.getPermanentZonePoiBonusAmount();
         int bonusInterval = config.getPermanentZonePoiBonusInterval();
-        
+
         double totalRate = baseRate;
         if (bonusInterval > 0 && staySeconds >= bonusInterval) {
             int tiers = staySeconds / bonusInterval;
             double bonusRate = (bonusAmount * tiers) / baseInterval;
             totalRate += bonusRate;
         }
-        
+
         return totalRate;
     }
 
     private void sendBufferActionBar(Player player, PlayerResourceBuffer buffer) {
         Component msg = Component.text("Carrying: ", NamedTextColor.YELLOW)
-            .append(Component.text("Gold: " + format(buffer.get(ResourceType.GOLD)), NamedTextColor.GOLD))
-            .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-            .append(Component.text("Silver: " + format(buffer.get(ResourceType.SILVER)), NamedTextColor.GRAY))
-            .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-            .append(Component.text("Gems: " + format(buffer.get(ResourceType.GEMS)), NamedTextColor.GREEN));
+                .append(Component.text("Gold: " + format(buffer.get(ResourceType.GOLD)), NamedTextColor.GOLD))
+                .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("Silver: " + format(buffer.get(ResourceType.SILVER)), NamedTextColor.GRAY))
+                .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("Gems: " + format(buffer.get(ResourceType.GEMS)), NamedTextColor.GREEN));
         player.sendActionBar(msg);
     }
 
