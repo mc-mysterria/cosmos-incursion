@@ -2,6 +2,7 @@ package net.mysterria.cosmos.toolkit.towns;
 
 import me.angeschossen.lands.api.LandsIntegration;
 import me.angeschossen.lands.api.flags.type.Flags;
+import me.angeschossen.lands.api.land.ChunkCoordinate;
 import me.angeschossen.lands.api.land.Land;
 import me.angeschossen.lands.api.player.LandPlayer;
 import net.william278.husktowns.api.HuskTownsAPI;
@@ -218,7 +219,7 @@ public class TownsToolkit {
                         continue;
                     }
                     Collection<me.angeschossen.lands.api.land.ChunkCoordinate> chunks = land.getChunks(world);
-                    if (chunks.isEmpty()) continue;
+                    if (chunks == null || chunks.isEmpty()) continue;
                     int sumX = 0, sumZ = 0;
                     for (me.angeschossen.lands.api.land.ChunkCoordinate cc : chunks) {
                         sumX += cc.getX();
@@ -275,7 +276,9 @@ public class TownsToolkit {
 
         if (hasLands()) {
             for (Land land : landsIntegration.getLands()) {
-                for (me.angeschossen.lands.api.land.ChunkCoordinate cc : land.getChunks(world)) {
+                Collection<ChunkCoordinate> landChunks = land.getChunks(world);
+                if (landChunks == null) continue;
+                for (ChunkCoordinate cc : landChunks) {
                     result.add(new ChunkPosition(cc.getX(), cc.getZ()));
                 }
             }

@@ -273,9 +273,6 @@ public class EventManager {
             // Clear auto-generated beacons
             beaconManager.clearAllBeacons();
 
-            // Reset all consent states
-            plugin.getConsentGUI().resetAllConsents();
-
             // Clear all death penalty cooldowns
             plugin.getDeathHandler().clearAllCooldowns();
             plugin.log("Cleared all death penalty cooldowns");

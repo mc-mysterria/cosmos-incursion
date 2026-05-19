@@ -13,7 +13,6 @@ import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import net.mysterria.cosmos.domain.incursion.model.source.PlayerTier;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
-import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
 import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -35,9 +34,6 @@ import java.util.UUID;
  */
 public class ZoneCheckTask extends BukkitRunnable {
 
-    private static final double CONSENT_DISTANCE = 10.0; // Show GUI when within 10 blocks of zone
-    private static final long CONSENT_PROMPT_COOLDOWN = 5000; // 5 seconds cooldown between prompts
-
     // Warning distances from zone edge (in blocks)
     private static final double[] WARNING_DISTANCES = {500.0, 300.0, 200.0, 100.0, 50.0};
     private static final long WARNING_COOLDOWN = 10000; // 10 seconds cooldown between same-tier warnings
@@ -47,28 +43,23 @@ public class ZoneCheckTask extends BukkitRunnable {
     private final PlayerStateManager playerStateManager;
     private final EffectsToolkit effectsToolkit;
     private final EventManager eventManager;
-    private final ConsentGUI consentGUI;
     private final GSitZoneListener gsitZoneListener;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
-    private final Map<UUID, Long> lastConsentPrompt;
     private final Map<UUID, Map<Double, Long>> lastWarningTime;
     private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
 
     public ZoneCheckTask(CosmosIncursion plugin, ZoneManager zoneManager,
                          PlayerStateManager playerStateManager, EffectsToolkit effectsToolkit,
-                         EventManager eventManager, ConsentGUI consentGUI,
-                         GSitZoneListener gsitZoneListener) {
+                         EventManager eventManager, GSitZoneListener gsitZoneListener) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.playerStateManager = playerStateManager;
         this.effectsToolkit = effectsToolkit;
         this.eventManager = eventManager;
-        this.consentGUI = consentGUI;
         this.gsitZoneListener = gsitZoneListener;
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
-        this.lastConsentPrompt = new HashMap<>();
         this.lastWarningTime = new HashMap<>();
     }
 
@@ -107,10 +98,9 @@ public class ZoneCheckTask extends BukkitRunnable {
         IncursionZone currentZone = zoneManager.getZoneAt(player.getLocation());
         boolean isTracked = playerStateManager.isInZone(player);
 
-        // Check if player is near a zone and show consent GUI or warnings if needed
+        // Check if player is near a zone and show distance warnings
         if (currentZone == null && !isTracked) {
-            checkNearZone(player);
-            checkZoneWarnings(player); // Add distance-based warnings
+            checkZoneWarnings(player);
         }
 
         // Player is in a zone but not tracked
@@ -125,18 +115,6 @@ public class ZoneCheckTask extends BukkitRunnable {
                 return;
             }
 
-            // Check consent for this zone's specific tier
-            if (!consentGUI.hasConsented(player, currentZone.getTier())) {
-                // Push player out of zone to a safe location
-                pushPlayerOutOfZone(player, currentZone);
-                player.sendMessage(Component.text("You must agree to the " + currentZone.getTier().name() + " zone rules before entering!", NamedTextColor.RED));
-
-                // Show consent GUI for this tier
-                showConsentGUI(player, currentZone);
-                return;
-            }
-
-            // Player has consented, register entry
             onZoneEntry(player, currentZone);
         }
         // Player is tracked but not in a zone
@@ -154,42 +132,6 @@ public class ZoneCheckTask extends BukkitRunnable {
     }
 
     /**
-     * Check if player is near a zone and show consent GUI if needed.
-     */
-    private void checkNearZone(Player player) {
-        // Check cooldown to avoid spamming GUI
-        long now = System.currentTimeMillis();
-        Long lastPrompt = lastConsentPrompt.get(player.getUniqueId());
-        if (lastPrompt != null && (now - lastPrompt) < CONSENT_PROMPT_COOLDOWN) {
-            return;
-        }
-
-        // Find nearest zone
-        IncursionZone nearestZone = zoneManager.getNearestZone(player.getLocation());
-        if (nearestZone == null) {
-            return;
-        }
-
-        // Already consented to this zone's tier, no need to show GUI
-        if (consentGUI.hasConsented(player, nearestZone.getTier())) {
-            return;
-        }
-
-        double distance = nearestZone.getDistanceFromCenter(player.getLocation()) - nearestZone.getRadius();
-        if (distance >= 0 && distance <= CONSENT_DISTANCE) {
-            showConsentGUI(player, nearestZone);
-            lastConsentPrompt.put(player.getUniqueId(), now);
-        }
-    }
-
-    /**
-     * Show tier-aware consent GUI to a player for the given zone.
-     */
-    private void showConsentGUI(Player player, IncursionZone zone) {
-        consentGUI.showConsent(player, zone.getTier());
-    }
-
-    /**
      * Check if player is approaching a zone and show distance warnings.
      */
     private void checkZoneWarnings(Player player) {
@@ -202,8 +144,8 @@ public class ZoneCheckTask extends BukkitRunnable {
 
         double distanceFromEdge = nearestZone.getDistanceFromCenter(player.getLocation()) - nearestZone.getRadius();
 
-        // Player is already inside or very close (handled by checkNearZone)
-        if (distanceFromEdge <= CONSENT_DISTANCE) {
+        // Player is already inside the zone
+        if (distanceFromEdge <= 0) {
             return;
         }
 

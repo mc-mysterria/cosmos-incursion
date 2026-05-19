@@ -37,10 +37,10 @@ public class ZonePlacerToolkit {
         int playersPerZone = config.getPlayersPerZone();
         int maxCount = config.getZoneMaxCount();
 
-        // Calculate: baseCount + (additional players / playersPerZone)
+        // Calculate: baseCount + (additional players / playersPerZone), minimum 1
         int calculatedCount = baseCount + ((onlinePlayers - config.getMinPlayers()) / playersPerZone);
 
-        return Math.min(calculatedCount, maxCount);
+        return Math.max(1, Math.min(calculatedCount, maxCount));
     }
 
     /**
@@ -62,25 +62,30 @@ public class ZonePlacerToolkit {
             townLocations.add(overworld.getSpawnLocation());
         }
 
+        plugin.log("Zone generation: " + townLocations.size() + " town location(s), targeting " + count + " zone(s)");
+
         // Get claimed chunks to avoid
         Set<TownsToolkit.ChunkPosition> claimedChunks = TownsToolkit.getClaimedChunks(overworld);
+        plugin.log("Zone generation: " + claimedChunks.size() + " claimed chunks to avoid");
 
         // Calculate zone center candidates
         List<Location> candidates = generateCandidateLocations(overworld, townLocations, count);
+        plugin.log("Zone generation: " + candidates.size() + " surface candidates after terrain filtering");
 
         // Build an ordered list of tiers to assign (GREEN first, DEATH last)
         List<ZoneTier> tierQueue = buildTierQueue();
 
         // Filter and validate candidates
+        int rejectedByTown = 0;
+        int rejectedBySeparation = 0;
         int zoneNumber = 1;
         for (Location candidate : candidates) {
             if (incursionZones.size() >= count) {
                 break;
             }
 
-            // Validate this candidate
-            if (isValidZoneLocation(candidate, claimedChunks, incursionZones)) {
-                // Assign tier from queue; extra zones beyond the queue default to GREEN
+            int rejectReason = validationRejectReason(candidate, claimedChunks, incursionZones);
+            if (rejectReason == 0) {
                 ZoneTier tier = (zoneNumber - 1) < tierQueue.size()
                         ? tierQueue.get(zoneNumber - 1)
                         : ZoneTier.GREEN;
@@ -90,8 +95,15 @@ public class ZonePlacerToolkit {
                 plugin.log("Generated " + tier + " zone at: " + String.format("(%.0f, %.0f, %.0f)",
                         candidate.getX(), candidate.getY(), candidate.getZ()));
                 zoneNumber++;
+            } else if (rejectReason == 1) {
+                rejectedByTown++;
+            } else {
+                rejectedBySeparation++;
             }
         }
+
+        plugin.log("Zone generation: " + rejectedByTown + " rejected (town buffer), "
+                + rejectedBySeparation + " rejected (zone separation)");
 
         if (incursionZones.size() < count) {
             plugin.log("Warning: Could only generate " + incursionZones.size() + " out of " + count + " requested zones");
@@ -115,6 +127,34 @@ public class ZonePlacerToolkit {
             }
         }
         return queue;
+    }
+
+    /** Returns 0=ok, 1=town buffer, 2=separation */
+    private int validationRejectReason(Location location, Set<TownsToolkit.ChunkPosition> claimedChunks, List<IncursionZone> existingIncursionZones) {
+        double radius = config.getZoneRadius();
+        double townBuffer = config.getTownBuffer();
+        double minSeparation = config.getMinZoneSeparation();
+
+        int centerChunkX = location.getBlockX() >> 4;
+        int centerChunkZ = location.getBlockZ() >> 4;
+        int chunkRadius = (int) Math.ceil(radius / 16.0) + (int) Math.ceil(townBuffer / 16.0);
+
+        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
+            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+                TownsToolkit.ChunkPosition chunkPos = new TownsToolkit.ChunkPosition(
+                        centerChunkX + dx, centerChunkZ + dz);
+                if (claimedChunks.contains(chunkPos)) {
+                    double distance = chunkPos.distanceTo(location.getX(), location.getZ());
+                    if (distance < radius + townBuffer) return 1;
+                }
+            }
+        }
+
+        for (IncursionZone existing : existingIncursionZones) {
+            if (existing.isTooClose(new IncursionZone("temp", location, radius), minSeparation)) return 2;
+        }
+
+        return 0;
     }
 
     /**
@@ -142,30 +182,34 @@ public class ZonePlacerToolkit {
         double effectiveDistance = Math.max(avgDistance, 1000.0);
 
         // Generate candidates with randomness
-        int candidateCount = count * 8; // Generate more candidates for better variety
+        int candidateCount = count * 20; // Generate more candidates for better variety
         double minRadius = effectiveDistance * 0.5;
-        double maxRadius = effectiveDistance * 0.9;
+        double maxRadius = effectiveDistance * 1.5;
 
+        plugin.log("Zone generation: radius range " + String.format("%.0f–%.0f", minRadius, maxRadius)
+                + " from center (" + String.format("%.0f,%.0f", centerX, centerZ) + ")");
+
+        int rejOcean = 0, rejWater = 0, rejAreaWater = 0;
         for (int i = 0; i < candidateCount; i++) {
-            // Random angle instead of evenly distributed
             double angle = random.nextDouble() * 2 * Math.PI;
-
-            // Random radius within range
             double radius = minRadius + random.nextDouble() * (maxRadius - minRadius);
 
-            // Calculate base position
             double x = centerX + radius * Math.cos(angle);
             double z = centerZ + radius * Math.sin(angle);
 
-            // Add additional random offset (±100 blocks)
             x += (random.nextDouble() - 0.5) * 200;
             z += (random.nextDouble() - 0.5) * 200;
 
-            Location candidate = findSuitableSurfaceLocation(world, (int) x, (int) z);
+            int[] rejection = new int[1];
+            Location candidate = findSuitableSurfaceLocation(world, (int) x, (int) z, rejection);
             if (candidate != null) {
                 candidates.add(candidate);
-            }
+            } else if (rejection[0] == 1) rejOcean++;
+            else if (rejection[0] == 2) rejWater++;
+            else rejAreaWater++;
         }
+        plugin.log("Zone generation: terrain rejected — " + rejOcean + " ocean biome, "
+                + rejWater + " surface water, " + rejAreaWater + " area water coverage");
 
         // Sort by how far they are from nearest town (prefer locations between towns)
         candidates.sort(Comparator.comparingDouble(loc ->
@@ -186,34 +230,28 @@ public class ZonePlacerToolkit {
         return candidates;
     }
 
-    /**
-     * Find a suitable surface location for a zone (avoid oceans and underwater areas)
-     */
-    private Location findSuitableSurfaceLocation(World world, int x, int z) {
-        // Get the highest block
+    /** rejection[0]: 1=ocean biome, 2=surface water/lava, 3=area water coverage */
+    private Location findSuitableSurfaceLocation(World world, int x, int z, int[] rejection) {
         int y = world.getHighestBlockYAt(x, z);
         Location location = new Location(world, x, y, z);
 
-        // Check biome - reject ocean biomes
         Biome biome = world.getBiome(location);
         if (isOceanBiome(biome)) {
+            rejection[0] = 1;
             return null;
         }
 
-        // Check if the surface is underwater
         Block surfaceBlock = world.getBlockAt(x, y, z);
         Block aboveBlock = world.getBlockAt(x, y + 1, z);
 
-        // Reject if water or lava at or above surface
-        if (surfaceBlock.getType() == Material.WATER || surfaceBlock.getType() == Material.LAVA) {
-            return null;
-        }
-        if (aboveBlock.getType() == Material.WATER || aboveBlock.getType() == Material.LAVA) {
+        if (surfaceBlock.getType() == Material.WATER || surfaceBlock.getType() == Material.LAVA
+                || aboveBlock.getType() == Material.WATER || aboveBlock.getType() == Material.LAVA) {
+            rejection[0] = 2;
             return null;
         }
 
-        // Check if there's a significant amount of water/lava in the zone area
         if (!isAreaSuitableForCombat(world, x, y, z)) {
+            rejection[0] = 3;
             return null;
         }
 
@@ -257,44 +295,5 @@ public class ZonePlacerToolkit {
         return waterPercentage <= 0.3;
     }
 
-    /**
-     * Validate if a location is suitable for a zone
-     */
-    private boolean isValidZoneLocation(Location location, Set<TownsToolkit.ChunkPosition> claimedChunks, List<IncursionZone> existingIncursionZones) {
-        double radius = config.getZoneRadius();
-        double townBuffer = config.getTownBuffer();
-        double minSeparation = config.getMinZoneSeparation();
-
-        // Check if zone overlaps with any town claims
-        int centerChunkX = location.getBlockX() >> 4;
-        int centerChunkZ = location.getBlockZ() >> 4;
-        int chunkRadius = (int) Math.ceil(radius / 16.0) + (int) Math.ceil(townBuffer / 16.0);
-
-        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
-            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
-                TownsToolkit.ChunkPosition chunkPos = new TownsToolkit.ChunkPosition(
-                        centerChunkX + dx,
-                        centerChunkZ + dz
-                );
-
-                // Check if this chunk is claimed and within the buffer distance
-                if (claimedChunks.contains(chunkPos)) {
-                    double distance = chunkPos.distanceTo(location.getX(), location.getZ());
-                    if (distance < radius + townBuffer) {
-                        return false; // Too close to a town claim
-                    }
-                }
-            }
-        }
-
-        // Check minimum separation from existing zones
-        for (IncursionZone existing : existingIncursionZones) {
-            if (existing.isTooClose(new IncursionZone("temp", location, radius), minSeparation)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
 }

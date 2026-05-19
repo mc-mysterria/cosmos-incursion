@@ -36,7 +36,6 @@ import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.task.*;
 import net.mysterria.cosmos.domain.guide.CosmosGuideGUI;
-import net.mysterria.cosmos.domain.incursion.gui.ConsentGUI;
 import net.mysterria.cosmos.domain.incursion.service.EventManager;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
@@ -94,7 +93,6 @@ public final class CosmosIncursion extends JavaPlugin {
     private ZoneShopAdminGUI zoneShopAdminGUI;
 
     // UI
-    private ConsentGUI consentGUI;
     private BeaconUIManager beaconUIManager;
     private CosmosGuideGUI guideGUI;
 
@@ -169,10 +167,6 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing buff manager...");
         buffToolkit = new BuffToolkit(this);
         buffToolkit.loadBuffData();
-
-        // Initialize consent GUI
-        log("Initializing consent GUI...");
-        consentGUI = new ConsentGUI();
 
         // Initialize guide GUI
         log("Initializing guide GUI...");
@@ -286,7 +280,7 @@ public final class CosmosIncursion extends JavaPlugin {
         new EventCheckTask(eventManager).runTaskTimer(this, 0L, 20L);
 
         // Zone check task - runs every 5 ticks (4 times per second) for reliable zone detection
-        new ZoneCheckTask(this, zoneManager, playerStateManager, effectsToolkit, eventManager, consentGUI, gsitZoneListener).runTaskTimer(this, 0L, 5L);
+        new ZoneCheckTask(this, zoneManager, playerStateManager, effectsToolkit, eventManager, gsitZoneListener).runTaskTimer(this, 0L, 5L);
 
         // Hollow Body cleanup task - runs every 30 seconds
         if (citizensToolkit.isAvailable()) {

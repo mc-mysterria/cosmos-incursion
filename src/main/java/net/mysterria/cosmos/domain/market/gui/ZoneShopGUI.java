@@ -7,10 +7,10 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
+import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
-import net.mysterria.cosmos.domain.market.model.ShopItem;
-import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Material;
@@ -35,10 +35,10 @@ public class ZoneShopGUI {
 
     public ZoneShopGUI(CosmosIncursion plugin, ZoneShopManager shopManager,
                        PermanentZoneManager zoneManager, ShopTransactionLogger txLogger) {
-        this.plugin      = plugin;
+        this.plugin = plugin;
         this.shopManager = shopManager;
         this.zoneManager = zoneManager;
-        this.txLogger    = txLogger;
+        this.txLogger = txLogger;
     }
 
     // ── Open ────────────────────────────────────────────────────────────────────
@@ -53,19 +53,19 @@ public class ZoneShopGUI {
         List<ShopItem> allItems = shopManager.getItems();
 
         int totalPages = Math.max(1, (int) Math.ceil(allItems.size() / (double) PAGE_SIZE));
-        int safePage   = Math.max(0, Math.min(page, totalPages - 1));
-        int start      = safePage * PAGE_SIZE;
-        int end        = Math.min(start + PAGE_SIZE, allItems.size());
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        int start = safePage * PAGE_SIZE;
+        int end = Math.min(start + PAGE_SIZE, allItems.size());
         List<ShopItem> pageItems = allItems.subList(start, end);
 
         String townName = townOpt.map(TownData::name).orElse("No Town");
-        int townId      = townOpt.map(TownData::id).orElse(-1);
+        int townId = townOpt.map(TownData::id).orElse(-1);
 
         Gui gui = Gui.gui()
-            .title(Component.text("✦ Zone Shop — " + townName, NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
-            .rows(6)
-            .disableAllInteractions()
-            .create();
+                .title(Component.text("✦ Zone Shop — " + townName, NamedTextColor.DARK_PURPLE, TextDecoration.BOLD))
+                .rows(6)
+                .disableAllInteractions()
+                .create();
 
         for (int i = 0; i < pageItems.size(); i++) {
             ShopItem si = pageItems.get(i);
@@ -95,19 +95,126 @@ public class ZoneShopGUI {
             gui.setItem(53, glass());
         }
 
-        for (int s : new int[]{46, 48, 50, 52}) gui.setItem(s, glass());
+        // Show purchase history button only to mayors/admins
+        if (TownsToolkit.canManageTownShop(player)) {
+            townOpt.ifPresent(townData -> gui.setItem(52, clickItem(
+                    Material.BOOK,
+                    Component.text("Purchase History", NamedTextColor.AQUA, TextDecoration.BOLD),
+                    List.of(line("View recent shop purchases.", NamedTextColor.GRAY)),
+                    () -> openTransactionHistory(player, townData, 0)
+            )));
+        }
+
+        for (int s : new int[]{46, 48, 50}) gui.setItem(s, glass());
 
         gui.open(player);
+    }
+
+    private ItemStack buildStack(Material mat, Component name, List<Component> lore) {
+        ItemStack item = new ItemStack(mat);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(name.decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private GuiItem clickItem(Material mat, Component name, List<Component> lore, Runnable onClick) {
+        return new GuiItem(buildStack(mat, name, lore), event -> {
+            event.setCancelled(true);
+            onClick.run();
+        });
+    }
+
+    private Component line(String text, NamedTextColor color) {
+        return Component.text(text, color).decoration(TextDecoration.ITALIC, false);
+    }
+
+    public void openTransactionHistory(Player player, TownData town, int page) {
+        var logger = plugin.getShopTransactionLogger();
+        var allTx = logger.getHistory(town.id());
+
+        int pageSize = 45;
+        int totalPages = Math.max(1, (int) Math.ceil(allTx.size() / (double) pageSize));
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        int start = safePage * pageSize;
+        int end = Math.min(start + pageSize, allTx.size());
+        var pageTx = allTx.subList(start, end);
+
+        Gui gui = Gui.gui()
+                .title(Component.text("Purchase History — " + town.name(), NamedTextColor.DARK_AQUA, TextDecoration.BOLD))
+                .rows(6)
+                .disableAllInteractions()
+                .create();
+
+        for (int i = 0; i < pageTx.size(); i++) {
+            var tx = pageTx.get(i);
+            ItemStack book = new ItemStack(Material.BOOK);
+            ItemMeta meta = book.getItemMeta();
+            if (meta != null) {
+                meta.displayName(Component.text(tx.playerName(), NamedTextColor.YELLOW, TextDecoration.BOLD)
+                        .decoration(TextDecoration.ITALIC, false)
+                        .append(Component.text(" → " + tx.itemName(), NamedTextColor.WHITE)
+                                .decoration(TextDecoration.ITALIC, false)));
+                meta.lore(List.of(
+                        Component.text("Cost: ", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
+                                .append(Component.text(tx.priceSummary(), NamedTextColor.WHITE).decoration(TextDecoration.ITALIC, false)),
+                        Component.text(tx.timestamp(), NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)
+                ));
+                book.setItemMeta(meta);
+            }
+            gui.setItem(i, new GuiItem(book, event -> event.setCancelled(true)));
+        }
+
+        // Bottom nav row
+        if (allTx.isEmpty()) {
+            gui.setItem(49, infoItem(Material.BARRIER,
+                    Component.text("No purchases yet", NamedTextColor.GRAY, TextDecoration.BOLD),
+                    List.of()));
+        }
+        if (safePage > 0) {
+            gui.setItem(45, clickItem(Material.ARROW,
+                    Component.text("← Previous", NamedTextColor.YELLOW, TextDecoration.BOLD), List.of(),
+                    () -> openTransactionHistory(player, town, safePage - 1)));
+        }
+        if (safePage < totalPages - 1) {
+            gui.setItem(53, clickItem(Material.ARROW,
+                    Component.text("Next →", NamedTextColor.YELLOW, TextDecoration.BOLD), List.of(),
+                    () -> openTransactionHistory(player, town, safePage + 1)));
+        }
+        gui.setItem(49, backItem(() -> open(player)));
+
+        gui.open(player);
+    }
+
+    private GuiItem infoItem(Material mat, Component name, List<Component> lore) {
+        return new GuiItem(buildStack(mat, name, lore), event -> event.setCancelled(true));
+    }
+
+    private GuiItem backItem(Runnable onClick) {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("← Back", NamedTextColor.GRAY, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            item.setItemMeta(meta);
+        }
+        return new GuiItem(item, event -> {
+            event.setCancelled(true);
+            onClick.run();
+        });
     }
 
     // ── Confirmation GUI ─────────────────────────────────────────────────────────
 
     private void openConfirmation(Player player, ShopItem si, TownData town, int returnPage) {
         Gui confirm = Gui.gui()
-            .title(Component.text("Confirm Purchase?", NamedTextColor.DARK_RED, TextDecoration.BOLD))
-            .rows(3)
-            .disableAllInteractions()
-            .create();
+                .title(Component.text("Confirm Purchase?", NamedTextColor.DARK_RED, TextDecoration.BOLD))
+                .rows(3)
+                .disableAllInteractions()
+                .create();
 
         // Fill with glass
         GuiItem pane = glass();
@@ -143,7 +250,7 @@ public class ZoneShopGUI {
             if (entry.getValue() <= 0) continue;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Your town no longer has enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
+                        .append(Component.text("Your town no longer has enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
                 open(player, returnPage);
                 return;
             }
@@ -152,14 +259,14 @@ public class ZoneShopGUI {
         List<ItemStack> toGive = si.getItems();
         if (toGive.isEmpty()) {
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
+                    .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
             open(player, returnPage);
             return;
         }
         for (ItemStack stack : toGive) {
             if (!hasInventorySpace(player, stack)) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
                 open(player, returnPage);
                 return;
             }
@@ -167,7 +274,7 @@ public class ZoneShopGUI {
 
         if (!zoneManager.deductFromTown(town.id(), prices)) {
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
+                    .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
             open(player, returnPage);
             return;
         }
@@ -178,18 +285,18 @@ public class ZoneShopGUI {
 
         ItemStack primary = si.getItem();
         Component itemName = primary.getItemMeta() != null && primary.getItemMeta().hasDisplayName()
-            ? Objects.requireNonNull(primary.getItemMeta().displayName())
-            : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
+                ? Objects.requireNonNull(primary.getItemMeta().displayName())
+                : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
 
         String plainItemName = itemNamePlain(primary);
         txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
 
         String priceSummary = txLogger.getHistory(town.id()).isEmpty() ? ""
-            : txLogger.getHistory(town.id()).get(0).priceSummary();
+                : txLogger.getHistory(town.id()).get(0).priceSummary();
 
         Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
-            .append(Component.text("Purchased ", NamedTextColor.GREEN))
-            .append(itemName);
+                .append(Component.text("Purchased ", NamedTextColor.GREEN))
+                .append(itemName);
         if (toGive.size() > 1) {
             msg = msg.append(Component.text(" +" + (toGive.size() - 1) + " more", NamedTextColor.GRAY));
         }
@@ -197,11 +304,11 @@ public class ZoneShopGUI {
 
         // Notify all online town members
         Component broadcast = Component.text("[Shop] ", NamedTextColor.GOLD)
-            .append(Component.text(player.getName(), NamedTextColor.YELLOW))
-            .append(Component.text(" purchased ", NamedTextColor.GRAY))
-            .append(itemName)
-            .append(Component.text(" for ", NamedTextColor.GRAY))
-            .append(Component.text(priceSummary, NamedTextColor.WHITE));
+                .append(Component.text(player.getName(), NamedTextColor.YELLOW))
+                .append(Component.text(" purchased ", NamedTextColor.GRAY))
+                .append(itemName)
+                .append(Component.text(" for ", NamedTextColor.GRAY))
+                .append(Component.text(priceSummary, NamedTextColor.WHITE));
         for (Player member : TownsToolkit.getMembers(town)) {
             if (!member.equals(player)) member.sendMessage(broadcast);
         }
@@ -212,7 +319,7 @@ public class ZoneShopGUI {
     // ── Shop item button ─────────────────────────────────────────────────────────
 
     private GuiItem shopItemButton(Player player, Gui gui, ShopItem si,
-            int townId, Optional<TownData> townOpt, int page) {
+                                   int townId, Optional<TownData> townOpt, int page) {
 
         ItemStack display = buildShopDisplay(si, townId);
 
@@ -221,7 +328,7 @@ public class ZoneShopGUI {
 
             if (townOpt.isEmpty()) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("You must be in a town to purchase items.", NamedTextColor.RED)));
+                        .append(Component.text("You must be in a town to purchase items.", NamedTextColor.RED)));
                 return;
             }
 
@@ -229,7 +336,7 @@ public class ZoneShopGUI {
 
             if (!TownsToolkit.canManageTownShop(player)) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Only the town mayor or a trusted member can purchase items.", NamedTextColor.RED)));
+                        .append(Component.text("Only the town mayor or a trusted member can purchase items.", NamedTextColor.RED)));
                 return;
             }
 
@@ -237,7 +344,7 @@ public class ZoneShopGUI {
 
             if (prices.isEmpty() || prices.values().stream().allMatch(v -> v <= 0)) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("This item has no price set.", NamedTextColor.RED)));
+                        .append(Component.text("This item has no price set.", NamedTextColor.RED)));
                 return;
             }
 
@@ -247,7 +354,7 @@ public class ZoneShopGUI {
                 if (entry.getValue() <= 0) continue;
                 if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) {
                     player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                        .append(Component.text("Your town doesn't have enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
+                            .append(Component.text("Your town doesn't have enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
                     return;
                 }
             }
@@ -261,7 +368,8 @@ public class ZoneShopGUI {
     private String itemNamePlain(ItemStack item) {
         if (item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
             Component name = item.getItemMeta().displayName();
-            if (name != null) return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(name);
+            if (name != null)
+                return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(name);
         }
         return item.getType().name().replace('_', ' ');
     }
@@ -269,7 +377,7 @@ public class ZoneShopGUI {
     // ── Inventory space check ────────────────────────────────────────────────────
 
     private boolean hasInventorySpace(Player player, ItemStack item) {
-        int needed    = item.getAmount();
+        int needed = item.getAmount();
         int available = 0;
         for (ItemStack slot : player.getInventory().getStorageContents()) {
             if (slot == null || slot.getType() == Material.AIR) {
@@ -287,7 +395,7 @@ public class ZoneShopGUI {
     private ItemStack buildShopDisplay(ShopItem si, int townId) {
         ItemStack base = si.getItem();
         ItemStack copy = base.clone();
-        ItemMeta meta  = copy.getItemMeta();
+        ItemMeta meta = copy.getItemMeta();
         if (meta == null) return copy;
 
         List<Component> lore = new ArrayList<>();
@@ -297,14 +405,14 @@ public class ZoneShopGUI {
         List<ItemStack> allItems = si.getItems();
         if (allItems.size() > 1) {
             lore.add(Component.text("Bundle: " + allItems.size() + " items granted", NamedTextColor.AQUA)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
         }
 
         lore.add(Component.empty());
         lore.add(Component.text("── Price ──", NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
 
         Map<ResourceType, Double> balance = townId >= 0 ? zoneManager.getTownBalance(townId) : Collections.emptyMap();
-        Map<ResourceType, Double> prices  = si.getPrices();
+        Map<ResourceType, Double> prices = si.getPrices();
 
         if (prices.isEmpty() || prices.values().stream().allMatch(v -> v <= 0)) {
             lore.add(Component.text("No price set", NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
@@ -315,14 +423,14 @@ public class ZoneShopGUI {
                 double have = balance.getOrDefault(rt, 0.0);
                 NamedTextColor col = have >= price ? NamedTextColor.GREEN : NamedTextColor.RED;
                 lore.add(Component.text(
-                    String.format("  %s: %.0f (have %.0f)", rt.displayName(), price, have), col)
-                    .decoration(TextDecoration.ITALIC, false));
+                                String.format("  %s: %.0f (have %.0f)", rt.displayName(), price, have), col)
+                        .decoration(TextDecoration.ITALIC, false));
             }
         }
 
         lore.add(Component.empty());
         lore.add(Component.text("Left-click to purchase", NamedTextColor.YELLOW)
-            .decoration(TextDecoration.ITALIC, false));
+                .decoration(TextDecoration.ITALIC, false));
 
         meta.lore(lore);
         copy.setItemMeta(meta);
@@ -331,20 +439,20 @@ public class ZoneShopGUI {
 
     private GuiItem balanceItem(String townName, Map<ResourceType, Double> balance) {
         ItemStack item = new ItemStack(Material.GOLD_INGOT);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("⚖ " + townName + " Balance", NamedTextColor.GOLD, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             List<Component> lore = new ArrayList<>();
             for (ResourceType rt : ResourceType.values()) {
                 double val = balance.getOrDefault(rt, 0.0);
                 NamedTextColor col = switch (rt) {
-                    case GOLD   -> NamedTextColor.GOLD;
+                    case GOLD -> NamedTextColor.GOLD;
                     case SILVER -> NamedTextColor.WHITE;
-                    case GEMS   -> NamedTextColor.GREEN;
+                    case GEMS -> NamedTextColor.GREEN;
                 };
                 lore.add(Component.text(String.format("  %s: %.1f", rt.displayName(), val), col)
-                    .decoration(TextDecoration.ITALIC, false));
+                        .decoration(TextDecoration.ITALIC, false));
             }
             meta.lore(lore);
             item.setItemMeta(meta);
@@ -354,12 +462,12 @@ public class ZoneShopGUI {
 
     private GuiItem noTownItem() {
         ItemStack item = new ItemStack(Material.BARRIER);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("No Town Found", NamedTextColor.RED, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(Component.text("Join a town to use the shop.", NamedTextColor.GRAY)
-                .decoration(TextDecoration.ITALIC, false)));
+                    .decoration(TextDecoration.ITALIC, false)));
             item.setItemMeta(meta);
         }
         return new GuiItem(item, event -> event.setCancelled(true));
@@ -367,15 +475,15 @@ public class ZoneShopGUI {
 
     private GuiItem shopSignItem(int total, int page, int totalPages) {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("Zone Shop", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                Component.text(total + " item(s) available", NamedTextColor.GRAY)
-                    .decoration(TextDecoration.ITALIC, false),
-                Component.text("Page " + page + " / " + totalPages, NamedTextColor.DARK_GRAY)
-                    .decoration(TextDecoration.ITALIC, false)
+                    Component.text(total + " item(s) available", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Page " + page + " / " + totalPages, NamedTextColor.DARK_GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
             ));
             item.setItemMeta(meta);
         }
@@ -384,10 +492,10 @@ public class ZoneShopGUI {
 
     private GuiItem navArrow(String label, Runnable action) {
         ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text(label, NamedTextColor.YELLOW, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             item.setItemMeta(meta);
         }
         return new GuiItem(item, event -> {
@@ -398,10 +506,10 @@ public class ZoneShopGUI {
 
     private GuiItem buildConfirmButton() {
         ItemStack item = new ItemStack(Material.LIME_STAINED_GLASS_PANE);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("✔ Confirm Purchase", NamedTextColor.GREEN, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             item.setItemMeta(meta);
         }
         return new GuiItem(item, event -> event.setCancelled(true));
@@ -409,10 +517,10 @@ public class ZoneShopGUI {
 
     private GuiItem buildCancelButton(Runnable onCancel) {
         ItemStack item = new ItemStack(Material.RED_STAINED_GLASS_PANE);
-        ItemMeta meta  = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("✗ Cancel", NamedTextColor.RED, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+                    .decoration(TextDecoration.ITALIC, false));
             item.setItemMeta(meta);
         }
         return new GuiItem(item, event -> {
@@ -422,7 +530,7 @@ public class ZoneShopGUI {
     }
 
     private GuiItem glass() {
-        ItemStack g   = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemStack g = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta meta = g.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text(" ").decoration(TextDecoration.ITALIC, false));
