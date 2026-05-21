@@ -2,7 +2,9 @@ package net.mysterria.cosmos.domain.incursion.listener;
 
 import dev.geco.gsit.api.GSitAPI;
 import dev.geco.gsit.api.event.PreEntitySitEvent;
+import dev.geco.gsit.api.event.PrePlayerCrawlEvent;
 import dev.geco.gsit.api.event.PrePlayerPlayerSitEvent;
+import dev.geco.gsit.api.event.PrePlayerPoseEvent;
 import dev.geco.gsit.model.StopReason;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -34,6 +36,26 @@ public class GSitZoneListener implements Listener {
         if (isInPvpZone(player)) {
             event.setCancelled(true);
             player.sendActionBar(DENIED_MSG);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityCrawl(PrePlayerPoseEvent event) {
+        Player player = event.getPlayer ();
+
+        if (isInPvpZone(player)) {
+            event.setCancelled(true);
+            player.sendActionBar(Component.text("You cannot crawl in a PvP zone!", NamedTextColor.RED));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityCrawl(PrePlayerCrawlEvent event) {
+        Player player = event.getPlayer ();
+
+        if (isInPvpZone(player)) {
+            event.setCancelled(true);
+            player.sendActionBar(Component.text("You cannot crawl in a PvP zone!", NamedTextColor.RED));
         }
     }
 
