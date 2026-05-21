@@ -57,6 +57,7 @@ public class PointOfInterest {
         if (!playerLoc.getWorld().equals(location.getWorld())) return false;
         double dx = playerLoc.getX() - location.getX();
         double dz = playerLoc.getZ() - location.getZ();
-        return (dx * dx + dz * dz) <= extractionRadius * extractionRadius;
+        double dy = playerLoc.getY() - location.getY();
+        return (dx * dx + dz * dz) <= extractionRadius * extractionRadius && Math.abs(dy) <= 10;
     }
 }

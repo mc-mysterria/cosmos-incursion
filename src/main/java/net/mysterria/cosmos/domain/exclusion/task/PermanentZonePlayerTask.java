@@ -58,11 +58,12 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
             PermanentZone currentZone = permanentZoneManager.getZoneAt(player.getLocation());
             PermanentZone trackedZone = permanentZoneManager.getPlayerZone(player.getUniqueId());
 
-            // Backup enforcement: player escaped with resources — return them immediately
+            // Backup enforcement: player escaped with resources or while PvP tagged — return them immediately
             if (trackedZone != null && currentZone == null) {
                 PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
-                if (!buffer.isEmpty()) {
-                    forceTeleportBack(player, trackedZone);
+                boolean inCombat = TownsToolkit.isPlayerInCombat(player);
+                if (!buffer.isEmpty() || inCombat) {
+                    forceTeleportBack(player, trackedZone, buffer.isEmpty() && inCombat);
                     continue;
                 }
             }
@@ -106,7 +107,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         }
     }
 
-    private void forceTeleportBack(Player player, PermanentZone zone) {
+    private void forceTeleportBack(Player player, PermanentZone zone, boolean combatTagged) {
         Location outside = player.getLocation();
         Location centroid = zone.getCentroid();
         if (centroid == null || centroid.getWorld() == null) return;
@@ -118,6 +119,10 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         dx /= dist;
         dz /= dist;
 
+        Component reason = combatTagged
+            ? Component.text(" while PvP tagged!", NamedTextColor.RED)
+            : Component.text(" while carrying resources!", NamedTextColor.RED);
+
         for (double step = 1.0; step <= dist + 1; step += 1.0) {
             double x = outside.getX() + dx * step;
             double z = outside.getZ() + dz * step;
@@ -127,7 +132,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                     outside.getYaw(), outside.getPitch()));
                 player.sendActionBar(Component.text("You cannot leave ", NamedTextColor.RED)
                     .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.YELLOW))
-                    .append(Component.text(" while carrying resources!", NamedTextColor.RED)));
+                    .append(reason));
                 return;
             }
         }
@@ -136,7 +141,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         player.teleport(new Location(centroid.getWorld(), centroid.getX(), y, centroid.getZ()));
         player.sendActionBar(Component.text("You cannot leave ", NamedTextColor.RED)
             .append(Component.text(formatZoneName(zone.getName()), NamedTextColor.YELLOW))
-            .append(Component.text(" while carrying resources!", NamedTextColor.RED)));
+            .append(reason));
     }
 
     private void onEnter(Player player, PermanentZone zone) {

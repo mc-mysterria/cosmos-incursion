@@ -33,6 +33,7 @@ public class ExtractionPoint {
         if (!playerLoc.getWorld().equals(location.getWorld())) return false;
         double dx = playerLoc.getX() - location.getX();
         double dz = playerLoc.getZ() - location.getZ();
-        return (dx * dx + dz * dz) <= captureRadius * captureRadius;
+        double dy = playerLoc.getY() - location.getY();
+        return (dx * dx + dz * dz) <= captureRadius * captureRadius && Math.abs(dy) <= 10;
     }
 }
