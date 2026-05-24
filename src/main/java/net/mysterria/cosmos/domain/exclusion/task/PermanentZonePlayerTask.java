@@ -25,6 +25,7 @@ import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.CompassMeta;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -138,6 +139,23 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
 
             // Dynamic map visibility check
             updateMapVisibility(player, currentZone);
+
+            // Update carrying resources metadata (exposed for other plugins without class dependencies)
+            boolean carrying = (currentZone != null);
+            if (carrying) {
+                PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
+                carrying = (buffer != null && !buffer.isEmpty());
+            }
+
+            if (carrying) {
+                if (!player.hasMetadata("cosmos_carrying_resources")) {
+                    player.setMetadata("cosmos_carrying_resources", new FixedMetadataValue(plugin, true));
+                }
+            } else {
+                if (player.hasMetadata("cosmos_carrying_resources")) {
+                    player.removeMetadata("cosmos_carrying_resources", plugin);
+                }
+            }
         }
     }
 

@@ -604,6 +604,35 @@ public class PermanentZoneManager {
         extractionChannels.remove(playerId);
     }
 
+    /**
+     * Checks if a player is currently inside a permanent extraction zone and carrying resources.
+     * Exposed for integration with other plugins.
+     *
+     * @param playerId The UUID of the player.
+     * @return true if the player is in a zone and carrying resources, false otherwise.
+     */
+    public boolean isCarryingResourcesInZone(UUID playerId) {
+        if (getPlayerZone(playerId) == null) {
+            return false;
+        }
+        PlayerResourceBuffer buffer = buffers.get(playerId);
+        return buffer != null && !buffer.isEmpty();
+    }
+
+    /**
+     * Checks if a player is currently inside a permanent extraction zone and carrying resources.
+     * Exposed for integration with other plugins.
+     *
+     * @param player The Player instance.
+     * @return true if the player is in a zone and carrying resources, false otherwise.
+     */
+    public boolean isCarryingResourcesInZone(Player player) {
+        if (player == null) {
+            return false;
+        }
+        return isCarryingResourcesInZone(player.getUniqueId());
+    }
+
     public void updatePoIStay(UUID playerId, UUID poiId) {
         if (poiId == null) {
             playerCurrentPoI.remove(playerId);
