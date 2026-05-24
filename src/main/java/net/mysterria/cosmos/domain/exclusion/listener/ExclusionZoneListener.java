@@ -1,5 +1,7 @@
 package net.mysterria.cosmos.domain.exclusion.listener;
 
+import dev.ua.ikeepcalm.coi.api.event.AbilityUsageEvent;
+import dev.ua.ikeepcalm.coi.api.model.AbilityData;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
@@ -23,11 +25,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Central listener for permanent extraction zone enforcement:
- *
+ * <p>
  * 1. Blocks all teleportation/movement out of the zone while carrying resources.
  * 2. Cancels an active extraction channel when the player takes damage.
  * 3. Transfers a dead player's resource buffer to their killer.
- *
+ * <p>
  * The tick-based PermanentZonePlayerTask acts as a final backup for edge cases.
  */
 public class ExclusionZoneListener implements Listener {
@@ -43,7 +45,9 @@ public class ExclusionZoneListener implements Listener {
 
     // ── Exit prevention ───────────────────────────────────────────────────────────
 
-    /** Blocks all teleportation out of the zone while carrying resources. */
+    /**
+     * Blocks all teleportation out of the zone while carrying resources.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
@@ -62,7 +66,9 @@ public class ExclusionZoneListener implements Listener {
         sendThrottledMessage(player, zone);
     }
 
-    /** Blocks walking across the polygon boundary while carrying resources. */
+    /**
+     * Blocks walking across the polygon boundary while carrying resources.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         if (!event.hasChangedBlock()) return;
@@ -82,7 +88,9 @@ public class ExclusionZoneListener implements Listener {
 
     // ── Damage cancels extraction channel ────────────────────────────────────────
 
-    /** Any non-cancelled damage to a channeling player interrupts their extraction. */
+    /**
+     * Any non-cancelled damage to a channeling player interrupts their extraction.
+     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
@@ -120,8 +128,8 @@ public class ExclusionZoneListener implements Listener {
             }
             notifyKiller(killer, victim.getName(), loot);
             victim.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
-                .append(Component.text(killer.getName(), NamedTextColor.RED))
-                .append(Component.text(" took your resources.", NamedTextColor.DARK_RED)));
+                    .append(Component.text(killer.getName(), NamedTextColor.RED))
+                    .append(Component.text(" took your resources.", NamedTextColor.DARK_RED)));
 
             permanentZoneManager.clearBuffer(victim.getUniqueId());
         }
@@ -129,14 +137,14 @@ public class ExclusionZoneListener implements Listener {
 
     private void notifyKiller(Player killer, String victimName, Map<ResourceType, Double> loot) {
         Component msg = Component.text("[Cosmos] ", NamedTextColor.GOLD)
-            .append(Component.text("Looted " + victimName + ": ", NamedTextColor.GREEN));
+                .append(Component.text("Looted " + victimName + ": ", NamedTextColor.GREEN));
         boolean first = true;
         for (Map.Entry<ResourceType, Double> entry : loot.entrySet()) {
             if (entry.getValue() <= 0) continue;
             if (!first) msg = msg.append(Component.text(" | ", NamedTextColor.DARK_GRAY));
             msg = msg.append(Component.text(
-                entry.getKey().name() + " +" + String.format("%.1f", entry.getValue()),
-                resourceColor(entry.getKey())
+                    entry.getKey().name() + " +" + String.format("%.1f", entry.getValue()),
+                    resourceColor(entry.getKey())
             ));
             first = false;
         }
@@ -157,8 +165,32 @@ public class ExclusionZoneListener implements Listener {
         lastMessageTime.put(player.getUniqueId(), now);
 
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
-            .append(Component.text("You cannot leave ", NamedTextColor.RED))
-            .append(Component.text(zone.getName().replace('_', ' '), NamedTextColor.YELLOW))
-            .append(Component.text(" while carrying resources. Use an extraction point first.", NamedTextColor.RED)));
+                .append(Component.text("You cannot leave ", NamedTextColor.RED))
+                .append(Component.text(zone.getName().replace('_', ' '), NamedTextColor.YELLOW))
+                .append(Component.text(" while carrying resources. Use an extraction point first.", NamedTextColor.RED)));
+    }
+
+    /**
+     * Blocks movement abilities while carrying resources inside extraction zones.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAbilityUsage(AbilityUsageEvent event) {
+        Player player = event.getPlayer();
+
+        PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
+        if (zone == null) return;
+
+        PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
+        if (buffer == null || buffer.isEmpty()) return;
+
+        if (isMovementAbility(event.getAbility())) {
+            event.setCancelled(true);
+            player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                    .append(Component.text("You cannot use movement abilities while inside extraction zones with resources!", NamedTextColor.RED)));
+        }
+    }
+
+    private boolean isMovementAbility(AbilityData ability) {
+        return ability.category() == AbilityData.AbilityCategory.MOBILITY;
     }
 }

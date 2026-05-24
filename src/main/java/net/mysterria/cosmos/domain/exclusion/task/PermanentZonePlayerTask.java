@@ -12,6 +12,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
+import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -25,12 +26,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.CompassMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Runs every 5 ticks. Handles zone entry/exit tracking, compass updates,
@@ -113,7 +112,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
 
             // Check nearby horses to see if they are Zone Mounts outside of any zone
             if (checkHorses) {
-                for (Entity entity : player.getNearbyEntities(40, 40, 40)) {
+                for (Entity entity : player.getNearbyEntities(80, 80, 80)) {
                     if (entity instanceof Horse horse) {
                         if (horse.getPersistentDataContainer().has(plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN)) {
                             if (!permanentZoneManager.isInsideAnyZone(horse.getLocation())) {
@@ -123,6 +122,65 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                         }
                     }
                 }
+            }
+
+            // Invisibility blocking check
+            if (currentZone != null) {
+                PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
+                if (buffer != null && !buffer.isEmpty()) {
+                    if (player.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
+                        player.removePotionEffect(PotionEffectType.INVISIBILITY);
+                        player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                            .append(Component.text("gaze of cosmos doesnt allow you to become invisible", NamedTextColor.RED)));
+                    }
+                }
+            }
+
+            // Dynamic map visibility check
+            updateMapVisibility(player, currentZone);
+        }
+    }
+
+    private void updateMapVisibility(Player player, PermanentZone currentZone) {
+        if (currentZone == null) {
+            if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
+                plugin.getMapIntegration().showPlayerOnMap(player);
+            }
+            return;
+        }
+
+        boolean shouldShow = false;
+        PlayerResourceBuffer playerBuffer = permanentZoneManager.getBuffer(player.getUniqueId());
+        if (playerBuffer != null && !playerBuffer.isEmpty()) {
+            shouldShow = true;
+        } else {
+            Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
+            if (townOpt.isPresent()) {
+                java.util.Set<UUID> members = townOpt.get().memberUuids();
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    if (online.hasMetadata("NPC")) continue;
+                    if (members.contains(online.getUniqueId())) {
+                        PermanentZone mateZone = permanentZoneManager.getPlayerZone(online.getUniqueId());
+                        if (mateZone != null && mateZone.getId().equals(currentZone.getId())) {
+                            PlayerResourceBuffer mateBuffer = permanentZoneManager.getBuffer(online.getUniqueId());
+                            if (mateBuffer != null && !mateBuffer.isEmpty()) {
+                                shouldShow = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (shouldShow) {
+            if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
+                plugin.getMapIntegration().showPlayerOnMap(player);
+            }
+        } else {
+            if (!permanentZoneManager.isMapHidden(player.getUniqueId())) {
+                permanentZoneManager.markMapHidden(player.getUniqueId());
+                plugin.getMapIntegration().hidePlayerOnMap(player);
             }
         }
     }
