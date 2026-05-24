@@ -19,6 +19,8 @@ import org.bukkit.Material;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.CompassMeta;
@@ -41,6 +43,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     private final IncursionZoneHorseListener horseListener;
     private final GSitZoneListener gsitZoneListener;
     private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
+    private int tickCount = 0;
 
     public PermanentZonePlayerTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager,
                                    IncursionZoneHorseListener horseListener, GSitZoneListener gsitZoneListener) {
@@ -52,6 +55,9 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
 
     @Override
     public void run() {
+        tickCount++;
+        boolean checkHorses = (tickCount % 4 == 0);
+
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.hasMetadata("NPC")) continue;
 
@@ -102,6 +108,20 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                 horseListener.cleanupPlayer(player);
                 if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
                     plugin.getMapIntegration().showPlayerOnMap(player);
+                }
+            }
+
+            // Check nearby horses to see if they are Zone Mounts outside of any zone
+            if (checkHorses) {
+                for (Entity entity : player.getNearbyEntities(40, 40, 40)) {
+                    if (entity instanceof Horse horse) {
+                        if (horse.getPersistentDataContainer().has(plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN)) {
+                            if (!permanentZoneManager.isInsideAnyZone(horse.getLocation())) {
+                                horse.eject();
+                                horse.remove();
+                            }
+                        }
+                    }
                 }
             }
         }
