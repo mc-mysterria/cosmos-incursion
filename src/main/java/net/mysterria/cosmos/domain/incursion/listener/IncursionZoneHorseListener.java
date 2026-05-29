@@ -24,8 +24,10 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -43,6 +45,7 @@ public class IncursionZoneHorseListener implements Listener {
 
     /** Player UUID → horse entity UUID (only set while actively riding). */
     private final ConcurrentHashMap<UUID, UUID> playerHorses = new ConcurrentHashMap<>();
+    private final Set<UUID> saddleHolders = new HashSet<>();
 
     public IncursionZoneHorseListener(CosmosIncursion plugin,
                                       PermanentZoneManager permanentZoneManager) {
@@ -54,10 +57,16 @@ public class IncursionZoneHorseListener implements Listener {
 
     /** Give the cosmos saddle to a player on incursion zone entry. */
     public void giveSaddle(Player player) {
-        // Don't give if they already have one
-        if (hasCosmosSaddle(player)) return;
+        UUID uuid = player.getUniqueId();
+        if (saddleHolders.contains(uuid)) return; // fast path
+        // Slow path: re-sync set after server restart
+        if (hasCosmosSaddle(player)) {
+            saddleHolders.add(uuid);
+            return;
+        }
         ItemStack saddle = buildSaddle();
         player.getInventory().addItem(saddle);
+        saddleHolders.add(uuid);
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                 .append(Component.text("You received a ", NamedTextColor.GRAY))
                 .append(Component.text("Zone Saddle", NamedTextColor.GOLD))
@@ -251,6 +260,7 @@ public class IncursionZoneHorseListener implements Listener {
     }
 
     private void removeSaddleFromInventory(Player player) {
+        if (!saddleHolders.remove(player.getUniqueId())) return;
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             if (isCosmosSaddle(contents[i])) {
@@ -260,7 +270,7 @@ public class IncursionZoneHorseListener implements Listener {
     }
 
     private boolean isCosmosSaddle(ItemStack item) {
-        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta()) return false;
+        if (item == null || item.getType() != Material.SADDLE) return false;
         return item.getItemMeta().getPersistentDataContainer()
                 .has(plugin.getKey("cosmos_incursion_saddle"), PersistentDataType.BOOLEAN);
     }

@@ -43,6 +43,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     private final IncursionZoneHorseListener horseListener;
     private final GSitZoneListener gsitZoneListener;
     private final Map<UUID, BossBar> zoneBossBars = new HashMap<>();
+    private final Set<UUID> compassHolders = new HashSet<>();
     private int tickCount = 0;
 
     public PermanentZonePlayerTask(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager,
@@ -57,6 +58,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     public void run() {
         tickCount++;
         boolean checkHorses = (tickCount % 4 == 0);
+        Set<UUID> checkedHorses = checkHorses ? new HashSet<>() : null;
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.hasMetadata("NPC")) continue;
@@ -114,7 +116,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
             // Check nearby horses to see if they are Zone Mounts outside of any zone
             if (checkHorses) {
                 for (Entity entity : player.getNearbyEntities(80, 80, 80)) {
-                    if (entity instanceof Horse horse) {
+                    if (entity instanceof Horse horse && checkedHorses.add(horse.getUniqueId())) {
                         if (horse.getPersistentDataContainer().has(plugin.getKey("cosmos_incursion_horse"), PersistentDataType.BOOLEAN)) {
                             if (!permanentZoneManager.isInsideAnyZone(horse.getLocation())) {
                                 horse.eject();
@@ -275,6 +277,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         ItemStack compass = buildCompass(zone, player.getLocation(),
             permanentZoneManager.getActivePoIs(zone));
         player.getInventory().addItem(compass);
+        compassHolders.add(player.getUniqueId());
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
             .append(Component.text("You received a ", NamedTextColor.GRAY))
             .append(Component.text("Zone Compass", NamedTextColor.AQUA))
@@ -282,6 +285,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     }
 
     private void removeCompass(Player player) {
+        if (!compassHolders.remove(player.getUniqueId())) return;
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             if (isCosmosCompass(contents[i])) {
@@ -291,6 +295,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     }
 
     private void updateCompass(Player player, PermanentZone zone) {
+        if (!compassHolders.contains(player.getUniqueId())) return;
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             ItemStack item = contents[i];
@@ -420,14 +425,20 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
     }
 
     private boolean hasCosmosCompass(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (compassHolders.contains(uuid)) return true;
+        // Slow path: re-sync set after server restart
         for (ItemStack item : player.getInventory().getContents()) {
-            if (isCosmosCompass(item)) return true;
+            if (isCosmosCompass(item)) {
+                compassHolders.add(uuid);
+                return true;
+            }
         }
         return false;
     }
 
     private boolean isCosmosCompass(ItemStack item) {
-        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta()) return false;
+        if (item == null || item.getType() != Material.COMPASS) return false;
         return item.getItemMeta().getPersistentDataContainer()
                 .has(plugin.getKey("cosmos_zone_compass"), PersistentDataType.BOOLEAN);
     }
