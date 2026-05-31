@@ -35,7 +35,12 @@ public class ExclusionZoneCompassListener implements Listener {
 
     public static boolean isExtractionMode(CosmosIncursion plugin, ItemStack item) {
         if (item == null || !item.hasItemMeta()) return false;
-        Byte mode = item.getItemMeta().getPersistentDataContainer()
+        return isExtractionMode(plugin, item.getItemMeta());
+    }
+
+    public static boolean isExtractionMode(CosmosIncursion plugin, ItemMeta meta) {
+        if (meta == null) return false;
+        Byte mode = meta.getPersistentDataContainer()
                 .get(plugin.getKey(COMPASS_MODE_KEY), PersistentDataType.BYTE);
         return mode != null && mode == 1;
     }
@@ -65,6 +70,23 @@ public class ExclusionZoneCompassListener implements Listener {
             : Component.text("Compass: ", NamedTextColor.GRAY)
                 .append(Component.text("Points of Interest", NamedTextColor.AQUA))
                 .decoration(TextDecoration.ITALIC, false));
+    }
+
+    @EventHandler
+    public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (!plugin.getPermanentZoneManager().isInsideAnyZone(player.getLocation())) {
+            removeCompass(player);
+        }
+    }
+
+    private void removeCompass(Player player) {
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            if (isZoneCompass(contents[i])) {
+                player.getInventory().setItem(i, null);
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -99,7 +121,7 @@ public class ExclusionZoneCompassListener implements Listener {
     }
 
     private boolean isZoneCompass(ItemStack item) {
-        if (item == null || item.getType() == org.bukkit.Material.AIR) return false;
+        if (item == null || item.getType() != org.bukkit.Material.COMPASS) return false;
         if (!item.hasItemMeta()) return false;
         return item.getItemMeta().getPersistentDataContainer()
                 .has(plugin.getKey("cosmos_zone_compass"), PersistentDataType.BOOLEAN);

@@ -25,6 +25,7 @@ import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.CompassMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffectType;
@@ -105,9 +106,6 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
             } else if (currentZone != null) {
                 updateCompass(player, currentZone);
             } else {
-                // Player left without going through onExit (edge case) — clean up all zone items
-                removeCompass(player);
-                horseListener.cleanupPlayer(player);
                 if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
                     plugin.getMapIntegration().showPlayerOnMap(player);
                 }
@@ -299,70 +297,148 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             ItemStack item = contents[i];
-            if (!isCosmosCompass(item)) continue;
+            if (item == null || item.getType() != Material.COMPASS) continue;
+            if (!item.hasItemMeta()) continue;
 
-            CompassMeta meta = (CompassMeta) item.getItemMeta();
-            if (ExclusionZoneCompassListener.isExtractionMode(plugin, item)) {
-                updateCompassToExtraction(meta, player, zone);
-            } else {
-                updateCompassToPoi(meta, player, zone);
+            ItemMeta itemMeta = item.getItemMeta();
+            if (itemMeta == null || !itemMeta.getPersistentDataContainer().has(plugin.getKey("cosmos_zone_compass"), PersistentDataType.BOOLEAN)) {
+                continue;
             }
-            item.setItemMeta(meta);
-            player.getInventory().setItem(i, item);
+
+            CompassMeta meta = (CompassMeta) itemMeta;
+            boolean changed;
+            if (ExclusionZoneCompassListener.isExtractionMode(plugin, meta)) {
+                changed = updateCompassToExtraction(meta, player, zone);
+            } else {
+                changed = updateCompassToPoi(meta, player, zone);
+            }
+
+            if (changed) {
+                item.setItemMeta(meta);
+                player.getInventory().setItem(i, item);
+            }
             break;
         }
     }
 
-    private void updateCompassToPoi(CompassMeta meta, Player player, PermanentZone zone) {
+    private boolean updateCompassToPoi(CompassMeta meta, Player player, PermanentZone zone) {
         List<PointOfInterest> pois = permanentZoneManager.getActivePoIs(zone);
         PointOfInterest nearest = nearestActivePoi(player.getLocation(), pois);
+        boolean changed = false;
+
         if (nearest != null) {
-            meta.setLodestoneTracked(false);
-            meta.setLodestone(nearest.getLocation());
-            meta.displayName(Component.text("Zone Compass → ", NamedTextColor.AQUA)
+            Location targetLoc = nearest.getLocation();
+            Component targetName = Component.text("Zone Compass → ", NamedTextColor.AQUA)
                 .append(Component.text(nearest.getResourceType().name(), resourceColor(nearest.getResourceType())))
-                .decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
+                .decoration(TextDecoration.ITALIC, false);
+            List<Component> targetLore = List.of(
                 Component.text("Points to the nearest active PoI.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false)
-            ));
+            );
+
+            if (meta.isLodestoneTracked()) {
+                meta.setLodestoneTracked(false);
+                changed = true;
+            }
+            if (!Objects.equals(meta.getLodestone(), targetLoc)) {
+                meta.setLodestone(targetLoc);
+                changed = true;
+            }
+            if (!Objects.equals(meta.displayName(), targetName)) {
+                meta.displayName(targetName);
+                changed = true;
+            }
+            if (!Objects.equals(meta.lore(), targetLore)) {
+                meta.lore(targetLore);
+                changed = true;
+            }
         } else {
-            meta.setLodestone(null);
-            meta.setLodestoneTracked(false);
-            meta.displayName(Component.text("Zone Compass", NamedTextColor.AQUA)
-                .decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
+            Component targetName = Component.text("Zone Compass", NamedTextColor.AQUA)
+                .decoration(TextDecoration.ITALIC, false);
+            List<Component> targetLore = List.of(
                 Component.text("No active Points of Interest in this zone.", NamedTextColor.RED)
                     .decoration(TextDecoration.ITALIC, false)
-            ));
+            );
+
+            if (meta.isLodestoneTracked()) {
+                meta.setLodestoneTracked(false);
+                changed = true;
+            }
+            if (meta.getLodestone() != null) {
+                meta.setLodestone(null);
+                changed = true;
+            }
+            if (!Objects.equals(meta.displayName(), targetName)) {
+                meta.displayName(targetName);
+                changed = true;
+            }
+            if (!Objects.equals(meta.lore(), targetLore)) {
+                meta.lore(targetLore);
+                changed = true;
+            }
         }
+        return changed;
     }
 
-    private void updateCompassToExtraction(CompassMeta meta, Player player, PermanentZone zone) {
+    private boolean updateCompassToExtraction(CompassMeta meta, Player player, PermanentZone zone) {
         List<ExtractionPoint> eps = permanentZoneManager.getActiveExtractionPoints(zone);
         ExtractionPoint nearest = nearestActiveExtractionPoint(player.getLocation(), eps);
+        boolean changed = false;
+
         if (nearest != null) {
-            meta.setLodestoneTracked(false);
-            meta.setLodestone(nearest.getLocation());
-            meta.displayName(Component.text("Zone Compass → ", NamedTextColor.GREEN)
+            Location targetLoc = nearest.getLocation();
+            Component targetName = Component.text("Zone Compass → ", NamedTextColor.GREEN)
                 .append(Component.text("Extraction Point", NamedTextColor.DARK_GREEN))
-                .decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
+                .decoration(TextDecoration.ITALIC, false);
+            List<Component> targetLore = List.of(
                 Component.text("Points to the nearest Extraction Point.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false),
                 Component.text("Stand here to deposit your resources.", NamedTextColor.DARK_GRAY)
                     .decoration(TextDecoration.ITALIC, false)
-            ));
+            );
+
+            if (meta.isLodestoneTracked()) {
+                meta.setLodestoneTracked(false);
+                changed = true;
+            }
+            if (!Objects.equals(meta.getLodestone(), targetLoc)) {
+                meta.setLodestone(targetLoc);
+                changed = true;
+            }
+            if (!Objects.equals(meta.displayName(), targetName)) {
+                meta.displayName(targetName);
+                changed = true;
+            }
+            if (!Objects.equals(meta.lore(), targetLore)) {
+                meta.lore(targetLore);
+                changed = true;
+            }
         } else {
-            meta.setLodestone(null);
-            meta.setLodestoneTracked(false);
-            meta.displayName(Component.text("Zone Compass", NamedTextColor.AQUA)
-                .decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
+            Component targetName = Component.text("Zone Compass", NamedTextColor.AQUA)
+                .decoration(TextDecoration.ITALIC, false);
+            List<Component> targetLore = List.of(
                 Component.text("No active Extraction Points in this zone.", NamedTextColor.RED)
                     .decoration(TextDecoration.ITALIC, false)
-            ));
+            );
+
+            if (meta.isLodestoneTracked()) {
+                meta.setLodestoneTracked(false);
+                changed = true;
+            }
+            if (meta.getLodestone() != null) {
+                meta.setLodestone(null);
+                changed = true;
+            }
+            if (!Objects.equals(meta.displayName(), targetName)) {
+                meta.displayName(targetName);
+                changed = true;
+            }
+            if (!Objects.equals(meta.lore(), targetLore)) {
+                meta.lore(targetLore);
+                changed = true;
+            }
         }
+        return changed;
     }
 
     private ItemStack buildCompass(PermanentZone zone, Location playerLoc, List<PointOfInterest> pois) {
@@ -439,6 +515,7 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
 
     private boolean isCosmosCompass(ItemStack item) {
         if (item == null || item.getType() != Material.COMPASS) return false;
+        if (!item.hasItemMeta()) return false;
         return item.getItemMeta().getPersistentDataContainer()
                 .has(plugin.getKey("cosmos_zone_compass"), PersistentDataType.BOOLEAN);
     }

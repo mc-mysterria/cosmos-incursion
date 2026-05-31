@@ -87,7 +87,7 @@ public class IncursionZoneHorseListener implements Listener {
                 horse.remove();
             }
         }
-        removeSaddleFromInventory(player);
+        forceRemoveSaddle(player);
     }
 
     // ── Event handlers ────────────────────────────────────────────────────────────
@@ -192,6 +192,14 @@ public class IncursionZoneHorseListener implements Listener {
         cleanupPlayer(event.getPlayer());
     }
 
+    @EventHandler
+    public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (!permanentZoneManager.isInsideAnyZone(player.getLocation())) {
+            cleanupPlayer(player);
+        }
+    }
+
     public boolean hasActiveHorse(Player player) {
         return playerHorses.containsKey(player.getUniqueId());
     }
@@ -259,8 +267,8 @@ public class IncursionZoneHorseListener implements Listener {
         return false;
     }
 
-    private void removeSaddleFromInventory(Player player) {
-        if (!saddleHolders.remove(player.getUniqueId())) return;
+    private void forceRemoveSaddle(Player player) {
+        saddleHolders.remove(player.getUniqueId());
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             if (isCosmosSaddle(contents[i])) {
@@ -271,6 +279,7 @@ public class IncursionZoneHorseListener implements Listener {
 
     private boolean isCosmosSaddle(ItemStack item) {
         if (item == null || item.getType() != Material.SADDLE) return false;
+        if (!item.hasItemMeta()) return false;
         return item.getItemMeta().getPersistentDataContainer()
                 .has(plugin.getKey("cosmos_incursion_saddle"), PersistentDataType.BOOLEAN);
     }

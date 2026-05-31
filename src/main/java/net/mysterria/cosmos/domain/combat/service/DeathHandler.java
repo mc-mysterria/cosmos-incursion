@@ -51,16 +51,26 @@ public class DeathHandler {
         savedInventories.put(uuid, items);
     }
 
-    /**
-     * Restores saved items to a player.
-     * @param player The player to restore items to
-     */
     public void restoreSavedItems(Player player) {
         ItemStack[] items = savedInventories.remove(player.getUniqueId());
         if (items != null) {
+            if (!plugin.getPermanentZoneManager().isInsideAnyZone(player.getLocation())) {
+                for (int i = 0; i < items.length; i++) {
+                    if (isCosmosItem(items[i])) {
+                        items[i] = null;
+                    }
+                }
+            }
             player.getInventory().setContents(items);
             plugin.log("Restored " + items.length + " items to " + player.getName() + " after respawn");
         }
+    }
+
+    private boolean isCosmosItem(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return false;
+        var pdc = item.getItemMeta().getPersistentDataContainer();
+        return pdc.has(plugin.getKey("cosmos_zone_compass"), PersistentDataType.BOOLEAN)
+                || pdc.has(plugin.getKey("cosmos_incursion_saddle"), PersistentDataType.BOOLEAN);
     }
 
     /**
