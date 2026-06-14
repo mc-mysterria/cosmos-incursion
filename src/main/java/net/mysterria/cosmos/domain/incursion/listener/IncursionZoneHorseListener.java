@@ -1,5 +1,6 @@
 package net.mysterria.cosmos.domain.incursion.listener;
 
+import io.papermc.paper.event.entity.EntityLungeEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
@@ -8,9 +9,11 @@ import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
-import org.bukkit.entity.*;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Horse;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -24,11 +27,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -43,7 +42,9 @@ public class IncursionZoneHorseListener implements Listener {
     private final CosmosIncursion plugin;
     private final PermanentZoneManager permanentZoneManager;
 
-    /** Player UUID → horse entity UUID (only set while actively riding). */
+    /**
+     * Player UUID → horse entity UUID (only set while actively riding).
+     */
     private final ConcurrentHashMap<UUID, UUID> playerHorses = new ConcurrentHashMap<>();
     private final Set<UUID> saddleHolders = new HashSet<>();
 
@@ -55,7 +56,9 @@ public class IncursionZoneHorseListener implements Listener {
 
     // ── Zone entry / exit helpers (called from ZoneCheckTask) ───────────────────
 
-    /** Give the cosmos saddle to a player on incursion zone entry. */
+    /**
+     * Give the cosmos saddle to a player on incursion zone entry.
+     */
     public void giveSaddle(Player player) {
         UUID uuid = player.getUniqueId();
         if (saddleHolders.contains(uuid)) return; // fast path
@@ -187,6 +190,17 @@ public class IncursionZoneHorseListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityLunge(EntityLungeEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        UUID horseId = playerHorses.get(player.getUniqueId());
+        if (horseId == null) return;
+        Entity vehicle = player.getVehicle();
+        if (vehicle != null && vehicle.getUniqueId().equals(horseId)) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         cleanupPlayer(event.getPlayer());
@@ -204,7 +218,9 @@ public class IncursionZoneHorseListener implements Listener {
         return playerHorses.containsKey(player.getUniqueId());
     }
 
-    /** Force-dismount a player from their cosmos horse due to combat. Saddle is returned. */
+    /**
+     * Force-dismount a player from their cosmos horse due to combat. Saddle is returned.
+     */
     public void dismountForCombat(Player player) {
         UUID horseId = playerHorses.remove(player.getUniqueId());
         if (horseId == null) return;
@@ -223,8 +239,8 @@ public class IncursionZoneHorseListener implements Listener {
     // ── Internals ────────────────────────────────────────────────────────────────
 
     private void summonHorse(Player player, ItemStack saddleItem) {
-        // Remove the saddle from the player's hand before mounting
         saddleItem.setAmount(saddleItem.getAmount() - 1);
+        saddleHolders.remove(player.getUniqueId()); // consumed — allow re-grant on dismount
 
         Horse horse = (Horse) player.getWorld().spawnEntity(player.getLocation(), EntityType.HORSE);
         horse.setTamed(true);
