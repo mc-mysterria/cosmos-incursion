@@ -1,6 +1,9 @@
 package net.mysterria.cosmos.domain.exclusion.listener;
 
 import dev.ua.ikeepcalm.coi.api.event.AbilityUsageEvent;
+import dev.ua.ikeepcalm.coi.api.event.MadnessGainEvent;
+import dev.ua.ikeepcalm.coi.api.event.MagicDamageEvent;
+import dev.ua.ikeepcalm.coi.api.event.MythicalFormEvent;
 import dev.ua.ikeepcalm.coi.api.model.AbilityData;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -8,7 +11,9 @@ import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionChannelState;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
+import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -188,6 +193,68 @@ public class ExclusionZoneListener implements Listener {
             player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                     .append(Component.text("You cannot use movement abilities while inside extraction zones with resources!", NamedTextColor.RED)));
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onMythicForm(MythicalFormEvent event) {
+        Player player = event.getPlayer();
+
+        PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
+        if (zone == null) return;
+
+        if (zone.getTier() != ExclusionZoneTier.HARD && event.getState() == MythicalFormEvent.MythicalFormState.ACTIVATE) {
+            event.setCancelled(true);
+            player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                    .append(Component.text("You cannot use your Mythical Creature Form while inside non-red zone!", NamedTextColor.RED)));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onMagicDamage(MagicDamageEvent event) {
+        Player damager = event.getDamager();
+        if (damager == null) return;
+
+        if (!(event.getDamaged() instanceof Player damaged)) return;
+
+        PermanentZone zone = permanentZoneManager.getPlayerZone(damager.getUniqueId());
+        if (zone == null) return;
+
+        if (!CoiToolkit.isBeyonder(damager) || !CoiToolkit.isBeyonder(damaged)) return;
+
+        switch (zone.getTier()) {
+            case SAFE -> {
+                double damagerMaxHP = CoiToolkit.getBeyonderData(damager).maxHealth();
+                double damagedMaxHP = CoiToolkit.getBeyonderData(damaged).maxHealth();
+                if (damagerMaxHP <= 0) return;
+                double normalized = (event.getDamage() / damagerMaxHP) * damagedMaxHP;
+                event.setDamage(normalized);
+            }
+            case MEDIUM -> {
+                double damagerMaxHP = CoiToolkit.getBeyonderData(damager).maxHealth();
+                double damagedMaxHP = CoiToolkit.getBeyonderData(damaged).maxHealth();
+                if (damagerMaxHP <= 0) return;
+                double raw = event.getDamage();
+                double normalized = (raw / damagerMaxHP) * damagedMaxHP;
+                event.setDamage(raw + (normalized - raw) * 0.5);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onMadnessGain(MadnessGainEvent event) {
+        if (event.getSource() != MadnessGainEvent.Source.EXTERNAL_ABILITY) return;
+
+        Player player = event.getPlayer();
+        if (player == null) return;
+
+        PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
+        if (zone == null) return;
+
+        switch (zone.getTier()) {
+            case SAFE -> event.setCancelled(true);
+            case MEDIUM -> event.setAmount(event.getAmount() * 0.5);
+        }
+
     }
 
     private boolean isMovementAbility(AbilityData ability) {

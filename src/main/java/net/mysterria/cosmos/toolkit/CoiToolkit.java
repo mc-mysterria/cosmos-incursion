@@ -26,6 +26,10 @@ public class CoiToolkit {
         return coiApi.isBeyonder(player);
     }
 
+    public static BeyonderData getBeyonderData(Player player) {
+        return coiApi.getBeyonderData(player);
+    }
+
     public static int getBeyonderSequence(Player player) {
         return coiApi.getLowestSequence(player);
     }
