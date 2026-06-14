@@ -2,6 +2,7 @@ package net.mysterria.cosmos.toolkit;
 
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
@@ -78,6 +79,7 @@ public class ZonePlacerToolkit {
         // Filter and validate candidates
         int rejectedByTown = 0;
         int rejectedBySeparation = 0;
+        int rejectedByPermanentZone = 0;
         int zoneNumber = 1;
         for (Location candidate : candidates) {
             if (incursionZones.size() >= count) {
@@ -97,13 +99,16 @@ public class ZonePlacerToolkit {
                 zoneNumber++;
             } else if (rejectReason == 1) {
                 rejectedByTown++;
-            } else {
+            } else if (rejectReason == 2) {
                 rejectedBySeparation++;
+            } else {
+                rejectedByPermanentZone++;
             }
         }
 
         plugin.log("Zone generation: " + rejectedByTown + " rejected (town buffer), "
-                + rejectedBySeparation + " rejected (zone separation)");
+                + rejectedBySeparation + " rejected (zone separation), "
+                + rejectedByPermanentZone + " rejected (permanent zone overlap)");
 
         if (incursionZones.size() < count) {
             plugin.log("Warning: Could only generate " + incursionZones.size() + " out of " + count + " requested zones");
@@ -129,7 +134,7 @@ public class ZonePlacerToolkit {
         return queue;
     }
 
-    /** Returns 0=ok, 1=town buffer, 2=separation */
+    /** Returns 0=ok, 1=town buffer, 2=separation, 3=permanent zone overlap */
     private int validationRejectReason(Location location, Set<TownsToolkit.ChunkPosition> claimedChunks, List<IncursionZone> existingIncursionZones) {
         double radius = config.getZoneRadius();
         double townBuffer = config.getTownBuffer();
@@ -154,7 +159,27 @@ public class ZonePlacerToolkit {
             if (existing.isTooClose(new IncursionZone("temp", location, radius), minSeparation)) return 2;
         }
 
+        if (overlapsAnyPermanentZone(location, radius)) return 3;
+
         return 0;
+    }
+
+    private boolean overlapsAnyPermanentZone(Location candidate, double radius) {
+        var permanentZones = plugin.getPermanentZoneManager().getAllZones();
+        if (permanentZones.isEmpty()) return false;
+        double radiusSq = radius * radius;
+        for (PermanentZone pz : permanentZones) {
+            if (!pz.isActive()) continue;
+            if (pz.contains(candidate)) return true;
+            for (Location vertex : pz.getVertices()) {
+                World w = vertex.getWorld();
+                if (w == null || !w.equals(candidate.getWorld())) continue;
+                double dx = vertex.getX() - candidate.getX();
+                double dz = vertex.getZ() - candidate.getZ();
+                if (dx * dx + dz * dz <= radiusSq) return true;
+            }
+        }
+        return false;
     }
 
     /**

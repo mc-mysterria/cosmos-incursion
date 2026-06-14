@@ -125,7 +125,12 @@ public class CosmosGuideGUI {
                 Component.empty(),
                 line("✔  No items drop on death", NamedTextColor.GREEN),
                 line("✔  No sequence regression", NamedTextColor.GREEN),
-                line("✗  Low rewards", NamedTextColor.YELLOW)
+                line("✗  Low rewards", NamedTextColor.YELLOW),
+                Component.empty(),
+                line("⚖  PvP Balancing:", NamedTextColor.AQUA),
+                line("✔  Damage normalized to HP pools", NamedTextColor.GREEN),
+                line("✔  Mythical Form cannot be activated", NamedTextColor.GREEN),
+                line("✔  External madness cancelled", NamedTextColor.GREEN)
             )
         ));
 
@@ -138,7 +143,12 @@ public class CosmosGuideGUI {
                 Component.empty(),
                 line("⚠  ~33% of items may drop on death", NamedTextColor.YELLOW),
                 line("✔  No sequence regression", NamedTextColor.GREEN),
-                line("✗  Medium rewards", NamedTextColor.YELLOW)
+                line("✗  Medium rewards", NamedTextColor.YELLOW),
+                Component.empty(),
+                line("⚖  PvP Balancing:", NamedTextColor.AQUA),
+                line("✔  Damage 50% normalized to HP pools", NamedTextColor.GREEN),
+                line("✔  Mythical Form cannot be activated", NamedTextColor.GREEN),
+                line("✔  External madness reduced by 50%", NamedTextColor.GREEN)
             )
         ));
 
@@ -321,6 +331,31 @@ public class CosmosGuideGUI {
                 Component.empty(),
                 line("The ONLY way out is the extraction point.", NamedTextColor.YELLOW),
                 line("Or die and lose everything.", NamedTextColor.DARK_GRAY)
+            )
+        ));
+
+        // Zone tier PvP rules
+        gui.setItem(25, infoItem(
+            Material.COMPARATOR,
+            Component.text("⚖  Zone Tiers & PvP Scaling", NamedTextColor.YELLOW, TextDecoration.BOLD),
+            List.of(
+                line("Each extraction zone has a tier that", NamedTextColor.GRAY),
+                line("affects how PvP combat works inside:", NamedTextColor.GRAY),
+                Component.empty(),
+                Component.text("SAFE  ", NamedTextColor.GREEN, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false)
+                    .append(line("(Green)", NamedTextColor.GREEN)),
+                line("  Damage normalized to HP pools", NamedTextColor.GRAY),
+                line("  Mythical Form blocked", NamedTextColor.GRAY),
+                line("  External madness cancelled", NamedTextColor.GRAY),
+                Component.empty(),
+                Component.text("MEDIUM  ", NamedTextColor.YELLOW, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false)
+                    .append(line("(Yellow)", NamedTextColor.YELLOW)),
+                line("  Damage 50% normalized", NamedTextColor.GRAY),
+                line("  Mythical Form blocked", NamedTextColor.GRAY),
+                line("  External madness -50%", NamedTextColor.GRAY),
+                Component.empty(),
+                Component.text("HARD  ", NamedTextColor.RED, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false)
+                    .append(line("(Red) — no PvP scaling", NamedTextColor.RED))
             )
         ));
 
