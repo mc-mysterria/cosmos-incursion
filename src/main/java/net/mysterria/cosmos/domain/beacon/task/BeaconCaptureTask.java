@@ -9,6 +9,7 @@ import net.mysterria.cosmos.domain.beacon.service.BeaconUIManager;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -93,6 +94,12 @@ public class BeaconCaptureTask extends BukkitRunnable {
             if (!beacon.isWithinCaptureRadius(player.getLocation(), captureRadius)) {
                 continue;
             }
+
+            if (player.getGameMode() != GameMode.SURVIVAL){
+                continue;
+            }
+
+
 
             // Get player's town
             Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);

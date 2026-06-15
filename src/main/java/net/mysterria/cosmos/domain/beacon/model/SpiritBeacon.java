@@ -25,10 +25,11 @@ public record SpiritBeacon(String id, String name, Location location) {
             return false;
         }
 
-        // 2D distance check (ignore Y coordinate)
+        // 3D distance check (include Y coordinate)
         double dx = playerLocation.getX() - location.getX();
+        double dy = playerLocation.getY() - location.getY();
         double dz = playerLocation.getZ() - location.getZ();
-        double distanceSquared = dx * dx + dz * dz;
+        double distanceSquared = dx * dx + dy * dy + dz * dz;
 
         return distanceSquared <= (captureRadius * captureRadius);
     }
@@ -49,7 +50,7 @@ public record SpiritBeacon(String id, String name, Location location) {
     @Override
     public String toString() {
         return name + " (" + id + ") at " +
-               String.format("%.0f, %.0f, %.0f", location.getX(), location.getY(), location.getZ());
+                String.format("%.0f, %.0f, %.0f", location.getX(), location.getY(), location.getZ());
     }
 
 }
