@@ -14,15 +14,20 @@ import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.Map;
 import java.util.UUID;
@@ -154,6 +159,63 @@ public class ExclusionZoneListener implements Listener {
             first = false;
         }
         killer.sendMessage(msg);
+    }
+
+    // ── Spectator-mode resource spill ────────────────────────────────────────────
+
+    /**
+     * Forcing a resource-carrying player into spectator mode (e.g. via a movement spell)
+     * would otherwise let them dodge the zone-exit lock entirely while still keeping their
+     * loot. Instead, spill the carried resources onto the ground as physical items so they
+     * remain contestable — either the player who forced this can grab and run with them, or
+     * the original owner returns to survival and reclaims their own drop.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onGameModeChange(PlayerGameModeChangeEvent event) {
+        if (event.getNewGameMode() != GameMode.SPECTATOR) return;
+
+        Player player = event.getPlayer();
+        if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) return;
+
+        PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
+        if (buffer.isEmpty()) return;
+
+        permanentZoneManager.cancelExtractionChannel(player.getUniqueId());
+        permanentZoneManager.dropBufferAsItems(player, player.getLocation());
+
+        player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
+                .append(Component.text("Your carried resources spilled onto the ground!", NamedTextColor.RED)));
+    }
+
+    /**
+     * Picking up a spilled resource item credits its exact amount straight back to the
+     * picker's buffer instead of occupying an inventory slot — keeping it subject to the
+     * same zone-exit lock and extraction-point flow as normally accumulated resources.
+     * Only works while the picker is inside a permanent zone; outside one it's left as
+     * an inert vanilla item so resources can never re-enter the buffer economy unsupervised.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onResourceItemPickup(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+
+        ItemStack stack = event.getItem().getItemStack();
+        if (!permanentZoneManager.isResourceDropItem(stack)) return;
+
+        if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) return;
+
+        ResourceType type = permanentZoneManager.getResourceDropType(stack);
+        double amount = permanentZoneManager.getResourceDropAmount(stack);
+        if (type == null || amount <= 0) return;
+
+        // Cancel the vanilla pickup (so it never occupies an inventory slot) and despawn the
+        // ground entity ourselves — otherwise it would just sit there to be picked up again.
+        event.setCancelled(true);
+        event.getItem().remove();
+
+        permanentZoneManager.getBuffer(player.getUniqueId()).add(type, amount);
+        player.sendActionBar(Component.text("Reclaimed ", NamedTextColor.GREEN)
+                .append(Component.text(type.displayName() + " +" + String.format("%.1f", amount), resourceColor(type))));
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1f);
     }
 
     private NamedTextColor resourceColor(ResourceType type) {

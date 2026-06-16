@@ -13,15 +13,12 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.item.ResourceItemToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
-import org.bukkit.entity.Display;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.ItemDisplay;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -602,6 +599,50 @@ public class PermanentZoneManager {
     public void clearBuffer(UUID playerId) {
         buffers.remove(playerId);
         extractionChannels.remove(playerId);
+    }
+
+    // ── Resource drop items (spectator-mode spill) ───────────────────────────────
+
+    /**
+     * Converts a player's entire carried resource buffer into physical ground items
+     * dropped at {@code location}, then clears the buffer. Used when a resource-carrying
+     * player is forced into spectator mode, so the resources become contestable loot
+     * instead of vanishing — see {@link ResourceItemToolkit}.
+     */
+    public void dropBufferAsItems(Player player, Location location) {
+        PlayerResourceBuffer buffer = getBuffer(player.getUniqueId());
+        if (buffer.isEmpty()) return;
+
+        Map<ResourceType, Double> snapshot = buffer.snapshot();
+        World world = location.getWorld();
+        if (world != null) {
+            for (Map.Entry<ResourceType, Double> entry : snapshot.entrySet()) {
+                if (entry.getValue() <= 0) continue;
+                Item droppedItem = world.dropItemNaturally(location, createResourceDropItem(entry.getKey(), entry.getValue()));
+                droppedItem.setGlowing(true);
+            }
+        }
+        clearBuffer(player.getUniqueId());
+    }
+
+    public ItemStack createResourceDropItem(ResourceType type, double amount) {
+        return ResourceItemToolkit.create(
+                plugin.getKey("resource_drop_id"),
+                plugin.getKey("resource_drop_type"),
+                plugin.getKey("resource_drop_amount"),
+                type, amount);
+    }
+
+    public boolean isResourceDropItem(ItemStack item) {
+        return ResourceItemToolkit.isResourceDrop(item, plugin.getKey("resource_drop_id"));
+    }
+
+    public ResourceType getResourceDropType(ItemStack item) {
+        return ResourceItemToolkit.getType(item, plugin.getKey("resource_drop_type"));
+    }
+
+    public double getResourceDropAmount(ItemStack item) {
+        return ResourceItemToolkit.getAmount(item, plugin.getKey("resource_drop_amount"));
     }
 
     /**
