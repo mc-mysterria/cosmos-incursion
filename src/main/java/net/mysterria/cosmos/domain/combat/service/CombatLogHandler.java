@@ -107,7 +107,10 @@ public class CombatLogHandler implements Listener {
                     plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
                 }, 1L);
             } else {
-                plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived");
+                plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
+                // Restore inventory since player's items were cleared at disconnect
+                player.getInventory().setContents(hollowBody.getInventory());
+                player.getInventory().setArmorContents(hollowBody.getArmor());
             }
 
             // Remove the Hollow Body
