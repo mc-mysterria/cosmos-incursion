@@ -109,6 +109,10 @@ public class CitizensToolkit {
                     armor
             );
 
+            // Clear player's actual inventory so only the NPC holds the items
+            player.getInventory().clear();
+            player.getInventory().setArmorContents(null);
+
             // Store mappings
             hollowBodies.put(player.getUniqueId(), hollowBody);
             npcIdToPlayerId.put(npc.getId(), player.getUniqueId());
