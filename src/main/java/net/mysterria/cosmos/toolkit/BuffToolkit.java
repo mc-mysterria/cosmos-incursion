@@ -141,7 +141,7 @@ public class BuffToolkit {
         player.sendMessage(
                 Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
                         .append(Component.text("You received an Acting Speed bonus! ", NamedTextColor.GREEN))
-                        .append(Component.text("(+" + (int) ((config.getActingSpeedBonus() - 1.0) * 100) + "%)", NamedTextColor.YELLOW))
+                        .append(Component.text("(+" + (int) (config.getActingSpeedBonus() * 100) + "%)", NamedTextColor.YELLOW))
         );
 
         plugin.log("Applied Acting Speed buff to player " + player.getName());

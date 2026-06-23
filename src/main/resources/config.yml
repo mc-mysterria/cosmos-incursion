@@ -139,8 +139,8 @@ beacons:
   decay-rate: 0.5
 
 rewards:
-  # Acting speed multiplier for winning town (1.10 = 10% bonus)
-  acting-speed-bonus: 1.10
+  # Acting speed multiplier for winning town (0.1 = 10% bonus)
+  acting-speed-bonus: 0.1
 
   # Duration of buff (in hours)
   buff-duration-hours: 24
