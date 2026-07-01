@@ -7,6 +7,7 @@ import dev.ua.ikeepcalm.coi.api.event.MythicalFormEvent;
 import dev.ua.ikeepcalm.coi.api.model.AbilityData;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionChannelState;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
@@ -46,10 +47,12 @@ public class ExclusionZoneListener implements Listener {
 
     private static final long MESSAGE_COOLDOWN_MS = 3000;
 
+    private final CosmosIncursion plugin;
     private final PermanentZoneManager permanentZoneManager;
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
 
-    public ExclusionZoneListener(PermanentZoneManager permanentZoneManager) {
+    public ExclusionZoneListener(CosmosIncursion plugin, PermanentZoneManager permanentZoneManager) {
+        this.plugin = plugin;
         this.permanentZoneManager = permanentZoneManager;
     }
 
@@ -126,10 +129,12 @@ public class ExclusionZoneListener implements Listener {
         // Cancel any active extraction channel
         permanentZoneManager.cancelExtractionChannel(victim.getUniqueId());
 
+        Player killer = victim.getKiller();
+        grantPvpActingIfQualifying(killer, victim);
+
         PlayerResourceBuffer victimBuffer = permanentZoneManager.getBuffer(victim.getUniqueId());
         if (victimBuffer.isEmpty()) return;
 
-        Player killer = victim.getKiller();
         if (killer != null && !killer.equals(victim)) {
             Map<ResourceType, Double> loot = victimBuffer.snapshot();
             PlayerResourceBuffer killerBuffer = permanentZoneManager.getBuffer(killer.getUniqueId());
@@ -143,6 +148,23 @@ public class ExclusionZoneListener implements Listener {
 
             permanentZoneManager.clearBuffer(victim.getUniqueId());
         }
+    }
+
+    /**
+     * Grants PvP acting for a qualifying kill inside a permanent zone. Skipped if the victim was
+     * also inside an incursion event zone — that kill already earned acting via the incursion path,
+     * and permanent/incursion zones aren't expected to overlap, but this guards against double-grants
+     * if they ever do.
+     */
+    private void grantPvpActingIfQualifying(Player killer, Player victim) {
+        if (killer == null || killer.equals(victim)) return;
+        if (plugin.getPlayerStateManager().isInZone(victim)) return;
+        if (!plugin.getDeathHandler().shouldGrantReward(killer, victim)) return;
+
+        PermanentZone zone = permanentZoneManager.getPlayerZone(victim.getUniqueId());
+        if (zone == null) return;
+
+        plugin.getActingRewardManager().grantExclusionPvpActing(killer, victim, zone.getTier());
     }
 
     private void notifyKiller(Player killer, String victimName, Map<ResourceType, Double> loot) {

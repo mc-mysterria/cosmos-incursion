@@ -42,6 +42,14 @@ public class DeathHandler {
     }
 
     /**
+     * Checks whether a kill qualifies for rewards (not griefing, not a Corrupted Monster kill).
+     * Shared gate for both crate rewards and acting rewards.
+     */
+    public boolean shouldGrantReward(Player killer, Player victim) {
+        return rewardHandler.shouldGrantReward(killer, victim);
+    }
+
+    /**
      * Stores items that should be kept after death.
      * @param uuid Player UUID
      * @param items Items to restore on respawn

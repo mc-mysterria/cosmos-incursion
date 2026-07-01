@@ -14,6 +14,11 @@ public class CoiToolkit {
 
     private static final CircleOfImaginationAPI coiApi = CosmosIncursion.getInstance().getCoiAPI();
 
+    /** Acting source id for PvE objective completion (extraction, beacon capture). See acting-sources.yml. */
+    public static final String SOURCE_WORLD_CONTENT = "world-content";
+    /** Acting source id for PvP objective completion (qualifying kills). See acting-sources.yml. */
+    public static final String SOURCE_PLAYER_INTERACTION = "player-interaction";
+
     /**
      * Safe-mode enforcement is no longer supported via the API.
      * The SafeModeListener still blocks in-zone toggling via event cancellation.
@@ -144,5 +149,18 @@ public class CoiToolkit {
 
     public static ItemStack getBeyonderChar(String pathway, int sequence) {
         return coiApi.getIngredient("char-" + pathway + "-" + sequence);
+    }
+
+    /**
+     * Grants {@code amount} acting points to the player's primary pathway from {@code sourceId},
+     * subject to that source's configured cap for the player's current sequence.
+     *
+     * @return actual bar points granted (0 if the player isn't a Beyonder, or the source is capped)
+     */
+    public static int grantActing(Player player, String sourceId, int amount) {
+        if (coiApi.isBeyonder(player)) {
+            return coiApi.grantActing(player, sourceId, amount);
+        }
+        return 0;
     }
 }

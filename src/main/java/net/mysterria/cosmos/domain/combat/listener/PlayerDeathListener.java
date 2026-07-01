@@ -67,6 +67,11 @@ public class PlayerDeathListener implements Listener {
             tier = zoneState.getIncursionZone().getTier();
         }
 
+        // Grant PvP acting for qualifying kills (blocked for griefing / Corrupted Monster killers)
+        if (killer != null && !killer.equals(victim) && deathHandler.shouldGrantReward(killer, victim)) {
+            plugin.getActingRewardManager().grantIncursionPvpActing(killer, victim, tier);
+        }
+
         // GREEN zones only protect inventory against player kills — environmental/mob deaths are not processed
         if (tier == ZoneTier.GREEN && killer == null) {
             return;

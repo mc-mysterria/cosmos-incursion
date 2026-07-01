@@ -13,7 +13,9 @@ import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -57,16 +59,16 @@ public class BeaconCaptureTask extends BukkitRunnable {
     private void processBeacon(BeaconCapture capture) {
         SpiritBeacon beacon = capture.getBeacon();
 
-        // Count players per town within capture radius
-        Map<Integer, Integer> townPlayerCounts = countPlayersNearBeacon(beacon);
+        // Group players near the beacon by town
+        Map<Integer, List<Player>> townPlayers = playersNearBeacon(beacon);
 
         // Determine capture state
-        if (townPlayerCounts.isEmpty()) {
+        if (townPlayers.isEmpty()) {
             // No players nearby - decay
             handleDecay(capture);
-        } else if (townPlayerCounts.size() == 1) {
+        } else if (townPlayers.size() == 1) {
             // Single town - capturing
-            Map.Entry<Integer, Integer> entry = townPlayerCounts.entrySet().iterator().next();
+            Map.Entry<Integer, List<Player>> entry = townPlayers.entrySet().iterator().next();
             handleCapture(capture, entry.getKey(), entry.getValue());
         } else {
             // Multiple towns - contested
@@ -78,10 +80,10 @@ public class BeaconCaptureTask extends BukkitRunnable {
     }
 
     /**
-     * Count players per town near a beacon
+     * Group players by town among those within capture radius
      */
-    private Map<Integer, Integer> countPlayersNearBeacon(SpiritBeacon beacon) {
-        Map<Integer, Integer> counts = new HashMap<>();
+    private Map<Integer, List<Player>> playersNearBeacon(SpiritBeacon beacon) {
+        Map<Integer, List<Player>> byTown = new HashMap<>();
         double captureRadius = config.getBeaconCaptureRadius();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -108,16 +110,16 @@ public class BeaconCaptureTask extends BukkitRunnable {
             }
 
             TownData town = townOpt.get();
-            counts.merge(town.id(), 1, Integer::sum);
+            byTown.computeIfAbsent(town.id(), k -> new ArrayList<>()).add(player);
         }
 
-        return counts;
+        return byTown;
     }
 
     /**
      * Handle beacon capture by a single town
      */
-    private void handleCapture(BeaconCapture capture, int townId, int playerCount) {
+    private void handleCapture(BeaconCapture capture, int townId, List<Player> players) {
         capture.setContested(false);
 
         // Get town
@@ -130,16 +132,16 @@ public class BeaconCaptureTask extends BukkitRunnable {
 
         // Calculate capture delta
         double pointsPerPlayer = config.getPointsPerPlayer();
-        double delta = pointsPerPlayer * playerCount;  // Per second
+        double delta = pointsPerPlayer * players.size();  // Per second
 
         // Apply capture progress
         capture.updateProgress(delta, town, config.getBeaconCapturePoints());
 
-        // Log ownership changes
-        if (capture.isOwnedBy(townId) && capture.getCaptureProgress() >= config.getBeaconCapturePoints()) {
-            // Beacon is now fully captured
-            if (!capture.getOwningTownName().equals(town.name())) {
-                plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.name());
+        // Beacon just completed capture this tick - log and reward the players who secured it
+        if (capture.consumeJustCaptured()) {
+            plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.name());
+            for (Player player : players) {
+                plugin.getActingRewardManager().grantBeaconCaptureActing(player);
             }
         }
     }

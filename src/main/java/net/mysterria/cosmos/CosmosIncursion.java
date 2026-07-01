@@ -11,6 +11,7 @@ import net.mysterria.cosmos.command.AdminCommand;
 import net.mysterria.cosmos.command.ExclusionCommand;
 import net.mysterria.cosmos.command.GeneralCommand;
 import net.mysterria.cosmos.config.ConfigLoader;
+import net.mysterria.cosmos.domain.acting.ActingRewardManager;
 import net.mysterria.cosmos.domain.beacon.listener.BeaconProtectionListener;
 import net.mysterria.cosmos.domain.beacon.service.BeaconManager;
 import net.mysterria.cosmos.domain.beacon.service.BeaconUIManager;
@@ -79,6 +80,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private PlayerStateManager playerStateManager;
     private KillTracker killTracker;
     private DeathHandler deathHandler;
+    private ActingRewardManager actingRewardManager;
     private EffectsToolkit effectsToolkit;
     private BuffToolkit buffToolkit;
 
@@ -154,6 +156,10 @@ public final class CosmosIncursion extends JavaPlugin {
         // Initialize death handler
         log("Initializing death handler...");
         deathHandler = new DeathHandler(this, playerStateManager, killTracker);
+
+        // Initialize acting reward manager (CircleOfImagination acting grants for objectives)
+        log("Initializing acting reward manager...");
+        actingRewardManager = new ActingRewardManager(this);
 
         // Initialize Citizens integration (retry mechanism for API initialization)
         log("Initializing Citizens integration...");
@@ -259,7 +265,7 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(combatLogHandler, this);
         getServer().getPluginManager().registerEvents(new BeaconProtectionListener(this), this);
         getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
-        getServer().getPluginManager().registerEvents(new ExclusionZoneListener(permanentZoneManager), this);
+        getServer().getPluginManager().registerEvents(new ExclusionZoneListener(this, permanentZoneManager), this);
         getServer().getPluginManager().registerEvents(new IncursionZoneListener(playerStateManager), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneCompassListener(this), this);
         getServer().getPluginManager().registerEvents(incursionZoneHorseListener, this);

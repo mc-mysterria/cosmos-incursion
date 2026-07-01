@@ -91,6 +91,8 @@ public class ExtractionTask extends BukkitRunnable {
 
         // Teleport player out to the nearest safe point outside the zone
         if (zone != null) {
+            plugin.getActingRewardManager().grantExtractionActing(player, zone.getTier());
+
             double exitBuffer = plugin.getConfigLoader().getConfig().getPermanentZoneExtractionExitBuffer();
             Location exitLoc = permanentZoneManager.findExitPoint(zone, player.getLocation(), exitBuffer);
             if (exitLoc != null) {

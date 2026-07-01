@@ -24,6 +24,9 @@ public class BeaconCapture {
     private long lastUpdateTime;
     private long totalOwnershipTime;  // Total milliseconds owned during event
 
+    // True for the tick a new town completes capture; consumed (and reset) by the capture task.
+    private boolean justCaptured;
+
     public BeaconCapture(SpiritBeacon beacon) {
         this.beacon = beacon;
         this.owningTownId = 0;
@@ -74,6 +77,14 @@ public class BeaconCapture {
         this.owningTownId = town.id();
         this.owningTownName = town.name();
         this.contested = false;
+        this.justCaptured = true;
+    }
+
+    /** Returns true if the beacon completed capture this tick, and clears the flag. */
+    public boolean consumeJustCaptured() {
+        boolean result = justCaptured;
+        justCaptured = false;
+        return result;
     }
 
     /**
@@ -110,6 +121,7 @@ public class BeaconCapture {
         this.contested = false;
         this.lastUpdateTime = System.currentTimeMillis();
         this.totalOwnershipTime = 0;
+        this.justCaptured = false;
     }
 
     /**
