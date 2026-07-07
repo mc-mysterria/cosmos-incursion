@@ -12,7 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Grants CircleOfImagination acting points for completing Cosmos Incursion objectives:
+ * Grants CircleOfImagination acting effort for completing Cosmos Incursion objectives:
  * resource extraction, beacon capture, and qualifying PvP kills.
  * <p>
  * Callers are responsible for anti-grief gating (griefing kills, Corrupted Monster) before
@@ -33,16 +33,16 @@ public class ActingRewardManager {
 
     /** Grants acting for a successful resource extraction from a permanent zone of the given tier. */
     public void grantExtractionActing(Player player, ExclusionZoneTier tier) {
-        int amount = config().getExclusionTierConfigs().get(tier).extractionActingReward();
-        if (amount <= 0) return;
-        CoiToolkit.grantActing(player, CoiToolkit.SOURCE_WORLD_CONTENT, amount);
+        double effort = config().getExclusionTierConfigs().get(tier).extractionActingEffort();
+        if (effort <= 0) return;
+        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
     }
 
     /** Grants acting to each player present when their town fully captures a Spirit Beacon. */
     public void grantBeaconCaptureActing(Player player) {
-        int amount = config().getBeaconCaptureActingReward();
-        if (amount <= 0) return;
-        CoiToolkit.grantActing(player, CoiToolkit.SOURCE_WORLD_CONTENT, amount);
+        double effort = config().getBeaconCaptureActingEffort();
+        if (effort <= 0) return;
+        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
     }
 
     /**
@@ -50,8 +50,8 @@ public class ActingRewardManager {
      * Caller must have already verified this isn't a griefing/Corrupted Monster kill.
      */
     public void grantIncursionPvpActing(Player killer, Player victim, ZoneTier tier) {
-        int amount = config().getTierConfigs().get(tier).pvpActingReward();
-        grantPvpActing(killer, victim, amount);
+        double effort = config().getTierConfigs().get(tier).pvpActingEffort();
+        grantPvpActing(killer, victim, effort);
     }
 
     /**
@@ -59,15 +59,15 @@ public class ActingRewardManager {
      * Caller must have already verified this isn't a griefing/Corrupted Monster kill.
      */
     public void grantExclusionPvpActing(Player killer, Player victim, ExclusionZoneTier tier) {
-        int amount = config().getExclusionTierConfigs().get(tier).pvpActingReward();
-        grantPvpActing(killer, victim, amount);
+        double effort = config().getExclusionTierConfigs().get(tier).pvpActingEffort();
+        grantPvpActing(killer, victim, effort);
     }
 
-    private void grantPvpActing(Player killer, Player victim, int amount) {
-        if (amount <= 0 || killer == null || victim == null || killer.equals(victim)) return;
+    private void grantPvpActing(Player killer, Player victim, double effort) {
+        if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
         if (isOnCooldown(killer.getUniqueId(), victim.getUniqueId())) return;
 
-        CoiToolkit.grantActing(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, amount);
+        CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, effort);
         markGranted(killer.getUniqueId(), victim.getUniqueId());
     }
 

@@ -12,6 +12,8 @@ import java.util.Map;
 
 public class ConfigLoader {
 
+    private static final double LEGACY_ACTING_POINTS_PER_EFFORT = 10.0;
+
     private final CosmosIncursion plugin;
 
     @Getter
@@ -45,8 +47,8 @@ public class ConfigLoader {
                 {255, 60, 60},    // RED
                 {80, 0, 0}        // DEATH (dark crimson)
         };
-        // PvP kill acting reward per incursion tier: Low, Medium, High, Best
-        int[] defaultPvpActingReward = {5, 10, 15, 25};
+        // PvP kill acting effort per incursion tier: Low, Medium, High, Best
+        double[] defaultPvpActingEffort = {0.5, 1.0, 1.5, 2.5};
 
         ZoneTier[] tiers = ZoneTier.values();
         for (int i = 0; i < tiers.length; i++) {
@@ -69,9 +71,12 @@ public class ConfigLoader {
                 g = defaultColors[i][1];
                 b = defaultColors[i][2];
             }
-            int pvpActingReward = fileConfig.getInt("zones.tiers." + key + ".pvp-acting-reward", defaultPvpActingReward[i]);
+            double pvpActingEffort = getActingEffort(fileConfig,
+                    "zones.tiers." + key + ".pvp-acting-effort",
+                    defaultPvpActingEffort[i],
+                    "zones.tiers." + key + ".pvp-acting-reward");
 
-            tierConfigs.put(tier, new CosmosConfig.ZoneTierConfig(dropChance, rewardCommand, r, g, b, pvpActingReward));
+            tierConfigs.put(tier, new CosmosConfig.ZoneTierConfig(dropChance, rewardCommand, r, g, b, pvpActingEffort));
         }
 
         config.setTierDistribution(distribution);
@@ -113,7 +118,10 @@ public class ConfigLoader {
         config.setBeaconCapturePoints(fileConfig.getDouble("beacons.capture-points", 100.0));
         config.setPointsPerPlayer(fileConfig.getDouble("beacons.points-per-player", 1.0));
         config.setDecayRate(fileConfig.getDouble("beacons.decay-rate", 0.5));
-        config.setBeaconCaptureActingReward(fileConfig.getInt("beacons.capture-acting-reward", 20));
+        config.setBeaconCaptureActingEffort(getActingEffort(fileConfig,
+                "beacons.capture-acting-effort",
+                2.0,
+                "beacons.capture-acting-reward"));
 
         // Acting rewards (CircleOfImagination integration)
         config.setPvpActingCooldownSeconds(fileConfig.getInt("balancing.acting-rewards.pvp-kill-cooldown-seconds", 300));
@@ -168,9 +176,9 @@ public class ConfigLoader {
                 {6.0, 15.0, 3.0},  // MEDIUM
                 {12.0, 30.0, 6.0}  // HARD
         };
-        // Acting reward defaults per tier: SAFE, MEDIUM, HARD
-        int[] defaultExtractionActingReward = {5, 10, 20};
-        int[] defaultExclusionPvpActingReward = {0, 10, 20};
+        // Acting effort defaults per tier: SAFE, MEDIUM, HARD
+        double[] defaultExtractionActingEffort = {0.5, 1.0, 2.0};
+        double[] defaultExclusionPvpActingEffort = {0.0, 1.0, 2.0};
         ExclusionZoneTier[] exclusionTiers = ExclusionZoneTier.values();
         for (int i = 0; i < exclusionTiers.length; i++) {
             ExclusionZoneTier tier = exclusionTiers[i];
@@ -187,11 +195,17 @@ public class ConfigLoader {
             poiCap.put(ResourceType.SILVER, fileConfig.getDouble("permanent-zones.tiers." + key + ".poi-cap.silver", defaultPoiCap[i][1]));
             poiCap.put(ResourceType.GEMS,   fileConfig.getDouble("permanent-zones.tiers." + key + ".poi-cap.gems",   defaultPoiCap[i][2]));
 
-            int extractionActingReward = fileConfig.getInt("permanent-zones.tiers." + key + ".extraction-acting-reward", defaultExtractionActingReward[i]);
-            int pvpActingReward = fileConfig.getInt("permanent-zones.tiers." + key + ".pvp-acting-reward", defaultExclusionPvpActingReward[i]);
+            double extractionActingEffort = getActingEffort(fileConfig,
+                    "permanent-zones.tiers." + key + ".extraction-acting-effort",
+                    defaultExtractionActingEffort[i],
+                    "permanent-zones.tiers." + key + ".extraction-acting-reward");
+            double pvpActingEffort = getActingEffort(fileConfig,
+                    "permanent-zones.tiers." + key + ".pvp-acting-effort",
+                    defaultExclusionPvpActingEffort[i],
+                    "permanent-zones.tiers." + key + ".pvp-acting-reward");
 
             exclusionTierConfigs.put(tier, new CosmosConfig.ExclusionZoneTierConfig(
-                    dropChance, dailyBudget, poiCap, extractionActingReward, pvpActingReward));
+                    dropChance, dailyBudget, poiCap, extractionActingEffort, pvpActingEffort));
         }
         config.setExclusionTierConfigs(exclusionTierConfigs);
 
@@ -243,6 +257,18 @@ public class ConfigLoader {
 
     public void reload() {
         load();
+    }
+
+    private double getActingEffort(FileConfiguration fileConfig, String effortPath, double defaultEffort, String legacyPointsPath) {
+        if (fileConfig.contains(effortPath)) {
+            return fileConfig.getDouble(effortPath, defaultEffort);
+        }
+
+        if (legacyPointsPath != null && fileConfig.contains(legacyPointsPath)) {
+            return fileConfig.getDouble(legacyPointsPath) / LEGACY_ACTING_POINTS_PER_EFFORT;
+        }
+
+        return defaultEffort;
     }
 
 }

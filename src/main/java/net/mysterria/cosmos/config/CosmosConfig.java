@@ -16,7 +16,7 @@ public class CosmosConfig {
     /** Per-tier settings for incursion zone drop chance, reward command, and particle color. */
     public record ZoneTierConfig(double dropChance, String rewardCommand,
                                  int particleR, int particleG, int particleB,
-                                 int pvpActingReward) {}
+                                 double pvpActingEffort) {}
 
     /**
      * Per-tier settings for permanent extraction zones.
@@ -30,8 +30,8 @@ public class CosmosConfig {
     public record ExclusionZoneTierConfig(double dropChance,
                                           Map<ResourceType, Double> dailyBudget,
                                           Map<ResourceType, Double> poiCap,
-                                          int extractionActingReward,
-                                          int pvpActingReward) {}
+                                          double extractionActingEffort,
+                                          double pvpActingEffort) {}
 
     // Event settings
     private boolean eventAutoStart = true;
@@ -87,7 +87,7 @@ public class CosmosConfig {
     private double beaconCapturePoints = 100.0;
     private double pointsPerPlayer = 1.0;
     private double decayRate = 0.5;
-    private int beaconCaptureActingReward = 20;
+    private double beaconCaptureActingEffort = 2.0;
 
     // Acting rewards (CircleOfImagination integration)
     // Cooldown between acting grants for repeat kills of the same victim by the same killer.

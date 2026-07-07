@@ -47,30 +47,31 @@ zones:
   # Per-tier rules. drop-chance is 0.0 (keep all) to 1.0 (drop all).
   # reward-command runs as console on kill; use %player% for the killer's name.
   # particle-color is a 6-digit hex RGB string (no '#'). Leave blank for defaults.
-  # pvp-acting-reward is CircleOfImagination acting points granted to the killer via the
-  # "player-interaction" source for a qualifying PvP kill in a zone of this tier
+  # pvp-acting-effort is CircleOfImagination effort granted to the killer via the
+  # PLAYER_INTERACTION source for a qualifying PvP kill in a zone of this tier
   # (blocked for griefing kills / Corrupted Monster killers, see balancing.anti-grief).
+  # 0.5 = small effort, 1.0 = normal effort, 2.0 = large effort.
   tiers:
     green:
       drop-chance: 0.0
       reward-command: ""
       particle-color: "00DC00"
-      pvp-acting-reward: 5
+      pvp-acting-effort: 0.5
     yellow:
       drop-chance: 0.33
       reward-command: ""
       particle-color: "FFDC00"
-      pvp-acting-reward: 10
+      pvp-acting-effort: 1.0
     red:
       drop-chance: 1.0
       reward-command: ""
       particle-color: "FF3C3C"
-      pvp-acting-reward: 15
+      pvp-acting-effort: 1.5
     death:
       drop-chance: 1.0
       reward-command: ""
       particle-color: "500000"
-      pvp-acting-reward: 25
+      pvp-acting-effort: 2.5
 
   # Zone boundary particles
   boundary-particles-enabled: true
@@ -150,9 +151,9 @@ beacons:
   # Decay rate when uncontested (points per second)
   decay-rate: 0.5
 
-  # CircleOfImagination acting points granted (via "world-content" source) to each player
+  # CircleOfImagination effort granted (via WORLD_CONTENT source) to each player
   # present when their town fully captures the beacon.
-  capture-acting-reward: 20
+  capture-acting-effort: 2.0
 
 rewards:
   # Acting speed multiplier for winning town (0.1 = 10% bonus)
@@ -247,10 +248,10 @@ permanent-zones:
   #                  Multiple players at once will drain the PoI faster.
   #                  Example: daily-budget gems = 20, poi-cap gems = 5 -> up to 4 gems PoIs per day.
   #
-  # extraction-acting-reward — CircleOfImagination acting points ("world-content" source) granted
+  # extraction-acting-effort - CircleOfImagination effort (WORLD_CONTENT source) granted
   #                            to a player for each successful resource extraction from a zone of this tier.
   #
-  # pvp-acting-reward — CircleOfImagination acting points ("player-interaction" source) granted to
+  # pvp-acting-effort - CircleOfImagination effort (PLAYER_INTERACTION source) granted to
   #                     the killer for a qualifying PvP kill in a zone of this tier.
   tiers:
     safe:
@@ -263,8 +264,8 @@ permanent-zones:
         gold: 3.0
         silver: 6.0
         gems: 1.5
-      extraction-acting-reward: 5
-      pvp-acting-reward: 0
+      extraction-acting-effort: 0.5
+      pvp-acting-effort: 0.0
     medium:
       drop-chance: 0.33
       daily-budget:
@@ -275,8 +276,8 @@ permanent-zones:
         gold: 6.0
         silver: 15.0
         gems: 3.0
-      extraction-acting-reward: 10
-      pvp-acting-reward: 10
+      extraction-acting-effort: 1.0
+      pvp-acting-effort: 1.0
     hard:
       drop-chance: 1.0
       daily-budget:
@@ -287,8 +288,8 @@ permanent-zones:
         gold: 12.0
         silver: 30.0
         gems: 6.0
-      extraction-acting-reward: 20
-      pvp-acting-reward: 20
+      extraction-acting-effort: 2.0
+      pvp-acting-effort: 2.0
 
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"

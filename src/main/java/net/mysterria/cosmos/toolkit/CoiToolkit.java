@@ -1,6 +1,7 @@
 package net.mysterria.cosmos.toolkit;
 
 import dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI;
+import dev.ua.ikeepcalm.coi.api.model.ActingSourceCategory;
 import dev.ua.ikeepcalm.coi.api.model.BeyonderData;
 import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.entity.Player;
@@ -14,10 +15,10 @@ public class CoiToolkit {
 
     private static final CircleOfImaginationAPI coiApi = CosmosIncursion.getInstance().getCoiAPI();
 
-    /** Acting source id for PvE objective completion (extraction, beacon capture). See acting-sources.yml. */
-    public static final String SOURCE_WORLD_CONTENT = "world-content";
-    /** Acting source id for PvP objective completion (qualifying kills). See acting-sources.yml. */
-    public static final String SOURCE_PLAYER_INTERACTION = "player-interaction";
+    /** Acting source for PvE objective completion (extraction, beacon capture). */
+    public static final ActingSourceCategory SOURCE_WORLD_CONTENT = ActingSourceCategory.WORLD_CONTENT;
+    /** Acting source for PvP objective completion (qualifying kills). */
+    public static final ActingSourceCategory SOURCE_PLAYER_INTERACTION = ActingSourceCategory.PLAYER_INTERACTION;
 
     /**
      * Safe-mode enforcement is no longer supported via the API.
@@ -152,14 +153,14 @@ public class CoiToolkit {
     }
 
     /**
-     * Grants {@code amount} acting points to the player's primary pathway from {@code sourceId},
-     * subject to that source's configured cap for the player's current sequence.
+     * Grants effort-scaled acting to the player's primary pathway from {@code sourceCategory},
+     * subject to COI's sequence scaling, repetition decay, multipliers, and source caps.
      *
      * @return actual bar points granted (0 if the player isn't a Beyonder, or the source is capped)
      */
-    public static int grantActing(Player player, String sourceId, int amount) {
+    public static int grantActingEffort(Player player, ActingSourceCategory sourceCategory, double effort) {
         if (coiApi.isBeyonder(player)) {
-            return coiApi.grantActing(player, sourceId, amount);
+            return coiApi.grantActingEffort(player, sourceCategory, effort);
         }
         return 0;
     }

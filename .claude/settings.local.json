@@ -36,7 +36,12 @@
       "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.role.enums.RoleType)",
       "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.player.TrustedPlayer)",
       "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.framework.trusted.RoleHolder)",
-      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.framework.trusted.SimpleRole)"
+      "Bash(javap -p -classpath run/plugins/Lands-7.25.10.jar me.angeschossen.lands.api.framework.trusted.SimpleRole)",
+      "Bash(./gradlew compileJava -q)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(./gradlew compileJava --console=plain -q)",
+      "Bash(./gradlew compileJava --console=plain)",
+      "Bash(./gradlew clean *)"
     ]
   }
 }
