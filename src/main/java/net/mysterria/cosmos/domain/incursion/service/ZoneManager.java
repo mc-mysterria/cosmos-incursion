@@ -180,4 +180,45 @@ public class ZoneManager {
                 .orElse(null);
     }
 
+    /**
+     * Find a safe location just outside a zone boundary, pushed radially outward
+     * from the zone center through {@code fromLoc}, then dropped/raised onto solid ground.
+     */
+    public Location findSafeLocationOutsideZone(Location fromLoc, IncursionZone zone) {
+        Location center = zone.getCenter();
+        double radius = zone.getRadius();
+
+        double dx = fromLoc.getX() - center.getX();
+        double dz = fromLoc.getZ() - center.getZ();
+
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < 0.1) {
+            // Player is at center, push them north
+            dx = 0;
+            dz = -(radius + 5);
+        } else {
+            double scale = (radius + 5) / distance; // 5 blocks outside the radius
+            dx *= scale;
+            dz *= scale;
+        }
+
+        Location safeLoc = center.clone().add(dx, 0, dz);
+        safeLoc.setY(fromLoc.getY());
+
+        org.bukkit.World world = safeLoc.getWorld();
+        if (world != null) {
+            // Move up if in ground
+            while (safeLoc.getY() < 256 && !world.getBlockAt(safeLoc).isPassable()) {
+                safeLoc.add(0, 1, 0);
+            }
+
+            // Move down if in air
+            while (safeLoc.getY() > 0 && world.getBlockAt(safeLoc.clone().subtract(0, 1, 0)).isPassable()) {
+                safeLoc.subtract(0, 1, 0);
+            }
+        }
+
+        return safeLoc;
+    }
+
 }

@@ -90,8 +90,13 @@ public class CosmosConfig {
     private double beaconCaptureActingEffort = 2.0;
 
     // Acting rewards (CircleOfImagination integration)
-    // Cooldown between acting grants for repeat kills of the same victim by the same killer.
-    private int pvpActingCooldownSeconds = 300;
+    // Exponential backoff for repeat kills of the same victim by the same killer.
+    // Each repeat kill within the reset window multiplies the reward by this factor.
+    private double pvpRepeatKillDecayFactor = 0.5;
+    // Seconds since the last kill of a victim after which the repeat-kill counter resets.
+    private int pvpRepeatKillResetSeconds = 1800;
+    // Floor multiplier so decay approaches, but never reaches, zero.
+    private double pvpRepeatKillMinMultiplier = 0.05;
 
     // Beacon UI/UX
     private boolean beaconUIEnabled = true;

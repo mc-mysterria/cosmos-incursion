@@ -505,7 +505,7 @@ public class EventManager {
             if (zone != null) {
                 // Player is inside a zone that just activated
                 // Teleport them just outside the zone boundary
-                Location safeLocation = findSafeLocationOutsideZone(player.getLocation(), zone);
+                Location safeLocation = zoneManager.findSafeLocationOutsideZone(player.getLocation(), zone);
 
                 if (safeLocation != null) {
                     player.teleport(safeLocation);
@@ -518,50 +518,6 @@ public class EventManager {
                 }
             }
         }
-    }
-
-    /**
-     * Find a safe location just outside a zone boundary
-     */
-    private Location findSafeLocationOutsideZone(Location playerLoc, IncursionZone zone) {
-        Location center = zone.getCenter();
-        double radius = zone.getRadius();
-
-        // Calculate direction vector from center to player
-        double dx = playerLoc.getX() - center.getX();
-        double dz = playerLoc.getZ() - center.getZ();
-
-        // Normalize and scale to just outside the radius
-        double distance = Math.sqrt(dx * dx + dz * dz);
-        if (distance < 0.1) {
-            // Player is at center, push them north
-            dx = 0;
-            dz = -(radius + 5);
-        } else {
-            double scale = (radius + 5) / distance; // 5 blocks outside the radius
-            dx *= scale;
-            dz *= scale;
-        }
-
-        // Create safe location
-        Location safeLoc = center.clone().add(dx, 0, dz);
-        safeLoc.setY(playerLoc.getY());
-
-        // Find safe ground
-        org.bukkit.World world = safeLoc.getWorld();
-        if (world != null) {
-            // Move up if in ground
-            while (safeLoc.getY() < 256 && !world.getBlockAt(safeLoc).isPassable()) {
-                safeLoc.add(0, 1, 0);
-            }
-
-            // Move down if in air
-            while (safeLoc.getY() > 0 && world.getBlockAt(safeLoc.clone().subtract(0, 1, 0)).isPassable()) {
-                safeLoc.subtract(0, 1, 0);
-            }
-        }
-
-        return safeLoc;
     }
 
     /**

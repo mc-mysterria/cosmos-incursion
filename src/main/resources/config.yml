@@ -104,9 +104,18 @@ balancing:
     corrupted-duration-minutes: 15
 
   acting-rewards:
-    # Cooldown (seconds) before the same killer can earn another PvP acting reward
-    # for killing the same victim again. Prevents duo/alt farming of repeat kills.
-    pvp-kill-cooldown-seconds: 300
+    # Exponential backoff for repeat kills: each additional kill of the same victim
+    # within the reset window multiplies the acting reward by this factor.
+    # Prevents duo/alt farming of repeat kills while still rewarding some effort.
+    pvp-repeat-kill-decay-factor: 0.5
+
+    # Seconds since the last kill of a specific victim after which the repeat-kill
+    # counter resets and the killer earns full reward again.
+    pvp-repeat-kill-reset-seconds: 1800
+
+    # Floor multiplier repeat kills can decay to (prevents the reward from ever
+    # reaching exactly zero while still making excessive farming nearly worthless).
+    pvp-repeat-kill-min-multiplier: 0.05
 
 death:
   # Sequence that triggers regression penalty

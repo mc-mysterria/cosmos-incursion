@@ -124,7 +124,9 @@ public class ConfigLoader {
                 "beacons.capture-acting-reward"));
 
         // Acting rewards (CircleOfImagination integration)
-        config.setPvpActingCooldownSeconds(fileConfig.getInt("balancing.acting-rewards.pvp-kill-cooldown-seconds", 300));
+        config.setPvpRepeatKillDecayFactor(fileConfig.getDouble("balancing.acting-rewards.pvp-repeat-kill-decay-factor", 0.5));
+        config.setPvpRepeatKillResetSeconds(fileConfig.getInt("balancing.acting-rewards.pvp-repeat-kill-reset-seconds", 1800));
+        config.setPvpRepeatKillMinMultiplier(fileConfig.getDouble("balancing.acting-rewards.pvp-repeat-kill-min-multiplier", 0.05));
 
         // Zone boundary particles
         config.setZoneBoundaryParticlesEnabled(fileConfig.getBoolean("zones.boundary-particles-enabled", true));

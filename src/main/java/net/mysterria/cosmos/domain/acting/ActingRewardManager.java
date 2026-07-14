@@ -16,16 +16,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * resource extraction, beacon capture, and qualifying PvP kills.
  * <p>
  * Callers are responsible for anti-grief gating (griefing kills, Corrupted Monster) before
- * calling the PvP grant methods — this class only enforces the repeat-kill cooldown, since
- * the CircleOfImagination source cap (acting-sources.yml) already bounds total farmable amount.
+ * calling the PvP grant methods — this class only enforces the repeat-kill exponential
+ * backoff, since the CircleOfImagination source cap (acting-sources.yml) already bounds
+ * total farmable amount.
  */
 public class ActingRewardManager {
 
     private final CosmosIncursion plugin;
 
-    // killer UUID -> victim UUID -> last grant timestamp (millis). Prevents repeat-kill farming
-    // of the same victim from generating unlimited acting grants.
-    private final Map<UUID, Map<UUID, Long>> pvpGrantCooldowns = new ConcurrentHashMap<>();
+    // killer UUID -> victim UUID -> repeat-kill state. Applies exponential backoff to
+    // repeated kills of the same victim so farming a single target loses value fast.
+    private final Map<UUID, Map<UUID, RepeatKillState>> pvpRepeatKills = new ConcurrentHashMap<>();
+
+    private record RepeatKillState(int streak, long lastGrantMillis) {}
 
     public ActingRewardManager(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -65,22 +68,35 @@ public class ActingRewardManager {
 
     private void grantPvpActing(Player killer, Player victim, double effort) {
         if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
-        if (isOnCooldown(killer.getUniqueId(), victim.getUniqueId())) return;
 
-        CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, effort);
-        markGranted(killer.getUniqueId(), victim.getUniqueId());
+        double multiplier = nextRepeatMultiplier(killer.getUniqueId(), victim.getUniqueId());
+        double grantedEffort = effort * multiplier;
+        if (grantedEffort <= 0) return;
+
+        CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort);
     }
 
-    private boolean isOnCooldown(UUID killerId, UUID victimId) {
-        Long last = pvpGrantCooldowns.getOrDefault(killerId, Map.of()).get(victimId);
-        if (last == null) return false;
-        long cooldownMillis = config().getPvpActingCooldownSeconds() * 1000L;
-        return (System.currentTimeMillis() - last) < cooldownMillis;
-    }
+    /**
+     * Advances and returns the repeat-kill multiplier for this killer/victim pair.
+     * The streak resets to zero (full reward) once the reset window has elapsed since the
+     * last grant; otherwise each successive kill multiplies the reward by the decay factor,
+     * floored at the configured minimum.
+     */
+    private double nextRepeatMultiplier(UUID killerId, UUID victimId) {
+        long now = System.currentTimeMillis();
+        long resetMillis = config().getPvpRepeatKillResetSeconds() * 1000L;
 
-    private void markGranted(UUID killerId, UUID victimId) {
-        pvpGrantCooldowns.computeIfAbsent(killerId, k -> new ConcurrentHashMap<>())
-                .put(victimId, System.currentTimeMillis());
+        Map<UUID, RepeatKillState> victims = pvpRepeatKills.computeIfAbsent(killerId, k -> new ConcurrentHashMap<>());
+        RepeatKillState previous = victims.get(victimId);
+
+        int streak = (previous == null || (now - previous.lastGrantMillis()) >= resetMillis)
+                ? 0
+                : previous.streak() + 1;
+
+        victims.put(victimId, new RepeatKillState(streak, now));
+
+        double multiplier = Math.pow(config().getPvpRepeatKillDecayFactor(), streak);
+        return Math.max(multiplier, config().getPvpRepeatKillMinMultiplier());
     }
 
     private CosmosConfig config() {
