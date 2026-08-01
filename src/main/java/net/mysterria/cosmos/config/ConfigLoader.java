@@ -232,6 +232,25 @@ public class ConfigLoader {
         }
         config.setEventWinnerResourcesByTier(winnerResourcesByTier);
 
+        // Discord notifications
+        config.setDiscordEnabled(fileConfig.getBoolean("discord.enabled", false));
+        java.util.List<CosmosConfig.DiscordWebhookConfig> discordWebhooks = new java.util.ArrayList<>();
+        for (java.util.Map<?, ?> entry : fileConfig.getMapList("discord.webhooks")) {
+            String name = mapString(entry, "name", "unnamed");
+            boolean enabled = entry.get("enabled") instanceof Boolean b && b;
+            String webhookUrl = mapString(entry, "webhook-url", "");
+            String pingRoleId = mapString(entry, "ping-role-id", "");
+            String title = mapString(entry, "title", "⚠️ Incursion Event Starting!");
+            String description = mapString(entry, "description",
+                    "An incursion begins in %countdown% seconds! %zones% zones will be active.");
+            String imageUrl = mapString(entry, "image-url", "");
+            String color = mapString(entry, "color", "FF0000");
+
+            discordWebhooks.add(new CosmosConfig.DiscordWebhookConfig(
+                    name, enabled, webhookUrl, pingRoleId, title, description, imageUrl, color));
+        }
+        config.setDiscordWebhooks(discordWebhooks);
+
         // Messages
         config.setMsgEventStarting(fileConfig.getString("messages.event-starting",
                 "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"));
@@ -259,6 +278,11 @@ public class ConfigLoader {
 
     public void reload() {
         load();
+    }
+
+    private String mapString(java.util.Map<?, ?> map, String key, String defaultValue) {
+        Object value = map.get(key);
+        return value != null ? String.valueOf(value) : defaultValue;
     }
 
     private double getActingEffort(FileConfiguration fileConfig, String effortPath, double defaultEffort, String legacyPointsPath) {

@@ -138,6 +138,14 @@ public class CosmosConfig {
     private double permanentZonePoiBonusAmount = 0.5;
     private int permanentZonePoiBonusInterval = 30;
 
+    /** One outgoing Discord webhook notification (e.g. one per language/channel). */
+    public record DiscordWebhookConfig(String name, boolean enabled, String webhookUrl, String pingRoleId,
+                                       String title, String description, String imageUrl, String color) {}
+
+    // Discord notifications
+    private boolean discordEnabled = false;
+    private java.util.List<DiscordWebhookConfig> discordWebhooks = new java.util.ArrayList<>();
+
     // Messages
     private String msgEventStarting = "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>";
     private String msgEventStarted = "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>";

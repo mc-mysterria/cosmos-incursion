@@ -11,6 +11,7 @@ import net.mysterria.cosmos.domain.incursion.model.source.EventState;
 import net.mysterria.cosmos.domain.incursion.task.ZoneBoundaryParticleTask;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.BuffToolkit;
+import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.domain.beacon.task.BeaconCaptureTask;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.toolkit.ZonePlacerToolkit;
@@ -27,6 +28,7 @@ public class EventManager {
     private final BuffToolkit buffToolkit;
     private final MapIntegration mapIntegration;
     private final BeaconUIManager beaconUIManager;
+    private final DiscordToolkit discordToolkit;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final java.util.Set<Integer> announcedMinutes;
@@ -38,13 +40,14 @@ public class EventManager {
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffToolkit buffToolkit, MapIntegration mapIntegration,
-                        BeaconUIManager beaconUIManager) {
+                        BeaconUIManager beaconUIManager, DiscordToolkit discordToolkit) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.beaconManager = beaconManager;
         this.buffToolkit = buffToolkit;
         this.mapIntegration = mapIntegration;
         this.beaconUIManager = beaconUIManager;
+        this.discordToolkit = discordToolkit;
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.currentState = EventState.IDLE;
@@ -328,6 +331,9 @@ public class EventManager {
 
         // Generate beacons automatically for all zones
         beaconManager.generateBeaconsForZones(incursionZones);
+
+        // Notify Discord that the event is starting
+        discordToolkit.sendEventStarting(config.getCountdownSeconds(), incursionZones.size());
 
         plugin.log("Event starting with " + incursionZones.size() + " zones, " + config.getCountdownSeconds() + "s countdown");
     }

@@ -300,6 +300,40 @@ permanent-zones:
       extraction-acting-effort: 2.0
       pvp-acting-effort: 2.0
 
+discord:
+  # Master switch for Discord webhook notifications when an incursion event starts (countdown begins).
+  # Each entry below also has its own "enabled" flag, so you can toggle individual webhooks.
+  enabled: false
+
+  # One or more webhooks to notify. Add an entry per channel/language (e.g. English + Ukrainian).
+  # - name           — label for logs only, does not appear in Discord
+  # - enabled        — toggle this specific webhook on/off
+  # - webhook-url    — Discord webhook URL (Server Settings > Integrations > Webhooks)
+  # - ping-role-id   — role to @-ping in this webhook's message. Leave blank for no ping.
+  #                    Enable Developer Mode in Discord, right-click a role, "Copy Role ID".
+  # - title          — embed title. Supports %countdown% and %zones% placeholders.
+  # - description    — embed description. Supports %countdown% and %zones% placeholders.
+  # - image-url      — optional image shown in the embed. Leave blank for no image.
+  # - color          — embed color, 6-digit hex RGB string (no '#').
+  webhooks:
+    - name: "english"
+      enabled: true
+      webhook-url: ""
+      ping-role-id: ""
+      title: "⚠️ Incursion Event Starting!"
+      description: "An incursion begins in %countdown% seconds! %zones% zones will be active."
+      image-url: ""
+      color: "FF0000"
+
+    - name: "ukrainian"
+      enabled: false
+      webhook-url: ""
+      ping-role-id: ""
+      title: "⚠️ Вторгнення починається!"
+      description: "Вторгнення почнеться через %countdown% секунд! Буде активно %zones% зон(и)."
+      image-url: ""
+      color: "FF0000"
+
 messages:
   event-starting: "<red>[Cosmos Incursion]</red> <white>An incursion begins in %countdown% seconds!</white>"
   event-started: "<red>[Cosmos Incursion]</red> <white>The incursion has begun! %zones% zones active.</white>"

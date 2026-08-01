@@ -45,6 +45,7 @@ import net.mysterria.cosmos.domain.incursion.task.EventCheckTask;
 import net.mysterria.cosmos.domain.incursion.task.ZoneCheckTask;
 import net.mysterria.cosmos.toolkit.BuffToolkit;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
+import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.toolkit.EffectsToolkit;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
@@ -83,6 +84,7 @@ public final class CosmosIncursion extends JavaPlugin {
     private ActingRewardManager actingRewardManager;
     private EffectsToolkit effectsToolkit;
     private BuffToolkit buffToolkit;
+    private DiscordToolkit discordToolkit;
 
     // Integrations & handlers
     private MapIntegration mapIntegration;
@@ -200,9 +202,13 @@ public final class CosmosIncursion extends JavaPlugin {
         zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionLogger);
         zoneShopAdminGUI = new ZoneShopAdminGUI(zoneShopManager);
 
+        // Initialize Discord webhook notifications
+        log("Initializing Discord toolkit...");
+        discordToolkit = new DiscordToolkit(this);
+
         // Initialize event manager
         log("Initializing event manager...");
-        eventManager = new EventManager(this, zoneManager, beaconManager, buffToolkit, mapIntegration, beaconUIManager);
+        eventManager = new EventManager(this, zoneManager, beaconManager, buffToolkit, mapIntegration, beaconUIManager, discordToolkit);
 
         // Register commands
         log("Registering commands...");
