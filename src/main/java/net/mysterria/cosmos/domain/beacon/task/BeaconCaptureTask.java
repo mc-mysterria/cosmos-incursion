@@ -21,7 +21,7 @@ import java.util.Optional;
 
 /**
  * Task that runs every second to update beacon capture progress
- * - Counts players per town in capture radius
+ * - Counts players per town in capture radius, grouped into Nation-level factions
  * - Calculates capture rate (1 point/player/second)
  * - Handles contested state and decay
  */
@@ -59,31 +59,34 @@ public class BeaconCaptureTask extends BukkitRunnable {
     private void processBeacon(BeaconCapture capture) {
         SpiritBeacon beacon = capture.getBeacon();
 
-        // Group players near the beacon by town
-        Map<Integer, List<Player>> townPlayers = playersNearBeacon(beacon);
+        TownPresence presence = playersNearBeacon(beacon);
+        Map<Integer, List<Player>> townPlayers = presence.byTown();
 
-        // Determine capture state
         if (townPlayers.isEmpty()) {
             // No players nearby - decay
             handleDecay(capture);
-        } else if (townPlayers.size() == 1) {
-            // Single town - capturing
-            Map.Entry<Integer, List<Player>> entry = townPlayers.entrySet().iterator().next();
-            handleCapture(capture, entry.getKey(), entry.getValue());
+        } else if (distinctFactions(townPlayers.keySet(), presence.factionByTown()) == 1) {
+            // Every town present belongs to the same faction (same Nation, or a single
+            // unaffiliated town) - they cooperate on the capture rather than contesting it.
+            handleCapture(capture, townPlayers);
         } else {
-            // Multiple towns - contested
-            handleContested(capture, townPlayers);
+            // Multiple rival factions present - contested
+            handleContested(capture, townPlayers, presence.factionByTown());
         }
 
         // Update UI for all nearby players
         beaconUIManager.updateBeaconUI(capture, beacon);
     }
 
+    /** Per-town player presence near a beacon, plus each town's faction for contest resolution. */
+    private record TownPresence(Map<Integer, List<Player>> byTown, Map<Integer, Integer> factionByTown) {}
+
     /**
-     * Group players by town among those within capture radius
+     * Group players by town among those within capture radius, and record each town's faction.
      */
-    private Map<Integer, List<Player>> playersNearBeacon(SpiritBeacon beacon) {
+    private TownPresence playersNearBeacon(SpiritBeacon beacon) {
         Map<Integer, List<Player>> byTown = new HashMap<>();
+        Map<Integer, Integer> factionByTown = new HashMap<>();
         double captureRadius = config.getBeaconCaptureRadius();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -101,8 +104,6 @@ public class BeaconCaptureTask extends BukkitRunnable {
                 continue;
             }
 
-
-
             // Get player's town
             Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
             if (townOpt.isEmpty()) {
@@ -111,57 +112,99 @@ public class BeaconCaptureTask extends BukkitRunnable {
 
             TownData town = townOpt.get();
             byTown.computeIfAbsent(town.id(), k -> new ArrayList<>()).add(player);
+            factionByTown.putIfAbsent(town.id(), factionOf(town));
         }
 
-        return byTown;
+        return new TownPresence(byTown, factionByTown);
     }
 
     /**
-     * Handle beacon capture by a single town
+     * A town's faction for contest resolution: its Nation if it has one, otherwise the town
+     * itself. Nation ids are negated so they can never collide with a (always positive) town id -
+     * a townless town is simply a faction of one.
      */
-    private void handleCapture(BeaconCapture capture, int townId, List<Player> players) {
+    private int factionOf(TownData town) {
+        return town.hasNation() ? -town.nationId() : town.id();
+    }
+
+    private long distinctFactions(java.util.Set<Integer> townIds, Map<Integer, Integer> factionByTown) {
+        return townIds.stream().map(factionByTown::get).distinct().count();
+    }
+
+    /**
+     * Handle beacon capture by a single faction, which may span several allied towns.
+     * All present players (from every allied town) count toward capture speed and personal
+     * contribution; only the per-town hold-time ledger that drives the resource split is
+     * credited to whichever single town has the most players present this tick (ties favor
+     * the current owner, to avoid ownership flickering between allies of equal size).
+     */
+    private void handleCapture(BeaconCapture capture, Map<Integer, List<Player>> townPlayers) {
         capture.setContested(false);
 
-        // Get town
-        Optional<TownData> townOpt = TownsToolkit.getTownById(townId);
+        int leadingTownId = pickLeadingTown(townPlayers, capture.getOwningTownId());
+        Optional<TownData> townOpt = TownsToolkit.getTownById(leadingTownId);
         if (townOpt.isEmpty()) {
             return;
         }
+        TownData leadingTown = townOpt.get();
 
-        TownData town = townOpt.get();
+        List<Player> allPresent = townPlayers.values().stream()
+                .flatMap(List::stream)
+                .toList();
 
-        // Calculate capture delta
+        // Calculate capture delta from every allied player present, not just the leading town's
         double pointsPerPlayer = config.getPointsPerPlayer();
-        double delta = pointsPerPlayer * players.size();  // Per second
+        double delta = pointsPerPlayer * allPresent.size();
 
         // Apply capture progress
-        capture.updateProgress(delta, town, config.getBeaconCapturePoints());
+        capture.updateProgress(delta, leadingTown, config.getBeaconCapturePoints());
 
-        // Beacon just completed capture this tick - log and reward the players who secured it
+        // Beacon just completed capture this tick - log and reward everyone who helped secure it
         if (capture.consumeJustCaptured()) {
-            plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.name());
+            plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + leadingTown.name());
             double captureBonus = tierWeight(capture.getBeacon()) * config.getContributionCaptureWeight();
-            for (Player player : players) {
+            for (Player player : allPresent) {
                 plugin.getActingRewardManager().grantBeaconCaptureActing(player);
                 plugin.getContributionTracker().credit(player, captureBonus);
             }
         }
 
-        // Personal hold credit only accrues once the beacon is actually owned by this town —
-        // mirrors the per-town ledger in BeaconCapture, which only counts confirmed ownership,
-        // not progress made while still capturing a neutral or enemy-held beacon.
-        if (capture.isOwnedBy(townId)) {
+        // Personal hold credit for every allied player present, once the beacon is actually
+        // owned by the leading town (mirrors the per-town ledger in BeaconCapture, which only
+        // counts confirmed ownership, not progress made while still capturing a neutral or
+        // enemy-held beacon).
+        if (capture.isOwnedBy(leadingTownId)) {
             double perSecond = tierWeight(capture.getBeacon()) * config.getContributionHoldWeight();
-            for (Player player : players) {
+            for (Player player : allPresent) {
                 plugin.getContributionTracker().credit(player, perSecond);
             }
         }
     }
 
+    /** Deterministic tie-break: most players present; ties prefer the current owner, then the lowest town id. */
+    private int pickLeadingTown(Map<Integer, List<Player>> townPlayers, int currentOwnerId) {
+        List<Map.Entry<Integer, List<Player>>> entries = new ArrayList<>(townPlayers.entrySet());
+        entries.sort(Map.Entry.comparingByKey());
+
+        int leadingTownId = entries.get(0).getKey();
+        int leadingCount = -1;
+        for (Map.Entry<Integer, List<Player>> entry : entries) {
+            int count = entry.getValue().size();
+            boolean better = count > leadingCount
+                    || (count == leadingCount && entry.getKey() == currentOwnerId);
+            if (better) {
+                leadingTownId = entry.getKey();
+                leadingCount = count;
+            }
+        }
+        return leadingTownId;
+    }
+
     /**
-     * Handle contested beacon (multiple towns present)
+     * Handle contested beacon (rival factions present)
      */
-    private void handleContested(BeaconCapture capture, Map<Integer, List<Player>> townPlayers) {
+    private void handleContested(BeaconCapture capture, Map<Integer, List<Player>> townPlayers,
+                                 Map<Integer, Integer> factionByTown) {
         if (!capture.isContested()) {
             plugin.log("Beacon " + capture.getBeacon().name() + " is now contested");
         }
@@ -172,12 +215,21 @@ public class BeaconCaptureTask extends BukkitRunnable {
         capture.updateProgress(0, null, config.getBeaconCapturePoints());
 
         int owningTownId = capture.getOwningTownId();
-        List<Player> defenders = owningTownId != 0 ? townPlayers.get(owningTownId) : null;
-        if (defenders != null) {
-            double perSecond = tierWeight(capture.getBeacon()) * config.getContributionContestedHoldWeight();
-            for (Player defender : defenders) {
-                plugin.getContributionTracker().credit(defender, perSecond);
-            }
+        if (owningTownId == 0 || !townPlayers.containsKey(owningTownId)) {
+            return;
+        }
+
+        // Credit every town sharing the owner's faction (allies helping defend), not just the
+        // owner's own roster — matches the cooperative treatment in handleCapture.
+        int defendingFaction = factionByTown.get(owningTownId);
+        List<Player> defenders = townPlayers.entrySet().stream()
+                .filter(entry -> defendingFaction == factionByTown.get(entry.getKey()))
+                .flatMap(entry -> entry.getValue().stream())
+                .toList();
+
+        double perSecond = tierWeight(capture.getBeacon()) * config.getContributionContestedHoldWeight();
+        for (Player defender : defenders) {
+            plugin.getContributionTracker().credit(defender, perSecond);
         }
     }
 
