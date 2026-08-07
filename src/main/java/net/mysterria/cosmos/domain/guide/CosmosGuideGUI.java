@@ -50,8 +50,8 @@ public class CosmosGuideGUI {
             Component.text("⚔  Incursion Zones", NamedTextColor.RED, TextDecoration.BOLD),
             List.of(
                 line("Timed server-wide PvP events with", NamedTextColor.GRAY),
-                line("Spirit Beacons, zone tiers, and", NamedTextColor.GRAY),
-                line("rewards for the winning town.", NamedTextColor.GRAY),
+                line("Spirit Beacons, zone tiers, and rewards", NamedTextColor.GRAY),
+                line("for every town that puts up a fight.", NamedTextColor.GRAY),
                 Component.empty(),
                 line("Click to learn more.", NamedTextColor.YELLOW)
             ),
@@ -183,19 +183,31 @@ public class CosmosGuideGUI {
             )
         ));
 
-        // Victory buff
+        // Victory rewards
         gui.setItem(31, infoItem(
             Material.TOTEM_OF_UNDYING,
-            Component.text("★  Victory Buff", NamedTextColor.GOLD, TextDecoration.BOLD),
+            Component.text("★  Incursion Rewards", NamedTextColor.GOLD, TextDecoration.BOLD),
             List.of(
-                line("Awarded to the winning town at event end.", NamedTextColor.GRAY),
+                line("Every town that holds or contests a beacon", NamedTextColor.GRAY),
+                line("scores — the top towns split the rewards.", NamedTextColor.GRAY),
                 Component.empty(),
-                line("Reward:", NamedTextColor.WHITE),
-                line("  Acting Speed +10% for all town members", NamedTextColor.GOLD),
-                line("  Duration: 24 hours", NamedTextColor.YELLOW),
+                line("Acting Speed Buff (scarce):", NamedTextColor.WHITE),
+                line("  #1  +10% Acting Speed, 24 hours", NamedTextColor.GOLD),
+                line("  #2  +5% Acting Speed, 12 hours", NamedTextColor.YELLOW),
+                line("  Defending the #1 spot in a row escalates it.", NamedTextColor.GRAY),
                 Component.empty(),
-                line("Only one town holds the buff at a time.", NamedTextColor.GRAY),
-                line("Winning again refreshes the duration.", NamedTextColor.GRAY)
+                line("Resources (fair):", NamedTextColor.WHITE),
+                line("  Split among all qualifying towns, proportional", NamedTextColor.GOLD),
+                line("  to how much they actually held or fought for.", NamedTextColor.GOLD),
+                line("  Allied towns in the same Nation amplify each", NamedTextColor.AQUA),
+                line("  other's share when several of them show up —", NamedTextColor.AQUA),
+                line("  a Nation that doesn't fight earns nothing.", NamedTextColor.AQUA),
+                Component.empty(),
+                line("MVP (personal):", NamedTextColor.WHITE),
+                line("  Top individual contributors are rewarded", NamedTextColor.LIGHT_PURPLE),
+                line("  even if their town doesn't place.", NamedTextColor.LIGHT_PURPLE),
+                Component.empty(),
+                line("Check /cosmos leaderboard after each event.", NamedTextColor.GRAY)
             )
         ));
 

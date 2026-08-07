@@ -29,6 +29,8 @@ public class EventManager {
     private final MapIntegration mapIntegration;
     private final BeaconUIManager beaconUIManager;
     private final DiscordToolkit discordToolkit;
+    private final RewardDistributor rewardDistributor;
+    private final EventHistoryStore eventHistoryStore;
     private final CosmosConfig config;
     private final MiniMessage miniMessage;
     private final java.util.Set<Integer> announcedMinutes;
@@ -40,7 +42,8 @@ public class EventManager {
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffToolkit buffToolkit, MapIntegration mapIntegration,
-                        BeaconUIManager beaconUIManager, DiscordToolkit discordToolkit) {
+                        BeaconUIManager beaconUIManager, DiscordToolkit discordToolkit,
+                        RewardDistributor rewardDistributor, EventHistoryStore eventHistoryStore) {
         this.plugin = plugin;
         this.zoneManager = zoneManager;
         this.beaconManager = beaconManager;
@@ -48,6 +51,8 @@ public class EventManager {
         this.mapIntegration = mapIntegration;
         this.beaconUIManager = beaconUIManager;
         this.discordToolkit = discordToolkit;
+        this.rewardDistributor = rewardDistributor;
+        this.eventHistoryStore = eventHistoryStore;
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.currentState = EventState.IDLE;
@@ -236,35 +241,12 @@ public class EventManager {
             // Cleanup all UI elements
             beaconUIManager.cleanupAllUI();
 
-            // Calculate winning town from beacon ownership
+            // Rank towns by contribution and distribute podium buffs, proportional resources
+            // (with Nation amplification), and MVP rewards. Replaces the old single-winner
+            // beacon-ownership check, which credited only whichever town held a beacon at the
+            // exact instant the event ended.
             if (beaconManager.hasBeacons()) {
-                int winningTownId = beaconManager.getWinningTown();
-                if (winningTownId != 0) {
-                    plugin.log("Winning town (most beacon control): " + winningTownId);
-
-                    // Award Acting Speed buff to winning town
-                    buffToolkit.awardBuffToTown(winningTownId);
-
-                    // Deposit per-tier resources to winning town: one reward entry per zone in the event
-                    java.util.Map<net.mysterria.cosmos.domain.incursion.model.source.ZoneTier, java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double>> rewardsByTier =
-                            config.getEventWinnerResourcesByTier();
-                    java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double> totalReward =
-                            new java.util.EnumMap<>(net.mysterria.cosmos.domain.exclusion.model.source.ResourceType.class);
-                    for (IncursionZone zone : activeEvent.getIncursionZones()) {
-                        java.util.Map<net.mysterria.cosmos.domain.exclusion.model.source.ResourceType, Double> tierReward =
-                                rewardsByTier.get(zone.getTier());
-                        if (tierReward != null) {
-                            tierReward.forEach((type, amount) ->
-                                    totalReward.merge(type, amount, Double::sum));
-                        }
-                    }
-                    if (!totalReward.isEmpty()) {
-                        plugin.getPermanentZoneManager().depositToTown(winningTownId, totalReward);
-                        plugin.log("Deposited event winner resources to town " + winningTownId + ": " + totalReward);
-                    }
-                } else {
-                    plugin.log("No winning town (no beacons were captured)");
-                }
+                rewardDistributor.distribute(activeEvent);
 
                 // Reset all beacons
                 beaconManager.resetAllCaptures();
@@ -356,6 +338,17 @@ public class EventManager {
         // Clear announcement tracking for new event
         announcedMinutes.clear();
 
+        // Fresh per-player contribution scores for this event's MVP payout
+        plugin.getContributionTracker().reset();
+
+        // Announce the current title holder, if any — gives everyone a target to dethrone
+        if (eventHistoryStore.getHolderTownId() != 0) {
+            String holderMessage = "<red>[Cosmos Incursion]</red> <white>Current Holder: </white>" +
+                    "<gold>" + eventHistoryStore.getHolderTownName() + "</gold> " +
+                    "<gray>(streak: " + eventHistoryStore.getHolderStreak() + ")</gray>";
+            broadcastMessage(holderMessage);
+        }
+
         // Activate all zones
         zoneManager.activateAllZones();
 
@@ -434,8 +427,8 @@ public class EventManager {
             plugin.log("Despawned all remaining Hollow Body NPCs");
         }
 
-        // Territory rewards are handled via beacon ownership in onEnterIdle()
-        // The winning town (most beacon control time) receives the Acting Speed buff
+        // Contribution scoring and reward distribution happen in onEnterIdle(), via
+        // RewardDistributor — see there for the podium/proportional/nation payout logic.
 
         plugin.log("Event is ending...");
     }

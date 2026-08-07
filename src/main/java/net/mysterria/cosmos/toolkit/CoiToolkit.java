@@ -140,12 +140,33 @@ public class CoiToolkit {
         return Optional.empty();
     }
 
+    /**
+     * Sets the player's acting speed multiplier (a delta, e.g. {@code 0.10} = +10%), but only if
+     * it's stronger than whatever is already active — a weaker buff arriving later never
+     * downgrades one already in effect.
+     */
     public static void setActingSpeedMultiplier(Player player, double multiplier, long durationMillis) {
         if (coiApi.isBeyonder(player)) {
             if (coiApi.getActingSpeedMultiplier(player) < multiplier) {
                 coiApi.setActingSpeedMultiplier(player, multiplier, durationMillis);
             }
         }
+    }
+
+    /**
+     * Unconditionally sets the player's acting speed multiplier, bypassing the "only if greater"
+     * guard on {@link #setActingSpeedMultiplier}. Required for actually removing a buff — the
+     * guarded setter can only ever raise the value, never lower it — and for clearing multipliers
+     * stranded by a past bug.
+     */
+    public static void forceActingSpeedMultiplier(Player player, double multiplier, long durationMillis) {
+        if (coiApi.isBeyonder(player)) {
+            coiApi.setActingSpeedMultiplier(player, multiplier, durationMillis);
+        }
+    }
+
+    public static double getActingSpeedMultiplier(Player player) {
+        return coiApi.getActingSpeedMultiplier(player);
     }
 
     public static ItemStack getBeyonderChar(String pathway, int sequence) {

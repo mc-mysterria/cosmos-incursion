@@ -7,9 +7,17 @@ import dev.rollczi.litecommands.annotations.permission.Permission;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.domain.incursion.model.EventResult;
+import net.mysterria.cosmos.domain.incursion.model.TownScore;
 import net.mysterria.cosmos.domain.incursion.model.source.EventState;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
 
 @Command(name = "cosmos")
 public class GeneralCommand {
@@ -30,6 +38,8 @@ public class GeneralCommand {
             .append(Component.text(" - View your town's extracted resources").color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("/cosmos status").color(NamedTextColor.YELLOW)
             .append(Component.text(" - Show current event status").color(NamedTextColor.WHITE)));
+        sender.sendMessage(Component.text("/cosmos leaderboard").color(NamedTextColor.YELLOW)
+            .append(Component.text(" - Show incursion standings and win history").color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("/cosmos admin reload").color(NamedTextColor.YELLOW)
             .append(Component.text(" - Reload configuration").color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("/cosmos admin start / stop").color(NamedTextColor.YELLOW)
@@ -107,6 +117,49 @@ public class GeneralCommand {
                 sender.sendMessage(Component.text("Active Zones: ").color(NamedTextColor.YELLOW)
                     .append(Component.text(String.valueOf(activeEvent.getIncursionZones().size())).color(NamedTextColor.WHITE)));
             }
+        }
+    }
+
+    @Execute(name = "leaderboard")
+    public void leaderboard(@Context CommandSender sender) {
+        var history = plugin.getEventHistoryStore();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault());
+
+        sender.sendMessage(Component.text("=== Incursion Leaderboard ===").color(NamedTextColor.GOLD));
+
+        if (history.getHolderTownId() != 0) {
+            sender.sendMessage(Component.text("Current Holder: ").color(NamedTextColor.YELLOW)
+                    .append(Component.text(history.getHolderTownName()).color(NamedTextColor.GOLD))
+                    .append(Component.text(" (streak: " + history.getHolderStreak() + ")").color(NamedTextColor.GRAY)));
+        }
+
+        Map<String, Long> winCounts = history.getWinCounts();
+        if (!winCounts.isEmpty()) {
+            sender.sendMessage(Component.text("All-time wins:").color(NamedTextColor.YELLOW));
+            int shown = 0;
+            for (Map.Entry<String, Long> entry : winCounts.entrySet()) {
+                if (shown >= 5) break;
+                sender.sendMessage(Component.text("  " + entry.getKey() + ": ").color(NamedTextColor.WHITE)
+                        .append(Component.text(entry.getValue() + " win(s)").color(NamedTextColor.GREEN)));
+                shown++;
+            }
+        }
+
+        List<EventResult> recent = history.getRecent(5);
+        if (recent.isEmpty()) {
+            sender.sendMessage(Component.text("No recorded events yet.").color(NamedTextColor.GRAY));
+            return;
+        }
+
+        sender.sendMessage(Component.text("Recent events:").color(NamedTextColor.YELLOW));
+        for (EventResult result : recent) {
+            String when = formatter.format(Instant.ofEpochMilli(result.timestampMillis()));
+            TownScore winner = result.standings().stream()
+                    .filter(t -> t.rank() == 1 && t.qualified())
+                    .findFirst().orElse(null);
+            String summary = winner != null ? winner.townName() : "no winner";
+            sender.sendMessage(Component.text("  " + when + " — ").color(NamedTextColor.GRAY)
+                    .append(Component.text(summary).color(NamedTextColor.WHITE)));
         }
     }
 

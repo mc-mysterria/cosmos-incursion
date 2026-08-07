@@ -113,8 +113,39 @@ public class CosmosConfig {
     private double zoneBoundaryParticleViewDistance = 50.0;  // Distance from boundary to show particles
 
     // Rewards
-    private double actingSpeedBonus = 1.10;
+    private double actingSpeedBonus = 0.10;
     private int buffDurationHours = 24;
+
+    // Contribution scoring — feeds RewardDistributor's per-town ranking and payout split.
+    // score(town) = sum over beacons of (holdSeconds*holdWeight + contestedSeconds*contestedHoldWeight
+    //               + captures*captureWeight) * tierWeight(beacon's zone tier)
+    private double contributionHoldWeight = 1.0;
+    private double contributionContestedHoldWeight = 2.0;
+    private double contributionCaptureWeight = 30.0;
+    private Map<ZoneTier, Double> contributionTierWeights = new EnumMap<>(ZoneTier.class);
+    // A town scoring below this fraction of the top town's score receives no reward at all.
+    private double minScoreShare = 0.05;
+
+    /** Rank -> buff granted to that rank's town. Ranks with no entry get resources only. */
+    public record PodiumRank(double actingSpeedBonus, int durationHours) {}
+    private Map<Integer, PodiumRank> podiumRanks = new java.util.LinkedHashMap<>();
+
+    // Nation amplification — multiplies (never grants) the resource share of towns that
+    // qualified for a reward, scaled by how many of their nation's towns also qualified.
+    private boolean nationBonusEnabled = true;
+    private double nationBonusPerExtraTown = 0.10;
+    private double nationMaxMultiplier = 1.30;
+
+    // MVP — personal reward for the top individual contributors, independent of town placement.
+    private int mvpCount = 3;
+    private double mvpActingEffort = 10.0;
+    private String mvpCommand = "";
+
+    // Holder streak — rank 1 escalates its buff the longer it defends the title, and a
+    // successful dethrone is worth extra resources.
+    private double holderStreakBonusPerWin = 0.02;
+    private double holderMaxStreakBonus = 0.06;
+    private double holderDethroneResourceMultiplier = 1.25;
 
     // Permanent zone PoI map icons
     private Map<ResourceType, String> poiIconPaths = new EnumMap<>(ResourceType.class);
@@ -140,7 +171,8 @@ public class CosmosConfig {
 
     /** One outgoing Discord webhook notification (e.g. one per language/channel). */
     public record DiscordWebhookConfig(String name, boolean enabled, String webhookUrl, String pingRoleId,
-                                       String title, String description, String imageUrl, String color) {}
+                                       String title, String description, String imageUrl, String color,
+                                       String resultsTitle) {}
 
     // Discord notifications
     private boolean discordEnabled = false;

@@ -134,8 +134,52 @@ public class ConfigLoader {
         config.setZoneBoundaryParticleViewDistance(fileConfig.getDouble("zones.boundary-particle-view-distance", 50.0));
 
         // Rewards
-        config.setActingSpeedBonus(fileConfig.getDouble("rewards.acting-speed-bonus", 1.10));
+        config.setActingSpeedBonus(fileConfig.getDouble("rewards.acting-speed-bonus", 0.10));
         config.setBuffDurationHours(fileConfig.getInt("rewards.buff-duration-hours", 24));
+
+        // Contribution scoring
+        config.setContributionHoldWeight(fileConfig.getDouble("rewards.contribution.hold-weight", 1.0));
+        config.setContributionContestedHoldWeight(fileConfig.getDouble("rewards.contribution.contested-hold-weight", 2.0));
+        config.setContributionCaptureWeight(fileConfig.getDouble("rewards.contribution.capture-weight", 30.0));
+        config.setMinScoreShare(fileConfig.getDouble("rewards.contribution.min-score-share", 0.05));
+
+        double[] defaultTierWeights = {1.0, 1.25, 1.5, 2.0}; // GREEN, YELLOW, RED, DEATH
+        Map<ZoneTier, Double> tierWeights = new EnumMap<>(ZoneTier.class);
+        for (int i = 0; i < tiers.length; i++) {
+            ZoneTier tier = tiers[i];
+            tierWeights.put(tier, fileConfig.getDouble(
+                    "rewards.contribution.tier-weights." + tier.configKey(), defaultTierWeights[i]));
+        }
+        config.setContributionTierWeights(tierWeights);
+
+        // Podium ranks (1 -> top buff, 2 -> reduced buff, ranks beyond this get resources only)
+        Map<Integer, CosmosConfig.PodiumRank> podiumRanks = new java.util.LinkedHashMap<>();
+        int[] defaultPodiumRanks = {1, 2};
+        double[] defaultPodiumBonus = {0.10, 0.05};
+        int[] defaultPodiumHours = {24, 12};
+        for (int i = 0; i < defaultPodiumRanks.length; i++) {
+            int rank = defaultPodiumRanks[i];
+            String key = "rewards.podium.rank-" + rank;
+            double bonus = fileConfig.getDouble(key + ".acting-speed", defaultPodiumBonus[i]);
+            int hours = fileConfig.getInt(key + ".duration-hours", defaultPodiumHours[i]);
+            podiumRanks.put(rank, new CosmosConfig.PodiumRank(bonus, hours));
+        }
+        config.setPodiumRanks(podiumRanks);
+
+        // Nation amplification
+        config.setNationBonusEnabled(fileConfig.getBoolean("rewards.nation.enabled", true));
+        config.setNationBonusPerExtraTown(fileConfig.getDouble("rewards.nation.bonus-per-extra-town", 0.10));
+        config.setNationMaxMultiplier(fileConfig.getDouble("rewards.nation.max-multiplier", 1.30));
+
+        // MVP
+        config.setMvpCount(fileConfig.getInt("rewards.mvp.count", 3));
+        config.setMvpActingEffort(fileConfig.getDouble("rewards.mvp.acting-effort", 10.0));
+        config.setMvpCommand(fileConfig.getString("rewards.mvp.command", ""));
+
+        // Holder streak
+        config.setHolderStreakBonusPerWin(fileConfig.getDouble("rewards.holder.streak-bonus-per-win", 0.02));
+        config.setHolderMaxStreakBonus(fileConfig.getDouble("rewards.holder.max-streak-bonus", 0.06));
+        config.setHolderDethroneResourceMultiplier(fileConfig.getDouble("rewards.holder.dethrone-resource-multiplier", 1.25));
 
         // Permanent zones
         config.setPermanentZonePoiCount(fileConfig.getInt("permanent-zones.poi-count", 3));
@@ -245,9 +289,10 @@ public class ConfigLoader {
                     "An incursion begins in %countdown% seconds! %zones% zones will be active.");
             String imageUrl = mapString(entry, "image-url", "");
             String color = mapString(entry, "color", "FF0000");
+            String resultsTitle = mapString(entry, "results-title", "🏆 Incursion Results");
 
             discordWebhooks.add(new CosmosConfig.DiscordWebhookConfig(
-                    name, enabled, webhookUrl, pingRoleId, title, description, imageUrl, color));
+                    name, enabled, webhookUrl, pingRoleId, title, description, imageUrl, color, resultsTitle));
         }
         config.setDiscordWebhooks(discordWebhooks);
 

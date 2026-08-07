@@ -85,57 +85,6 @@ public class BeaconManager {
     }
 
     /**
-     * Get beacons owned by a specific town
-     */
-    public List<BeaconCapture> getBeaconsOwnedBy(int townId) {
-        List<BeaconCapture> owned = new ArrayList<>();
-        for (BeaconCapture capture : captureStates.values()) {
-            if (capture.isOwnedBy(townId)) {
-                owned.add(capture);
-            }
-        }
-        return owned;
-    }
-
-    /**
-     * Calculate total ownership time for a town across all beacons
-     */
-    public long getTotalOwnershipTime(int townId) {
-        long total = 0;
-        for (BeaconCapture capture : captureStates.values()) {
-            if (capture.isOwnedBy(townId)) {
-                total += capture.getTotalOwnershipSeconds();
-            }
-        }
-        return total;
-    }
-
-    /**
-     * Get the town with the most total ownership time
-     */
-    public int getWinningTown() {
-        Map<Integer, Long> townTimes = new HashMap<>();
-
-        for (BeaconCapture capture : captureStates.values()) {
-            if (capture.getOwningTownId() != 0) {
-                int townId = capture.getOwningTownId();
-                long time = capture.getTotalOwnershipSeconds();
-                townTimes.merge(townId, time, Long::sum);
-            }
-        }
-
-        if (townTimes.isEmpty()) {
-            return 0;
-        }
-
-        // Find town with most time
-        return townTimes.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(0);
-    }
-
-    /**
      * Check if any beacons are loaded
      */
     public boolean hasBeacons() {
@@ -176,7 +125,7 @@ public class BeaconManager {
         String beaconId = "beacon_" + counter;
         String beaconName = zone.getName().replace('_', ' ') + " - Beacon";
 
-        SpiritBeacon beacon = new SpiritBeacon(beaconId, beaconName, location);
+        SpiritBeacon beacon = new SpiritBeacon(beaconId, beaconName, location, zone.getTier());
         beacons.put(beaconId, beacon);
 
         plugin.log("Generated beacon: " + beacon);

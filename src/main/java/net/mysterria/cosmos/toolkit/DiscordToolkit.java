@@ -4,12 +4,15 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.incursion.model.PlayerContribution;
+import net.mysterria.cosmos.domain.incursion.model.TownScore;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * Sends Discord webhook notifications (embeds + optional role ping) for incursion events.
@@ -55,6 +58,61 @@ public class DiscordToolkit {
             String payload = buildPayload(title, description, webhook.imageUrl(), webhook.pingRoleId(), color);
             send(webhook.name(), webhook.webhookUrl(), payload);
         }
+    }
+
+    /**
+     * Sends the incursion results notification to every enabled webhook once an event ends and
+     * rewards have been distributed. Unlike {@link #sendEventStarting}, the description is built
+     * from the actual standings rather than a user-templated string, since its length and content
+     * vary event to event.
+     */
+    public void sendEventResults(List<TownScore> standings, List<PlayerContribution> mvps) {
+        CosmosConfig config = plugin.getConfigLoader().getConfig();
+
+        if (!config.isDiscordEnabled()) {
+            return;
+        }
+
+        String description = buildResultsDescription(standings, mvps);
+
+        for (CosmosConfig.DiscordWebhookConfig webhook : config.getDiscordWebhooks()) {
+            if (!webhook.enabled()) {
+                continue;
+            }
+            if (webhook.webhookUrl() == null || webhook.webhookUrl().isBlank()) {
+                plugin.log("Discord webhook '" + webhook.name() + "' is enabled but has no webhook-url, skipping");
+                continue;
+            }
+
+            int color = parseColor(webhook.color());
+            String payload = buildPayload(webhook.resultsTitle(), description, webhook.imageUrl(), null, color);
+            send(webhook.name(), webhook.webhookUrl(), payload);
+        }
+    }
+
+    private String buildResultsDescription(List<TownScore> standings, List<PlayerContribution> mvps) {
+        if (standings.isEmpty() || standings.stream().noneMatch(TownScore::qualified)) {
+            return "No town contested the beacons enough to earn a reward this time.";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (TownScore town : standings) {
+            if (shown >= 5) break;
+            sb.append(String.format("**#%d %s** — %s%n", town.rank(), town.townName(),
+                    town.qualified() ? String.format("%.0f%% share", town.share() * 100) : "no reward"));
+            shown++;
+        }
+
+        if (!mvps.isEmpty()) {
+            sb.append("\n**MVPs:** ");
+            for (int i = 0; i < mvps.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(mvps.get(i).playerName());
+            }
+        }
+
+        return sb.toString();
     }
 
     private String replacePlaceholders(String text, int countdownSeconds, int zoneCount) {

@@ -24,6 +24,7 @@ See [`docs/`](docs/) for detailed documentation.
 
 ```
 /cosmos status                              - Show current event status
+/cosmos leaderboard                         - Show incursion standings, holder streak, win history
 /cosmos admin reload                        - Hot-reload config.yml
 /cosmos admin start / stop                  - Force start/stop event
 /cosmos admin give paperangel <player>      - Give Paper Angel protection item
@@ -44,6 +45,8 @@ net.mysterria.cosmos/
 ├── domain/
 │   ├── incursion/                    ← Timed event zones (circle-based)
 │   │   ├── source/                   ← Enums: ZoneTier, PlayerTier, EventState
+│   │   ├── service/                  ← EventManager, RewardDistributor, ContributionTracker,
+│   │   │                               EventHistoryStore (contribution scoring + payouts)
 │   │   ├── tasks/                    ← ZoneCheckTask, EventCheckTask, ZoneBoundaryParticleTask
 │   │   └── gui/                      ← ConsentGUI
 │   ├── beacon/                       ← Spirit beacon capture mechanics
@@ -79,7 +82,9 @@ net.mysterria.cosmos/
 - **IDLE**: Waits for `min-players` threshold + cooldown. Does not re-check after event starts.
 - **STARTING**: 60s countdown; zones + beacons generated with tier distribution.
 - **ACTIVE**: Full duration regardless of player count changes. Runs beacon capture + rewards.
-- **ENDING**: Awards buff to winning town, despawns Hollow Bodies, cleans up state.
+- **ENDING**: Ranks towns by contribution and distributes podium buffs, proportional resources
+  (with Nation amplification), and MVP rewards via `RewardDistributor`; despawns Hollow Bodies;
+  cleans up state.
 
 ### Zone Tiers (Incursion Events)
 

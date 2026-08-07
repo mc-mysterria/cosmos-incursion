@@ -53,6 +53,31 @@ Total zone count = `max(base-count, online-players / players-per-zone)`, capped 
 
 Players approaching a zone boundary see `ConsentGUI` — a tier-aware agreement screen listing the specific rules for that tier (drop chance, regression risk). Consent is tracked per-player per-event and reset when the event ends. Players already inside a zone when an event starts are teleported outside.
 
+## Event Rewards
+
+Rewards are contribution-based, not winner-take-all. Every town that holds, contests, or captures
+a beacon accumulates a score for the event (`RewardDistributor`, per-town data tracked in
+`BeaconCapture`); higher-tier zones' beacons are worth more, and defending a beacon while
+contested is worth more than holding it uncontested.
+
+- **Acting Speed buff** — scarce and rank-tiered (`rewards.podium`): rank 1 gets the full bonus,
+  rank 2 a reduced one, ranks below that get nothing. This is the part of the reward you can
+  lose. Defending rank 1 across consecutive events escalates the bonus (`rewards.holder`), and
+  dethroning a multi-win holder pays the dethroning town extra resources.
+- **Resources** — the event's reward pool (`rewards.winner-resources`, summed per zone tier) is
+  split proportionally by contribution share among every town that cleared
+  `rewards.contribution.min-score-share`. A town below that floor gets nothing.
+- **Nation amplification** (`rewards.nation`, Lands only) — multiplies a qualifying town's
+  resource share based on how many of its Nation's *other* towns also cleared the floor this
+  event. A nation-mate that didn't show up and contribute gets nothing; a nation that
+  coordinates earns more than the sum of its parts.
+- **MVP** (`rewards.mvp`) — the top individual contributors get a personal acting-effort reward
+  regardless of whether their town placed, so solo and small-town players have a reason to show
+  up even without a shot at the podium.
+
+Full config keys: [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md#rewards). Standings, win history, and
+the current Holder are viewable with `/cosmos leaderboard`.
+
 ## Player Tier Classification
 
 Inside any zone, players are classified:

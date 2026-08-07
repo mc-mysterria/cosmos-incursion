@@ -165,14 +165,18 @@ beacons:
   capture-acting-effort: 2.0
 
 rewards:
-  # Acting speed multiplier for winning town (0.1 = 10% bonus)
-  acting-speed-bonus: 0.1
+  # Legacy/default Acting Speed delta (0.10 = +10% acting speed). Kept as the fallback used when
+  # loading a buff_data.json written before the per-rank podium rework below, and as the default
+  # for rank 1 if "podium" doesn't define one. This is a DELTA, not a multiplier — CoiToolkit
+  # adds it on top of 1.0, so 0.10 really is +10%, not +10x.
+  acting-speed-bonus: 0.10
 
-  # Duration of buff (in hours)
+  # Duration of buff (in hours), used as a fallback the same way as acting-speed-bonus above.
   buff-duration-hours: 24
 
-  # Resources deposited to the winning town's balance at the end of each incursion event.
-  # Each zone that was active contributes the reward for its tier.
+  # Resources in the reward pool for each incursion event = sum of the reward for every zone's
+  # tier that was active in the event. The pool is then split proportionally across every town
+  # that cleared "contribution.min-score-share" below — see RewardDistributor.
   # Example: an event with 1 GREEN + 1 RED + 1 DEATH zone gives green + red + death rewards.
   winner-resources:
     green:
@@ -191,6 +195,57 @@ rewards:
       gold: 100.0
       silver: 200.0
       gems: 50.0
+
+  # Contribution scoring — determines each town's rank and resource share.
+  # score(town) = sum over beacons of:
+  #   (holdSeconds * hold-weight + contestedSeconds * contested-hold-weight
+  #    + captures * capture-weight) * tier-weights[beacon's zone tier]
+  # Headcount-neutral by construction: a beacon ticks the same whether 1 or 20 players hold it.
+  contribution:
+    hold-weight: 1.0
+    contested-hold-weight: 2.0   # defending under pressure outweighs uncontested camping
+    capture-weight: 30.0
+    tier-weights:
+      green: 1.0
+      yellow: 1.25
+      red: 1.5
+      death: 2.0
+    # A town scoring below this fraction of the top town's score gets no reward at all.
+    min-score-share: 0.05
+
+  # Podium: the Acting Speed buff is scarce and rank-tiered, not proportional — this is what
+  # makes the event a contest you can lose. Ranks not listed here get resources only, no buff.
+  # acting-speed is a delta (0.10 = +10%), same convention as acting-speed-bonus above.
+  podium:
+    rank-1:
+      acting-speed: 0.10
+      duration-hours: 24
+    rank-2:
+      acting-speed: 0.05
+      duration-hours: 12
+
+  # Nation amplification (requires the Lands plugin — HuskTowns has no nation concept).
+  # Multiplies the RESOURCE share only (never the buff) of towns that qualified for a reward,
+  # scaled by how many of that town's Nation allies also qualified this event. A nation-mate that
+  # didn't show up and contribute gets nothing — this only rewards nations that coordinate.
+  nation:
+    enabled: true
+    bonus-per-extra-town: 0.10   # +10% per additional qualifying town from the same nation
+    max-multiplier: 1.30
+
+  # MVP: top individual contributors get a personal reward regardless of whether their town
+  # placed on the podium — makes showing up worthwhile even for small or solo-ish towns.
+  mvp:
+    count: 3
+    acting-effort: 10.0
+    command: ""   # optional console command, placeholder: %player%
+
+  # Holder streak: rank 1 is publicly the "Holder" until dethroned. Consecutive wins escalate
+  # their buff (capped), and dethroning a holder with a streak of 2+ pays extra resources.
+  holder:
+    streak-bonus-per-win: 0.02       # added to the rank-1 delta per consecutive win: 0.10 -> 0.12 -> 0.14 ...
+    max-streak-bonus: 0.06
+    dethrone-resource-multiplier: 1.25
 
 permanent-zones:
   # Number of Points of Interest active simultaneously per zone
@@ -311,8 +366,10 @@ discord:
   # - webhook-url    — Discord webhook URL (Server Settings > Integrations > Webhooks)
   # - ping-role-id   — role to @-ping in this webhook's message. Leave blank for no ping.
   #                    Enable Developer Mode in Discord, right-click a role, "Copy Role ID".
-  # - title          — embed title. Supports %countdown% and %zones% placeholders.
-  # - description    — embed description. Supports %countdown% and %zones% placeholders.
+  # - title          — "starting" embed title. Supports %countdown% and %zones% placeholders.
+  # - description    — "starting" embed description. Supports %countdown% and %zones% placeholders.
+  # - results-title  — title used for the end-of-event results embed. The description for that
+  #                    embed is always built from the actual standings, so it isn't templated.
   # - image-url      — optional image shown in the embed. Leave blank for no image.
   # - color          — embed color, 6-digit hex RGB string (no '#').
   webhooks:
@@ -322,6 +379,7 @@ discord:
       ping-role-id: ""
       title: "⚠️ Incursion Event Starting!"
       description: "An incursion begins in %countdown% seconds! %zones% zones will be active."
+      results-title: "🏆 Incursion Results"
       image-url: ""
       color: "FF0000"
 
@@ -331,6 +389,7 @@ discord:
       ping-role-id: ""
       title: "⚠️ Вторгнення починається!"
       description: "Вторгнення почнеться через %countdown% секунд! Буде активно %zones% зон(и)."
+      results-title: "🏆 Результати вторгнення"
       image-url: ""
       color: "FF0000"
 

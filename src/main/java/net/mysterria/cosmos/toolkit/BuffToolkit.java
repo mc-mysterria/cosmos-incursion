@@ -59,6 +59,13 @@ public class BuffToolkit {
             Map<Integer, TownBuff> loadedBuffs = gson.fromJson(reader, type);
 
             if (loadedBuffs != null) {
+                // Backward compat: buff_data.json written before the per-rank buff rework has no
+                // "multiplier" field, which Gson leaves at the primitive default (0.0). Patch
+                // those in with the configured base bonus rather than applying a 0% buff.
+                loadedBuffs.replaceAll((townId, buff) -> buff.multiplier() > 0
+                        ? buff
+                        : new TownBuff(buff.townId(), buff.townName(), config.getActingSpeedBonus(), buff.expiryTime()));
+
                 activeTownBuffs.putAll(loadedBuffs);
                 plugin.log("Loaded " + loadedBuffs.size() + " town buffs from file");
 
@@ -85,9 +92,11 @@ public class BuffToolkit {
     }
 
     /**
-     * Award Acting Speed buff to a town
+     * Award an Acting Speed buff to a town at the given rank multiplier/duration.
+     * Silent at the town level — RewardDistributor is responsible for announcing event
+     * standings as a whole, so this only applies the buff and notifies the members directly.
      */
-    public void awardBuffToTown(int townId) {
+    public void awardBuff(int townId, double multiplier, int durationHours) {
         // Get town
         Optional<TownData> townOpt = TownsToolkit.getTownById(townId);
         if (townOpt.isEmpty()) {
@@ -98,11 +107,11 @@ public class BuffToolkit {
         TownData town = townOpt.get();
 
         // Calculate expiry time
-        long durationMillis = config.getBuffDurationHours() * 60 * 60 * 1000L;
+        long durationMillis = durationHours * 60 * 60 * 1000L;
         long expiryTime = System.currentTimeMillis() + durationMillis;
 
         // Create buff
-        TownBuff buff = new TownBuff(townId, town.name(), expiryTime);
+        TownBuff buff = new TownBuff(townId, town.name(), multiplier, expiryTime);
         activeTownBuffs.put(townId, buff);
 
         // Apply to all online members
@@ -110,20 +119,13 @@ public class BuffToolkit {
         for (UUID memberId : town.memberUuids()) {
             Player player = Bukkit.getPlayer(memberId);
             if (player != null && player.isOnline()) {
-                applyBuffToPlayer(player, expiryTime);
+                applyBuffToPlayer(player, multiplier, expiryTime);
                 appliedCount++;
             }
         }
 
-        // Broadcast to server
-        Component message = Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
-                .append(Component.text(town.name() + " has won the territory control! ", NamedTextColor.WHITE))
-                .append(Component.text("Members receive Acting Speed bonus for " +
-                                       config.getBuffDurationHours() + " hours!", NamedTextColor.GREEN));
-        Bukkit.getServer().sendMessage(message);
-
-        plugin.log("Awarded Acting Speed buff to town " + town.name() +
-                   " (" + appliedCount + " online members)");
+        plugin.log("Awarded +" + Math.round(multiplier * 100) + "% Acting Speed buff to town " + town.name() +
+                   " for " + durationHours + "h (" + appliedCount + " online members)");
 
         // Save to file
         saveBuffData();
@@ -132,26 +134,31 @@ public class BuffToolkit {
     /**
      * Apply Acting Speed buff to a player
      */
-    private void applyBuffToPlayer(Player player, long expiryTime) {
+    private void applyBuffToPlayer(Player player, double multiplier, long expiryTime) {
         long remainingMillis = Math.max(0L, expiryTime - System.currentTimeMillis());
-        CoiToolkit.setActingSpeedMultiplier(player, config.getActingSpeedBonus(), remainingMillis);
+        CoiToolkit.setActingSpeedMultiplier(player, multiplier, remainingMillis);
 
         activePlayerBuffs.put(player.getUniqueId(), expiryTime);
 
         player.sendMessage(
                 Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
                         .append(Component.text("You received an Acting Speed bonus! ", NamedTextColor.GREEN))
-                        .append(Component.text("(+" + (int) (config.getActingSpeedBonus() * 100) + "%)", NamedTextColor.YELLOW))
+                        .append(Component.text("(+" + Math.round(multiplier * 100) + "%)", NamedTextColor.YELLOW))
         );
 
-        plugin.log("Applied Acting Speed buff to player " + player.getName());
+        plugin.log("Applied +" + Math.round(multiplier * 100) + "% Acting Speed buff to player " + player.getName());
     }
 
     /**
-     * Remove Acting Speed buff from a player
+     * Remove Acting Speed buff from a player.
+     *
+     * <p>Must use {@link CoiToolkit#forceActingSpeedMultiplier} rather than the guarded setter —
+     * {@code setActingSpeedMultiplier} only ever raises the value, so a guarded call here would
+     * silently do nothing whenever the buff being removed is the largest one the player has ever
+     * had (which, for a single-source buff like this, is always).
      */
     private void removeBuffFromPlayer(Player player) {
-        CoiToolkit.setActingSpeedMultiplier(player, 1.0, 0L);
+        CoiToolkit.forceActingSpeedMultiplier(player, 0.0, 0L);
 
         activePlayerBuffs.remove(player.getUniqueId());
 
@@ -164,9 +171,20 @@ public class BuffToolkit {
     }
 
     /**
-     * Check and reapply buff to a player on join
+     * Check and reapply buff to a player on join. Also clears any multiplier stranded by a past
+     * bug in {@link #removeBuffFromPlayer} — it used to pass a delta of {@code 1.0} (+100%)
+     * instead of {@code 0.0} when "removing" a buff, and that call went through the guarded
+     * setter, which never lowers a value — so removal could silently fail to apply at all.
+     * A player rejoining with no tracked active buff but a multiplier at or above 1.0 is almost
+     * certainly stranded by that bug: this plugin never grants a delta anywhere near that large.
      */
     public void handlePlayerJoin(Player player) {
+        if (!activePlayerBuffs.containsKey(player.getUniqueId())
+                && CoiToolkit.getActingSpeedMultiplier(player) >= 1.0) {
+            CoiToolkit.forceActingSpeedMultiplier(player, 0.0, 0L);
+            plugin.log("Cleared a stranded legacy Acting Speed multiplier for " + player.getName());
+        }
+
         // Check if player's town has an active buff
         Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
         if (townOpt.isEmpty()) {
@@ -176,7 +194,7 @@ public class BuffToolkit {
         TownBuff buff = activeTownBuffs.get(townOpt.get().id());
         if (buff != null && !buff.isExpired()) {
             // Reapply buff
-            applyBuffToPlayer(player, buff.expiryTime());
+            applyBuffToPlayer(player, buff.multiplier(), buff.expiryTime());
             plugin.log("Reapplied Acting Speed buff to " + player.getName() + " (town: " + buff.townName() + ")");
         }
     }
@@ -241,9 +259,11 @@ public class BuffToolkit {
     }
 
     /**
-     * Data class for town buff tracking
+     * Data class for town buff tracking. {@code multiplier} is the acting-speed delta granted
+     * (e.g. {@code 0.10} = +10%) — ranks below 1st can carry a smaller value than
+     * {@code config.getActingSpeedBonus()}.
      */
-    private record TownBuff(int townId, String townName, long expiryTime) {
+    private record TownBuff(int townId, String townName, double multiplier, long expiryTime) {
 
         public boolean isExpired() {
             return System.currentTimeMillis() >= expiryTime;

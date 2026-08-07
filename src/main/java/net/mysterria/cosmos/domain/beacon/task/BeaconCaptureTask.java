@@ -72,7 +72,7 @@ public class BeaconCaptureTask extends BukkitRunnable {
             handleCapture(capture, entry.getKey(), entry.getValue());
         } else {
             // Multiple towns - contested
-            handleContested(capture);
+            handleContested(capture, townPlayers);
         }
 
         // Update UI for all nearby players
@@ -140,8 +140,20 @@ public class BeaconCaptureTask extends BukkitRunnable {
         // Beacon just completed capture this tick - log and reward the players who secured it
         if (capture.consumeJustCaptured()) {
             plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + town.name());
+            double captureBonus = tierWeight(capture.getBeacon()) * config.getContributionCaptureWeight();
             for (Player player : players) {
                 plugin.getActingRewardManager().grantBeaconCaptureActing(player);
+                plugin.getContributionTracker().credit(player, captureBonus);
+            }
+        }
+
+        // Personal hold credit only accrues once the beacon is actually owned by this town —
+        // mirrors the per-town ledger in BeaconCapture, which only counts confirmed ownership,
+        // not progress made while still capturing a neutral or enemy-held beacon.
+        if (capture.isOwnedBy(townId)) {
+            double perSecond = tierWeight(capture.getBeacon()) * config.getContributionHoldWeight();
+            for (Player player : players) {
+                plugin.getContributionTracker().credit(player, perSecond);
             }
         }
     }
@@ -149,12 +161,29 @@ public class BeaconCaptureTask extends BukkitRunnable {
     /**
      * Handle contested beacon (multiple towns present)
      */
-    private void handleContested(BeaconCapture capture) {
+    private void handleContested(BeaconCapture capture, Map<Integer, List<Player>> townPlayers) {
         if (!capture.isContested()) {
             plugin.log("Beacon " + capture.getBeacon().name() + " is now contested");
         }
         capture.setContested(true);
-        // No progress change when contested
+        // No progress change when contested, but still advance the clock so contested hold time
+        // accrues to whichever town currently owns the beacon (rewarded more heavily than
+        // uncontested holding — see ContributionTracker).
+        capture.updateProgress(0, null, config.getBeaconCapturePoints());
+
+        int owningTownId = capture.getOwningTownId();
+        List<Player> defenders = owningTownId != 0 ? townPlayers.get(owningTownId) : null;
+        if (defenders != null) {
+            double perSecond = tierWeight(capture.getBeacon()) * config.getContributionContestedHoldWeight();
+            for (Player defender : defenders) {
+                plugin.getContributionTracker().credit(defender, perSecond);
+            }
+        }
+    }
+
+    /** Weight multiplier for the incursion zone tier the beacon belongs to. */
+    private double tierWeight(SpiritBeacon beacon) {
+        return config.getContributionTierWeights().getOrDefault(beacon.tier(), 1.0);
     }
 
     /**

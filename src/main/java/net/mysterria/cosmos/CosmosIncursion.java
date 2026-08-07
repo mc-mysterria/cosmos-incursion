@@ -38,8 +38,11 @@ import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.task.*;
 import net.mysterria.cosmos.domain.guide.CosmosGuideGUI;
+import net.mysterria.cosmos.domain.incursion.service.ContributionTracker;
+import net.mysterria.cosmos.domain.incursion.service.EventHistoryStore;
 import net.mysterria.cosmos.domain.incursion.service.EventManager;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
+import net.mysterria.cosmos.domain.incursion.service.RewardDistributor;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
 import net.mysterria.cosmos.domain.incursion.task.EventCheckTask;
 import net.mysterria.cosmos.domain.incursion.task.ZoneCheckTask;
@@ -85,6 +88,9 @@ public final class CosmosIncursion extends JavaPlugin {
     private EffectsToolkit effectsToolkit;
     private BuffToolkit buffToolkit;
     private DiscordToolkit discordToolkit;
+    private ContributionTracker contributionTracker;
+    private EventHistoryStore eventHistoryStore;
+    private RewardDistributor rewardDistributor;
 
     // Integrations & handlers
     private MapIntegration mapIntegration;
@@ -134,6 +140,10 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing beacon manager...");
         beaconManager = new BeaconManager(this);
 
+        // Initialize contribution tracker (per-player scoring for MVP rewards)
+        log("Initializing contribution tracker...");
+        contributionTracker = new ContributionTracker();
+
         // Initialize player state manager
         log("Initializing player state manager...");
         playerStateManager = new PlayerStateManager(this);
@@ -177,6 +187,11 @@ public final class CosmosIncursion extends JavaPlugin {
         buffToolkit = new BuffToolkit(this);
         buffToolkit.loadBuffData();
 
+        // Initialize event history store (persisted event standings + holder streak)
+        log("Initializing event history store...");
+        eventHistoryStore = new EventHistoryStore(this);
+        eventHistoryStore.load();
+
         // Initialize guide GUI
         log("Initializing guide GUI...");
         guideGUI = new CosmosGuideGUI(this);
@@ -206,9 +221,14 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing Discord toolkit...");
         discordToolkit = new DiscordToolkit(this);
 
+        // Initialize reward distributor (contribution ranking + podium/nation/MVP payouts)
+        log("Initializing reward distributor...");
+        rewardDistributor = new RewardDistributor(this);
+
         // Initialize event manager
         log("Initializing event manager...");
-        eventManager = new EventManager(this, zoneManager, beaconManager, buffToolkit, mapIntegration, beaconUIManager, discordToolkit);
+        eventManager = new EventManager(this, zoneManager, beaconManager, buffToolkit, mapIntegration, beaconUIManager,
+                discordToolkit, rewardDistributor, eventHistoryStore);
 
         // Register commands
         log("Registering commands...");
@@ -232,6 +252,11 @@ public final class CosmosIncursion extends JavaPlugin {
         // Save buff data
         if (buffToolkit != null) {
             buffToolkit.saveBuffData();
+        }
+
+        // Save event history (win records, holder streak)
+        if (eventHistoryStore != null) {
+            eventHistoryStore.save();
         }
 
         // Save permanent zone data and clean up display entities

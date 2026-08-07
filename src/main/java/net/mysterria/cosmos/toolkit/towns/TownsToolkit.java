@@ -4,6 +4,7 @@ import me.angeschossen.lands.api.LandsIntegration;
 import me.angeschossen.lands.api.flags.type.Flags;
 import me.angeschossen.lands.api.land.ChunkCoordinate;
 import me.angeschossen.lands.api.land.Land;
+import me.angeschossen.lands.api.nation.Nation;
 import me.angeschossen.lands.api.player.LandPlayer;
 import net.william278.husktowns.api.HuskTownsAPI;
 import net.william278.husktowns.claim.Claim;
@@ -299,31 +300,65 @@ public class TownsToolkit {
         return result;
     }
 
+    /**
+     * Returns every known town belonging to the given nation ID.
+     * Always empty for {@link TownData#NO_NATION} or when nations aren't supported (HuskTowns).
+     */
+    public static List<TownData> getNationTowns(int nationId) {
+        if (nationId == TownData.NO_NATION) return Collections.emptyList();
+        List<TownData> result = new ArrayList<>();
+        for (TownData town : getTowns()) {
+            if (town.nationId() == nationId) result.add(town);
+        }
+        return result;
+    }
+
     // ── Conversion helpers ───────────────────────────────────────────────────────
 
     private static TownData toTownData(Town town) {
+        // HuskTowns has no nation concept (only town-to-town relations), so always NO_NATION.
         return new TownData(
                 town.getId(),
                 town.getName(),
-                Collections.unmodifiableSet(town.getMembers().keySet()));
+                Collections.unmodifiableSet(town.getMembers().keySet()),
+                TownData.NO_NATION,
+                null);
     }
 
     private static TownData toLandTownData(Land land) {
         Set<UUID> members = new HashSet<>(land.getTrustedPlayers());
         UUID owner = land.getOwnerUID();
         if (owner != null) members.add(owner);
-        return new TownData(landId(land), land.getName(), Collections.unmodifiableSet(members));
+
+        Nation nation = land.getNation();
+        int nationId = nation != null ? stableId(nation.getName()) : TownData.NO_NATION;
+        String nationName = nation != null ? nation.getName() : null;
+
+        return new TownData(landId(land), land.getName(), Collections.unmodifiableSet(members), nationId, nationName);
     }
 
     /**
      * Derives a stable, positive, non-zero int ID from a Lands {@link Land}.
      * Based on the land's name hash, which is deterministic across JVM restarts.
+     *
+     * <p>Note: this means renaming a land silently orphans anything keyed on its old id (town
+     * buffs, resource balances). Lands exposes a stable {@code getULID()} via {@code MemberHolder}
+     * that would survive a rename — migrating to it is a larger change tracked separately.
      */
     static int landId(Land land) {
-        int hash = land.getName().hashCode();
+        return stableId(land.getName());
+    }
+
+    /**
+     * Derives a stable, positive, non-zero int ID from an arbitrary name.
+     * Shared by {@link #landId(Land)} and nation IDs so both get identical "positive, non-zero,
+     * deterministic across restarts" treatment.
+     */
+    private static int stableId(String name) {
+        int hash = name.hashCode();
         if (hash == Integer.MIN_VALUE) return Integer.MAX_VALUE; // avoid Math.abs overflow
         int id = Math.abs(hash);
-        return id == 0 ? 1 : id; // 0 is the "no owner" sentinel
+        return id == 0 ? 1 : id; // 0 is the "no owner"/"no nation" sentinel
     }
 
     // ── Chunk-position helper ────────────────────────────────────────────────────

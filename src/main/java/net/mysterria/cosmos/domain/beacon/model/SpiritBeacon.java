@@ -1,20 +1,22 @@
 package net.mysterria.cosmos.domain.beacon.model;
 
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
 
 /**
  * Represents a Spirit Beacon - a virtual capture point for territory control
  * Beacons are defined by coordinates in config, not physical blocks
  */
-public record SpiritBeacon(String id, String name, Location location) {
+public record SpiritBeacon(String id, String name, Location location, ZoneTier tier) {
 
     /**
      * Constructor with Location object (for auto-generated beacons)
      */
-    public SpiritBeacon(String id, String name, Location location) {
+    public SpiritBeacon(String id, String name, Location location, ZoneTier tier) {
         this.id = id;
         this.name = name;
         this.location = location.clone();
+        this.tier = tier;
     }
 
     /**
