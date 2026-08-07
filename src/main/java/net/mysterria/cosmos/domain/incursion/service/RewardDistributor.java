@@ -68,11 +68,14 @@ public class RewardDistributor {
                 .mapToDouble(Double::doubleValue)
                 .sum();
 
+        // Final tie-break on town id (ascending) makes an exact tie on every other metric
+        // deterministic and reproducible, instead of falling back to HashMap iteration order.
         List<Integer> ranked = rawScores.keySet().stream()
                 .sorted(Comparator
                         .comparingDouble((Integer id) -> rawScores.get(id)).reversed()
                         .thenComparing(Comparator.comparingLong((Integer id) -> contestedTotals.getOrDefault(id, 0L)).reversed())
-                        .thenComparing(Comparator.comparingInt((Integer id) -> captureTotals.getOrDefault(id, 0)).reversed()))
+                        .thenComparing(Comparator.comparingInt((Integer id) -> captureTotals.getOrDefault(id, 0)).reversed())
+                        .thenComparing(Comparator.naturalOrder()))
                 .toList();
 
         List<TownScore> standings = new ArrayList<>();
@@ -243,12 +246,24 @@ public class RewardDistributor {
 
     // ── MVP payouts ──────────────────────────────────────────────────────────────
 
+    /**
+     * Pays MVP rewards to online top contributors immediately. A contributor who's offline at
+     * distribution time is still named as MVP everywhere (broadcast/Discord/history), but their
+     * acting-effort reward is queued in {@link EventHistoryStore} and paid via the normal online
+     * grant path — see {@link #grantPendingMvpReward} — the next time they join, rather than
+     * through COI's cruder, unscaled offline API.
+     */
     private List<PlayerContribution> payoutMvps(CosmosConfig config) {
         List<PlayerContribution> mvps = plugin.getContributionTracker().top(config.getMvpCount());
 
         for (PlayerContribution mvp : mvps) {
             Player player = Bukkit.getPlayer(mvp.playerId());
-            if (player == null || !player.isOnline()) continue;
+            if (player == null || !player.isOnline()) {
+                if (config.getMvpActingEffort() > 0) {
+                    plugin.getEventHistoryStore().queuePendingMvpEffort(mvp.playerId(), config.getMvpActingEffort());
+                }
+                continue;
+            }
 
             if (config.getMvpActingEffort() > 0) {
                 CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
@@ -263,6 +278,27 @@ public class RewardDistributor {
         }
 
         return mvps;
+    }
+
+    /**
+     * Grants any MVP acting-effort reward queued for this player while they were offline.
+     * Called from {@code PlayerJoinListener}, mirroring how {@code BuffToolkit.handlePlayerJoin}
+     * reapplies a buff to a town member who was offline when their town earned it.
+     */
+    public void grantPendingMvpReward(Player player) {
+        double effort = plugin.getEventHistoryStore().drainPendingMvpEffort(player.getUniqueId());
+        if (effort <= 0) return;
+
+        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+
+        String command = config().getMvpCommand();
+        if (command != null && !command.isBlank()) {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+        }
+
+        player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
+                .append(Component.text("You were an MVP of a recent incursion — reward granted!", NamedTextColor.GREEN)));
+        plugin.log("Granted queued MVP reward to " + player.getName() + " on join");
     }
 
     // ── History + announcement ───────────────────────────────────────────────────

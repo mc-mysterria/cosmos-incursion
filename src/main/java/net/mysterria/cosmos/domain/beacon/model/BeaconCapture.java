@@ -19,6 +19,10 @@ public class BeaconCapture {
     private final SpiritBeacon beacon;
     private int owningTownId;
     private String owningTownName;
+    // The faction (Nation, or the town itself) currently controlling the beacon. Tracked
+    // separately from owningTownId so a leadership handoff between allied towns already
+    // controlling the beacon can relabel who's "leading" without counting as a new capture.
+    private int owningFactionId;
     private double captureProgress;
     /**
      * -- SETTER --
@@ -42,6 +46,7 @@ public class BeaconCapture {
         this.beacon = beacon;
         this.owningTownId = 0;
         this.owningTownName = null;
+        this.owningFactionId = 0;
         this.captureProgress = 0.0;
         this.contested = false;
         this.lastUpdateTime = System.currentTimeMillis();
@@ -83,14 +88,24 @@ public class BeaconCapture {
     }
 
     /**
-     * Set the owning town
+     * Set the owning town. If this town shares a faction with whoever already controlled the
+     * beacon (i.e. this is an allied leadership handoff, not a real capture from a rival or
+     * from neutral), only the "leading town" label moves — the capture counter and
+     * {@code justCaptured} flag (which trigger capture bonuses/rewards) don't fire, so allied
+     * towns can't farm repeated capture payouts by shuffling headcount at an already-owned beacon.
      */
     private void setOwner(TownData town) {
+        boolean realCapture = owningFactionId != town.factionId();
+
         this.owningTownId = town.id();
         this.owningTownName = town.name();
+        this.owningFactionId = town.factionId();
         this.contested = false;
-        this.justCaptured = true;
-        capturesByTown.merge(town.id(), 1, Integer::sum);
+
+        if (realCapture) {
+            this.justCaptured = true;
+            capturesByTown.merge(town.id(), 1, Integer::sum);
+        }
     }
 
     /** Returns true if the beacon completed capture this tick, and clears the flag. */
@@ -106,6 +121,7 @@ public class BeaconCapture {
     private void clearOwner() {
         this.owningTownId = 0;
         this.owningTownName = null;
+        this.owningFactionId = 0;
         this.captureProgress = 0.0;
         this.contested = false;
     }
@@ -130,6 +146,7 @@ public class BeaconCapture {
     public void reset() {
         this.owningTownId = 0;
         this.owningTownName = null;
+        this.owningFactionId = 0;
         this.captureProgress = 0.0;
         this.contested = false;
         this.lastUpdateTime = System.currentTimeMillis();

@@ -26,4 +26,13 @@ public record TownData(int id, String name, Set<UUID> memberUuids, int nationId,
     public boolean hasNation() {
         return nationId != NO_NATION;
     }
+
+    /**
+     * The side this town fights on for beacon-contest purposes: its Nation if it has one,
+     * otherwise the town itself. Nation ids are negated so they can never collide with a
+     * (always positive) town id — a townless town is simply a faction of one.
+     */
+    public int factionId() {
+        return hasNation() ? -nationId : id;
+    }
 }

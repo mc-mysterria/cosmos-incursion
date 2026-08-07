@@ -15,6 +15,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
@@ -38,13 +40,21 @@ public class EventHistoryStore {
     private volatile String holderTownName = null;
     private volatile int holderStreak = 0;
 
+    // MVP acting-effort rewards that couldn't be granted because the player was offline at
+    // distribution time, queued to be paid via the normal online grant path on next join
+    // (PlayerJoinListener) rather than through COI's cruder, unscaled offline API. Keyed by
+    // UUID string rather than UUID directly since Gson doesn't natively support non-primitive
+    // map keys.
+    private final Map<UUID, Double> pendingMvpEffort = new ConcurrentHashMap<>();
+
     public EventHistoryStore(CosmosIncursion plugin) {
         this.plugin = plugin;
         this.gson = new GsonBuilder().setPrettyPrinting().create();
         this.historyFile = new File(plugin.getDataFolder(), "event_history.json");
     }
 
-    private record PersistedState(List<EventResult> history, int holderTownId, String holderTownName, int holderStreak) {}
+    private record PersistedState(List<EventResult> history, int holderTownId, String holderTownName,
+                                  int holderStreak, Map<String, Double> pendingMvpEffort) {}
 
     public void load() {
         if (!historyFile.exists()) {
@@ -61,8 +71,13 @@ public class EventHistoryStore {
                 holderTownId = state.holderTownId();
                 holderTownName = state.holderTownName();
                 holderStreak = state.holderStreak();
+                if (state.pendingMvpEffort() != null) {
+                    state.pendingMvpEffort().forEach((uuidString, effort) ->
+                            pendingMvpEffort.put(UUID.fromString(uuidString), effort));
+                }
                 plugin.log("Loaded " + history.size() + " event history entries" +
-                        (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : ""));
+                        (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : "") +
+                        (pendingMvpEffort.isEmpty() ? "" : ", " + pendingMvpEffort.size() + " pending offline MVP reward(s)"));
             }
         } catch (IOException e) {
             plugin.log("Error loading event history: " + e.getMessage());
@@ -72,12 +87,31 @@ public class EventHistoryStore {
 
     public void save() {
         try (FileWriter writer = new FileWriter(historyFile)) {
-            PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName, holderStreak);
+            Map<String, Double> pendingMvpEffortByString = new LinkedHashMap<>();
+            pendingMvpEffort.forEach((uuid, effort) -> pendingMvpEffortByString.put(uuid.toString(), effort));
+
+            PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName,
+                    holderStreak, pendingMvpEffortByString);
             gson.toJson(state, writer);
         } catch (IOException e) {
             plugin.log("Error saving event history: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /** Queues an MVP reward for a player who was offline at distribution time. */
+    public void queuePendingMvpEffort(UUID playerId, double effort) {
+        pendingMvpEffort.merge(playerId, effort, Double::sum);
+        save();
+    }
+
+    /** Removes and returns any pending MVP effort for a player (0 if none), for granting on join. */
+    public double drainPendingMvpEffort(UUID playerId) {
+        Double effort = pendingMvpEffort.remove(playerId);
+        if (effort != null) {
+            save();
+        }
+        return effort != null ? effort : 0.0;
     }
 
     /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */

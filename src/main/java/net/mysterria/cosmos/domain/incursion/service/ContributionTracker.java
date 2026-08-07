@@ -36,11 +36,15 @@ public class ContributionTracker {
         names.put(player.getUniqueId(), player.getName());
     }
 
-    /** Returns the top {@code count} players by score, descending. */
+    /**
+     * Returns the top {@code count} players by score, descending. Ties break on player UUID so
+     * an exact tie is reproducible instead of depending on map iteration order.
+     */
     public List<PlayerContribution> top(int count) {
         return scores.entrySet().stream()
                 .map(e -> new PlayerContribution(e.getKey(), names.getOrDefault(e.getKey(), "Unknown"), e.getValue()))
-                .sorted(Comparator.comparingDouble(PlayerContribution::score).reversed())
+                .sorted(Comparator.comparingDouble(PlayerContribution::score).reversed()
+                        .thenComparing(PlayerContribution::playerId))
                 .limit(Math.max(0, count))
                 .toList();
     }

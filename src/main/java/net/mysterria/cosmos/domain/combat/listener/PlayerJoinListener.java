@@ -39,6 +39,9 @@ public class PlayerJoinListener implements Listener {
         // Reapply territory reward buff if applicable
         buffToolkit.handlePlayerJoin(player);
 
+        // Grant any MVP reward earned while offline at the last event's distribution time
+        plugin.getRewardDistributor().grantPendingMvpReward(player);
+
         // Clean up cosmos items if player joins outside the zone
         if (!plugin.getPermanentZoneManager().isInsideAnyZone(player.getLocation())) {
             ItemStack[] contents = player.getInventory().getContents();

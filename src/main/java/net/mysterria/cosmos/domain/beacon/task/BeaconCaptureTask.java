@@ -112,19 +112,10 @@ public class BeaconCaptureTask extends BukkitRunnable {
 
             TownData town = townOpt.get();
             byTown.computeIfAbsent(town.id(), k -> new ArrayList<>()).add(player);
-            factionByTown.putIfAbsent(town.id(), factionOf(town));
+            factionByTown.putIfAbsent(town.id(), town.factionId());
         }
 
         return new TownPresence(byTown, factionByTown);
-    }
-
-    /**
-     * A town's faction for contest resolution: its Nation if it has one, otherwise the town
-     * itself. Nation ids are negated so they can never collide with a (always positive) town id -
-     * a townless town is simply a faction of one.
-     */
-    private int factionOf(TownData town) {
-        return town.hasNation() ? -town.nationId() : town.id();
     }
 
     private long distinctFactions(java.util.Set<Integer> townIds, Map<Integer, Integer> factionByTown) {
