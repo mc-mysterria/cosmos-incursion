@@ -53,8 +53,11 @@ public class EventHistoryStore {
         this.historyFile = new File(plugin.getDataFolder(), "event_history.json");
     }
 
+    private long cooldownEndTime;
+
     private record PersistedState(List<EventResult> history, int holderTownId, String holderTownName,
-                                  int holderStreak, Map<String, Double> pendingMvpEffort) {}
+                                  int holderStreak, Map<String, Double> pendingMvpEffort,
+                                  long cooldownEndTime) {}
 
     public void load() {
         if (!historyFile.exists()) {
@@ -71,6 +74,7 @@ public class EventHistoryStore {
                 holderTownId = state.holderTownId();
                 holderTownName = state.holderTownName();
                 holderStreak = state.holderStreak();
+                cooldownEndTime = state.cooldownEndTime();
                 if (state.pendingMvpEffort() != null) {
                     state.pendingMvpEffort().forEach((uuidString, effort) ->
                             pendingMvpEffort.put(UUID.fromString(uuidString), effort));
@@ -91,7 +95,7 @@ public class EventHistoryStore {
             pendingMvpEffort.forEach((uuid, effort) -> pendingMvpEffortByString.put(uuid.toString(), effort));
 
             PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName,
-                    holderStreak, pendingMvpEffortByString);
+                    holderStreak, pendingMvpEffortByString, cooldownEndTime);
             gson.toJson(state, writer);
         } catch (IOException e) {
             plugin.log("Error saving event history: " + e.getMessage());
@@ -139,6 +143,14 @@ public class EventHistoryStore {
         this.holderTownId = townId;
         this.holderTownName = townName;
         this.holderStreak = streak;
+    }
+
+    public long getCooldownEndTime() {
+        return cooldownEndTime;
+    }
+
+    public void setCooldownEndTime(long cooldownEndTime) {
+        this.cooldownEndTime = cooldownEndTime;
     }
 
     /** Most recent results, newest first, capped to {@code count}. */

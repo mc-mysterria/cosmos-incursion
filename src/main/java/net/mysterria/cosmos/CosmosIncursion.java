@@ -249,6 +249,12 @@ public final class CosmosIncursion extends JavaPlugin {
     public void onDisable() {
         log("Disabling Cosmos Incursion...");
 
+        // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
+        // the in-memory event, beacon standings, and town rewards are discarded.
+        if (eventManager != null) {
+            eventManager.finalizeForShutdown();
+        }
+
         // Save buff data
         if (buffToolkit != null) {
             buffToolkit.saveBuffData();
