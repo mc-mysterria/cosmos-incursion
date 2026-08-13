@@ -41,7 +41,13 @@
       "Bash(xargs -I{} echo {})",
       "Bash(./gradlew compileJava --console=plain -q)",
       "Bash(./gradlew compileJava --console=plain)",
-      "Bash(./gradlew clean *)"
+      "Bash(./gradlew clean *)",
+      "Bash(./gradlew compileJava --rerun-tasks --console=plain -Dorg.gradle.jvmargs=-Xmx2g)",
+      "Bash(./gradlew dependencies *)",
+      "Bash(./gradlew compileJava --rerun-tasks --console=plain -PlintDeprecation)",
+      "Bash(javap -cp /c/Users/ikeepcalm/.gradle/caches/modules-2/files-2.1/com.incredibleplugins/lands-api/8.0.0/ceaeac064ce22032d2378d2b44698145a208d6bc/lands-api-8.0.0.jar me.angeschossen.lands.api.land.LandWorld)",
+      "Bash(javap -cp /c/Users/ikeepcalm/.gradle/caches/modules-2/files-2.1/com.incredibleplugins/lands-api/8.0.0/ceaeac064ce22032d2378d2b44698145a208d6bc/lands-api-8.0.0.jar me.angeschossen.lands.api.land.Container)",
+      "Bash(javap -v -cp /c/Users/ikeepcalm/.gradle/caches/modules-2/files-2.1/com.incredibleplugins/lands-api/8.0.0/ceaeac064ce22032d2378d2b44698145a208d6bc/lands-api-8.0.0.jar me.angeschossen.lands.api.land.Land)"
     ]
   }
 }

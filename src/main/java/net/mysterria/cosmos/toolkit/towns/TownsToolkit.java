@@ -3,6 +3,7 @@ package net.mysterria.cosmos.toolkit.towns;
 import me.angeschossen.lands.api.LandsIntegration;
 import me.angeschossen.lands.api.flags.type.Flags;
 import me.angeschossen.lands.api.land.ChunkCoordinate;
+import me.angeschossen.lands.api.land.Container;
 import me.angeschossen.lands.api.land.Land;
 import me.angeschossen.lands.api.nation.Nation;
 import me.angeschossen.lands.api.player.LandPlayer;
@@ -219,10 +220,12 @@ public class TownsToolkit {
                         locations.add(spawn);
                         continue;
                     }
-                    Collection<me.angeschossen.lands.api.land.ChunkCoordinate> chunks = land.getChunks(world);
-                    if (chunks == null || chunks.isEmpty()) continue;
+                    Container container = land.getContainer(world);
+                    if (container == null) continue;
+                    Collection<? extends ChunkCoordinate> chunks = container.getChunks();
+                    if (chunks.isEmpty()) continue;
                     int sumX = 0, sumZ = 0;
-                    for (me.angeschossen.lands.api.land.ChunkCoordinate cc : chunks) {
+                    for (ChunkCoordinate cc : chunks) {
                         sumX += cc.getX();
                         sumZ += cc.getZ();
                     }
@@ -277,9 +280,9 @@ public class TownsToolkit {
 
         if (hasLands()) {
             for (Land land : landsIntegration.getLands()) {
-                Collection<ChunkCoordinate> landChunks = land.getChunks(world);
-                if (landChunks == null) continue;
-                for (ChunkCoordinate cc : landChunks) {
+                Container container = land.getContainer(world);
+                if (container == null) continue;
+                for (ChunkCoordinate cc : container.getChunks()) {
                     result.add(new ChunkPosition(cc.getX(), cc.getZ()));
                 }
             }

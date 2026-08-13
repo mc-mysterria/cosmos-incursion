@@ -6,7 +6,6 @@ import me.angeschossen.lands.api.player.LandPlayer;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -33,8 +32,7 @@ public class LandsZoneProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onChunkClaim(ChunkPreClaimEvent event) {
-        World world = Bukkit.getWorld(event.getWorldName());
-        if (world == null) return;
+        World world = event.getWorld().getWorld();
 
         Location center = new Location(world, (event.getX() << 4) + 8, 64, (event.getZ() << 4) + 8);
 

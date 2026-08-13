@@ -55,7 +55,7 @@ shadowJar {
 dependencies {
     implementation "dev.rollczi:litecommands-bukkit:3.10.9"
     implementation("dev.triumphteam:triumph-gui-paper:3.1.13")
-    compileOnly("com.incredibleplugins:lands-api:7.25.11")
+    compileOnly("com.incredibleplugins:lands-api:8.0.0")
 
     compileOnly("com.github.Gecolay.GSit:core:3.3.1")
     compileOnly("xyz.jpenilla:squaremap-api:1.3.5")
