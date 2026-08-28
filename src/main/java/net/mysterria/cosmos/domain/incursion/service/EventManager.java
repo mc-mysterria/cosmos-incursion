@@ -56,7 +56,7 @@ public class EventManager {
         this.config = plugin.getConfigLoader().getConfig();
         this.miniMessage = MiniMessage.miniMessage();
         this.currentState = EventState.IDLE;
-        this.cooldownEndTime = 0;
+        this.cooldownEndTime = eventHistoryStore.getCooldownEndTime();
         this.beaconCaptureTask = null;
         this.boundaryParticleTask = null;
         this.announcedMinutes = new java.util.HashSet<>();
@@ -268,6 +268,8 @@ public class EventManager {
         // Start cooldown
         if (fromState == EventState.ENDING) {
             cooldownEndTime = System.currentTimeMillis() + (config.getCooldownMinutes() * 60_000L);
+            eventHistoryStore.setCooldownEndTime(cooldownEndTime);
+            eventHistoryStore.save();
             plugin.log("Cooldown started for " + config.getCooldownMinutes() + " minutes");
         }
     }
@@ -487,6 +489,23 @@ public class EventManager {
         broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event has been force-stopped by an administrator</white>");
         transitionTo(EventState.ENDING);
         return true;
+    }
+
+    /**
+     * Finalizes a pending event synchronously before the plugin is disabled.
+     * Bukkit tasks are cancelled as part of shutdown, so waiting for the normal
+     * ENDING tick would otherwise discard the event and its rewards.
+     */
+    public void finalizeForShutdown() {
+        if (currentState == EventState.ACTIVE) {
+            transitionTo(EventState.ENDING);
+            transitionTo(EventState.IDLE);
+        } else if (currentState == EventState.STARTING) {
+            transitionTo(EventState.ENDING);
+            transitionTo(EventState.IDLE);
+        } else if (currentState == EventState.ENDING) {
+            transitionTo(EventState.IDLE);
+        }
     }
 
     /**
