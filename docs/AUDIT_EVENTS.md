@@ -24,7 +24,8 @@ success and failure outcomes. Metadata is immutable and bounded; balances and pa
 | `incursion.mvp.reward_pending` | Offline MVP effort queued in `EventHistoryStore` | player, acting effort, offline reason |
 | `incursion.mvp.reward_granted` | Acting effort/command granted (online or on join) | player, acting effort, trigger |
 | `shop.purchase` | Town balance deduction and item delivery result | town, shop/COI item IDs, top-level physical item/parent UUID when present, price, balance before/after, outcome |
-| `shop.item_granted` | A distinct physical-UUID item from a committed purchase is placed in inventory | purchase correlation/business ID, item/parent UUID, logical shop item, material, amount |
+| `shop.item_granted` | An item from a committed purchase is placed in inventory | purchase correlation/business ID, item/parent UUID when present, logical shop item, material, amount |
+| `shop.item_dropped` | An inventory fallback places a purchased item in the world | purchase correlation/business ID, item/parent UUID when present, dropped entity UUID, material, amount |
 
 `EventHistoryStore` remains operational because holder, streak, cooldown, event leaderboard, and
 pending offline MVP behavior read it directly. `ShopTransactionLogger` and its per-town text files

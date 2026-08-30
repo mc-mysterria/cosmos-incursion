@@ -2,14 +2,19 @@ package net.mysterria.cosmos.domain.incursion.service;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.incursion.model.EventResult;
 import net.mysterria.cosmos.domain.incursion.model.TownScore;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -34,6 +39,7 @@ public class EventHistoryStore {
     private final CosmosIncursion plugin;
     private final Gson gson;
     private final File historyFile;
+    private final Object persistenceLock = new Object();
 
     private final List<EventResult> history = new CopyOnWriteArrayList<>();
     private volatile int holderTownId = 0;
@@ -88,57 +94,97 @@ public class EventHistoryStore {
                         (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : "") +
                         (pendingMvpRewards.isEmpty() ? "" : ", " + pendingMvpRewards.size() + " pending offline MVP reward(s)"));
             }
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             plugin.log("Error loading event history: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public boolean save() {
-        try (FileWriter writer = new FileWriter(historyFile)) {
-            Map<String, List<PendingMvpReward>> pendingMvpRewardsByString = new LinkedHashMap<>();
-            pendingMvpRewards.forEach((uuid, rewards) ->
-                    pendingMvpRewardsByString.put(uuid.toString(), new ArrayList<>(rewards)));
+        synchronized (persistenceLock) {
+            return saveLocked();
+        }
+    }
 
+    private boolean saveLocked() {
+        Path temporary = null;
+        try {
+            Map<String, List<PendingMvpReward>> pendingByPlayer = new LinkedHashMap<>();
+            pendingMvpRewards.forEach((uuid, rewards) ->
+                    pendingByPlayer.put(uuid.toString(), new ArrayList<>(rewards)));
             PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName,
-                    holderStreak, null, pendingMvpRewardsByString, cooldownEndTime);
-            gson.toJson(state, writer);
+                    holderStreak, null, pendingByPlayer, cooldownEndTime);
+            String json = gson.toJson(state);
+            Path target = historyFile.toPath().toAbsolutePath();
+            temporary = Files.createTempFile(target.getParent(), historyFile.getName(), ".tmp");
+            Files.writeString(temporary, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             return true;
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             plugin.log("Error saving event history: " + e.getMessage());
             e.printStackTrace();
             return false;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
     /** Queues an MVP reward for a player who was offline at distribution time. */
     public boolean queuePendingMvpReward(UUID playerId, UUID eventId, double effort) {
-        List<PendingMvpReward> previous = pendingMvpRewards.get(playerId);
-        List<PendingMvpReward> updated = previous == null ? new ArrayList<>() : new ArrayList<>(previous);
-        updated.add(new PendingMvpReward(eventId, effort));
-        pendingMvpRewards.put(playerId, updated);
-        if (save()) return true;
-        if (previous == null) pendingMvpRewards.remove(playerId);
-        else pendingMvpRewards.put(playerId, previous);
-        return false;
+        synchronized (persistenceLock) {
+            List<PendingMvpReward> previous = pendingMvpRewards.get(playerId);
+            List<PendingMvpReward> updated = previous == null ? new ArrayList<>() : new ArrayList<>(previous);
+            updated.add(new PendingMvpReward(eventId, effort));
+            pendingMvpRewards.put(playerId, updated);
+            if (saveLocked()) return true;
+            if (previous == null) pendingMvpRewards.remove(playerId);
+            else pendingMvpRewards.put(playerId, previous);
+            return false;
+        }
     }
 
-    /** Removes and returns pending MVP rewards for a player, retaining their source events. */
-    public List<PendingMvpReward> drainPendingMvpRewards(UUID playerId) {
-        List<PendingMvpReward> rewards = pendingMvpRewards.remove(playerId);
-        if (rewards == null) return List.of();
-        if (save()) return List.copyOf(rewards);
-        pendingMvpRewards.put(playerId, rewards);
-        return List.of();
+    /** Returns pending rewards without removing them. */
+    public List<PendingMvpReward> getPendingMvpRewards(UUID playerId) {
+        synchronized (persistenceLock) {
+            List<PendingMvpReward> rewards = pendingMvpRewards.get(playerId);
+            return rewards == null ? List.of() : List.copyOf(rewards);
+        }
+    }
+
+    /** Removes one applied reward only after the removal is durably persisted. */
+    public boolean acknowledgePendingMvpReward(UUID playerId, PendingMvpReward reward) {
+        synchronized (persistenceLock) {
+            List<PendingMvpReward> current = pendingMvpRewards.get(playerId);
+            if (current == null) return true;
+            List<PendingMvpReward> updated = new ArrayList<>(current);
+            if (!updated.remove(reward)) return true;
+            if (updated.isEmpty()) pendingMvpRewards.remove(playerId);
+            else pendingMvpRewards.put(playerId, updated);
+            if (saveLocked()) return true;
+            pendingMvpRewards.put(playerId, current);
+            return false;
+        }
     }
 
     /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */
     public boolean recordResult(EventResult result) {
-        history.add(result);
-        while (history.size() > MAX_HISTORY) {
-            history.remove(0);
+        synchronized (persistenceLock) {
+            history.add(result);
+            while (history.size() > MAX_HISTORY) {
+                history.remove(0);
+            }
+            return saveLocked();
         }
-        return save();
     }
 
     public int getHolderTownId() {

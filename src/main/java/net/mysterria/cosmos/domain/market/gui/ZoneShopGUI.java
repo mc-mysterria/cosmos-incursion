@@ -18,6 +18,7 @@ import dev.ua.ikeepcalm.coi.api.audit.AuditOutcome;
 import dev.ua.ikeepcalm.coi.api.audit.AuditRisk;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -287,8 +288,11 @@ public class ZoneShopGUI {
         }
 
         if (!zoneManager.deductFromTown(town.id(), prices)) {
-            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices, balanceBefore, balanceBefore,
-                    AuditOutcome.FAILED, "balance_changed_before_commit", Map.of());
+            Map<ResourceType, Double> balanceAfter = new EnumMap<>(ResourceType.class);
+            balanceAfter.putAll(zoneManager.getTownBalance(town.id()));
+            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
+                    balanceBefore, balanceAfter, AuditOutcome.FAILED,
+                    "balance_changed_before_commit", Map.of());
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                     .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
             open(player, returnPage);
@@ -296,17 +300,29 @@ public class ZoneShopGUI {
         }
 
         List<ItemStack> grantedItems = new ArrayList<>();
+        List<Map<String, Object>> droppedItems = new ArrayList<>();
         int requestedItemAmount = 0;
-        int fallbackDropAmount = 0;
+        int grantedItemAmount = 0;
+        int droppedItemAmount = 0;
         for (ItemStack stack : toGive) {
             ItemStack requested = stack.clone();
             requestedItemAmount += requested.getAmount();
             Map<Integer, ItemStack> leftovers = player.getInventory().addItem(requested.clone());
-            for (ItemStack leftover : leftovers.values()) {
-                fallbackDropAmount += leftover.getAmount();
-                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+            int leftoverAmount = leftovers.values().stream().mapToInt(ItemStack::getAmount).sum();
+            int inventoryAmount = requested.getAmount() - leftoverAmount;
+            if (inventoryAmount > 0) {
+                ItemStack granted = requested.clone();
+                granted.setAmount(inventoryAmount);
+                grantedItems.add(granted);
+                grantedItemAmount += inventoryAmount;
             }
-            grantedItems.add(requested);
+            for (ItemStack leftover : leftovers.values()) {
+                droppedItemAmount += leftover.getAmount();
+                Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+                Map<String, Object> evidence = itemEvidence(leftover);
+                evidence.put("entity_uuid", dropped.getUniqueId().toString());
+                droppedItems.add(evidence);
+            }
         }
 
         ItemStack primary = si.getItem();
@@ -315,24 +331,25 @@ public class ZoneShopGUI {
                 : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
 
         String plainItemName = itemNamePlain(primary);
-        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
-
-        String priceSummary = txLogger.getHistory(town.id()).isEmpty() ? ""
-                : txLogger.getHistory(town.id()).get(0).priceSummary();
+        String priceSummary = priceSummary(prices);
 
         // The deduction and item delivery are now committed. Emit a canonical ledger event while
         // retaining ShopTransactionLogger as the operational history fallback during review.
         ItemStack primaryGrantedItem = grantedItems.isEmpty() ? toGive.get(0) : grantedItems.get(0);
         emitPurchaseResult(correlationId, businessId, player, town, si, primaryGrantedItem, prices, balanceBefore,
                 zoneManager.getTownBalance(town.id()), AuditOutcome.COMMITTED, null,
-                Map.of("items", grantedItems.stream().map(this::itemEvidence).toList(),
+                Map.of("items", toGive.stream().map(this::itemEvidence).toList(),
                         "requested_item_count", toGive.size(),
                         "granted_item_count", grantedItems.size(),
+                        "dropped_item_count", droppedItems.size(),
                         "requested_total_amount", requestedItemAmount,
-                        "granted_total_amount", requestedItemAmount,
-                        "fallback_drop_amount", fallbackDropAmount,
+                        "granted_total_amount", grantedItemAmount,
+                        "dropped_total_amount", droppedItemAmount,
                         "price_summary", priceSummary));
         emitGrantedPhysicalItems(correlationId, businessId, player, town, si, grantedItems);
+        emitDroppedPhysicalItems(correlationId, businessId, player, town, si, droppedItems);
+
+        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
 
         Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Purchased ", NamedTextColor.GREEN))
@@ -475,6 +492,26 @@ public class ZoneShopGUI {
         }
     }
 
+    private void emitDroppedPhysicalItems(UUID correlationId, String businessId, Player player,
+                                          TownData town, ShopItem shopItem,
+                                          List<Map<String, Object>> items) {
+        for (Map<String, Object> evidence : items) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("town_id", town.id());
+            metadata.put("town_name", town.name());
+            metadata.put("shop_item_id", shopItem.getId().toString());
+            metadata.put("logical_type", "zone_shop_item");
+            metadata.put("logical_id", shopItem.getId().toString());
+            metadata.put("material", evidence.getOrDefault("material", "unknown"));
+            metadata.put("amount", evidence.getOrDefault("amount", 0));
+            metadata.put("entity_uuid", evidence.getOrDefault("entity_uuid", ""));
+            copyPhysicalIdentity(metadata, evidence);
+            MysterriaAuditEmitter.emit(plugin, "shop.item_dropped", AuditOutcome.COMMITTED,
+                    AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
+                    player.getUniqueId(), null, "inventory_fallback", metadata);
+        }
+    }
+
     private void copyPhysicalIdentity(Map<String, Object> target, Map<String, Object> evidence) {
         if (evidence.containsKey("item_uuid")) target.put("item_uuid", evidence.get("item_uuid"));
         if (evidence.containsKey("parent_item_uuid")) {
@@ -486,6 +523,15 @@ public class ZoneShopGUI {
         Map<String, Double> result = new LinkedHashMap<>();
         values.forEach((type, amount) -> result.put(type.configKey(), amount));
         return result;
+    }
+
+    private String priceSummary(Map<ResourceType, Double> prices) {
+        StringJoiner summary = new StringJoiner(", ");
+        for (ResourceType type : ResourceType.values()) {
+            double amount = prices.getOrDefault(type, 0.0);
+            if (amount > 0) summary.add(String.format("%.0f %s", amount, type.displayName()));
+        }
+        return summary.length() == 0 ? "free" : summary.toString();
     }
 
     private Map<String, Object> itemEvidence(ItemStack item) {
