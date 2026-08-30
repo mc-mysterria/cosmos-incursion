@@ -42,8 +42,23 @@ public class EventManager {
     private long cooldownEndTime;
     private BeaconCaptureTask beaconCaptureTask;
     private ZoneBoundaryParticleTask boundaryParticleTask;
-    /** Final lifecycle reason used to distinguish normal completion from an admin/shutdown stop. */
-    private String terminationReason = "unspecified";
+    private enum TerminationReason {
+        DURATION_ELAPSED("duration_elapsed", AuditOutcome.COMMITTED),
+        ADMIN_FORCE_STOP("admin_force_stop", AuditOutcome.CANCELLED),
+        PLUGIN_SHUTDOWN("plugin_shutdown", AuditOutcome.CANCELLED),
+        UNSPECIFIED("unspecified", AuditOutcome.CANCELLED);
+
+        private final String code;
+        private final AuditOutcome outcome;
+
+        TerminationReason(String code, AuditOutcome outcome) {
+            this.code = code;
+            this.outcome = outcome;
+        }
+    }
+
+    /** Final lifecycle reason selected once when the event enters ENDING. */
+    private TerminationReason terminationReason = TerminationReason.UNSPECIFIED;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffToolkit buffToolkit, MapIntegration mapIntegration,
@@ -270,14 +285,15 @@ public class EventManager {
             // Emit exactly one terminal lifecycle record after every synchronous reward and
             // cleanup mutation has completed. EventHistoryStore remains the operational source
             // of truth for holder/cooldown/pending-reward behavior.
-            AuditOutcome terminalOutcome = "duration_elapsed".equals(terminationReason)
-                    ? AuditOutcome.COMMITTED : AuditOutcome.CANCELLED;
+            TerminationReason terminalReason = terminationReason == null
+                    ? TerminationReason.UNSPECIFIED : terminationReason;
+            AuditOutcome terminalOutcome = terminalReason.outcome;
             MysterriaAuditEmitter.emit(plugin,
                     terminalOutcome == AuditOutcome.COMMITTED ? "incursion.completed" : "incursion.cancelled",
                     terminalOutcome,
                     terminalOutcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
                     activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
-                    terminationReason,
+                    terminalReason.code,
                     java.util.Map.of("kills", activeEvent.getTotalKills(),
                             "deaths", activeEvent.getTotalDeaths(),
                             "zone_count", activeEvent.getIncursionZones().size()));
@@ -312,7 +328,7 @@ public class EventManager {
             broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event cancelled - zone generation failed</white>");
             MysterriaAuditEmitter.emit(plugin, "incursion.cancelled", AuditOutcome.CANCELLED, AuditRisk.HIGH,
                     activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
-                    "zone_generation_failed", java.util.Map.of("error", String.valueOf(e.getMessage())));
+                    "zone_generation_failed", java.util.Map.of("failure_type", "zone_generation_exception"));
             activeEvent = null;
             transitionTo(EventState.IDLE);
             return;
@@ -491,7 +507,7 @@ public class EventManager {
         // Create new event
         long durationMillis = config.getDurationMinutes() * 60_000L;
         activeEvent = new IncursionEvent(durationMillis);
-        terminationReason = "duration_elapsed";
+        terminationReason = TerminationReason.UNSPECIFIED;
 
         MysterriaAuditEmitter.emitCommitted(plugin, "incursion.created", activeEvent.getEventId(),
                 activeEvent.getEventId().toString(), null, null, forced ? "forced" : "automatic",
@@ -513,7 +529,7 @@ public class EventManager {
             return;
         }
 
-        terminationReason = "duration_elapsed";
+        terminationReason = TerminationReason.DURATION_ELAPSED;
         transitionTo(EventState.ENDING);
     }
 
@@ -521,12 +537,12 @@ public class EventManager {
      * Force stop the event immediately
      */
     public boolean forceStop() {
-        if (currentState == EventState.IDLE) {
+        if (currentState != EventState.STARTING && currentState != EventState.ACTIVE) {
             return false;
         }
 
         broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event has been force-stopped by an administrator</white>");
-        terminationReason = "admin_force_stop";
+        terminationReason = TerminationReason.ADMIN_FORCE_STOP;
         transitionTo(EventState.ENDING);
         return true;
     }
@@ -538,11 +554,11 @@ public class EventManager {
      */
     public void finalizeForShutdown() {
         if (currentState == EventState.ACTIVE) {
-            terminationReason = "plugin_shutdown";
+            terminationReason = TerminationReason.PLUGIN_SHUTDOWN;
             transitionTo(EventState.ENDING);
             transitionTo(EventState.IDLE);
         } else if (currentState == EventState.STARTING) {
-            terminationReason = "plugin_shutdown";
+            terminationReason = TerminationReason.PLUGIN_SHUTDOWN;
             transitionTo(EventState.ENDING);
             transitionTo(EventState.IDLE);
         } else if (currentState == EventState.ENDING) {
