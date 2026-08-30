@@ -43,7 +43,7 @@ public class EventManager {
     private BeaconCaptureTask beaconCaptureTask;
     private ZoneBoundaryParticleTask boundaryParticleTask;
     /** Final lifecycle reason used to distinguish normal completion from an admin/shutdown stop. */
-    private String terminationReason = "duration_elapsed";
+    private String terminationReason = "unspecified";
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffToolkit buffToolkit, MapIntegration mapIntegration,

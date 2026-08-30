@@ -217,7 +217,7 @@ public class PermanentZoneManager {
         }
     }
 
-    public void saveBalances() {
+    public boolean saveBalances() {
         try (FileWriter fw = new FileWriter(balanceFile)) {
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
@@ -228,8 +228,10 @@ public class PermanentZoneManager {
                 serializable.put(String.valueOf(entry.getKey()), inner);
             }
             gson.toJson(serializable, fw);
+            return true;
         } catch (IOException e) {
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
+            return false;
         }
     }
 

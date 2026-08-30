@@ -276,15 +276,14 @@ public class ZoneShopGUI {
             open(player, returnPage);
             return;
         }
-        for (ItemStack stack : toGive) {
-            if (!hasInventorySpace(player, stack)) {
-                emitPurchaseResult(correlationId, businessId, player, town, si, stack, prices, balanceBefore, balanceBefore,
-                        AuditOutcome.DENIED, "inventory_full", Map.of("item", itemEvidence(stack)));
-                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
-                open(player, returnPage);
-                return;
-            }
+        if (!hasInventorySpace(player, toGive)) {
+            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
+                    balanceBefore, balanceBefore, AuditOutcome.DENIED, "inventory_full",
+                    Map.of("items", toGive.stream().map(this::itemEvidence).toList()));
+            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+            open(player, returnPage);
+            return;
         }
 
         if (!zoneManager.deductFromTown(town.id(), prices)) {
@@ -297,16 +296,17 @@ public class ZoneShopGUI {
         }
 
         List<ItemStack> grantedItems = new ArrayList<>();
+        int requestedItemAmount = 0;
+        int fallbackDropAmount = 0;
         for (ItemStack stack : toGive) {
-            int requestedAmount = stack.getAmount();
-            int leftoverAmount = player.getInventory().addItem(stack).values().stream()
-                    .mapToInt(ItemStack::getAmount).sum();
-            int grantedAmount = Math.max(0, requestedAmount - leftoverAmount);
-            if (grantedAmount > 0) {
-                ItemStack granted = stack.clone();
-                granted.setAmount(grantedAmount);
-                grantedItems.add(granted);
+            ItemStack requested = stack.clone();
+            requestedItemAmount += requested.getAmount();
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(requested.clone());
+            for (ItemStack leftover : leftovers.values()) {
+                fallbackDropAmount += leftover.getAmount();
+                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
             }
+            grantedItems.add(requested);
         }
 
         ItemStack primary = si.getItem();
@@ -328,6 +328,9 @@ public class ZoneShopGUI {
                 Map.of("items", grantedItems.stream().map(this::itemEvidence).toList(),
                         "requested_item_count", toGive.size(),
                         "granted_item_count", grantedItems.size(),
+                        "requested_total_amount", requestedItemAmount,
+                        "granted_total_amount", requestedItemAmount,
+                        "fallback_drop_amount", fallbackDropAmount,
                         "price_summary", priceSummary));
         emitGrantedPhysicalItems(correlationId, businessId, player, town, si, grantedItems);
 
@@ -439,12 +442,24 @@ public class ZoneShopGUI {
 
     private void emitGrantedPhysicalItems(UUID correlationId, String businessId, Player player,
                                           TownData town, ShopItem shopItem, List<ItemStack> items) {
-        Set<String> emittedItemUuids = new HashSet<>();
+        Map<String, Map<String, Object>> aggregated = new LinkedHashMap<>();
         for (ItemStack item : items) {
             Map<String, Object> evidence = itemEvidence(item);
-            Object itemUuid = evidence.get("item_uuid");
-            if (!(itemUuid instanceof String uuid) || !emittedItemUuids.add(uuid)) continue;
+            String key = evidence.containsKey("item_uuid")
+                    ? "uuid:" + evidence.get("item_uuid")
+                    : "material:" + evidence.getOrDefault("material", "unknown")
+                    + ":parent:" + evidence.getOrDefault("parent_item_uuid", "");
+            Map<String, Object> existing = aggregated.get(key);
+            if (existing == null) {
+                aggregated.put(key, new LinkedHashMap<>(evidence));
+            } else {
+                int amount = ((Number) existing.getOrDefault("amount", 0)).intValue()
+                        + ((Number) evidence.getOrDefault("amount", 0)).intValue();
+                existing.put("amount", amount);
+            }
+        }
 
+        for (Map<String, Object> evidence : aggregated.values()) {
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("town_id", town.id());
             metadata.put("town_name", town.name());
@@ -494,18 +509,31 @@ public class ZoneShopGUI {
 
     // ── Inventory space check ────────────────────────────────────────────────────
 
-    private boolean hasInventorySpace(Player player, ItemStack item) {
-        int needed = item.getAmount();
-        int available = 0;
-        for (ItemStack slot : player.getInventory().getStorageContents()) {
-            if (slot == null || slot.getType() == Material.AIR) {
-                available += item.getMaxStackSize();
-            } else if (slot.isSimilar(item)) {
-                available += item.getMaxStackSize() - slot.getAmount();
+    private boolean hasInventorySpace(Player player, List<ItemStack> items) {
+        ItemStack[] simulated = Arrays.stream(player.getInventory().getStorageContents())
+                .map(stack -> stack == null ? null : stack.clone())
+                .toArray(ItemStack[]::new);
+        for (ItemStack requested : items) {
+            int remaining = requested.getAmount();
+            for (ItemStack slot : simulated) {
+                if (slot != null && slot.isSimilar(requested)) {
+                    int added = Math.min(remaining, slot.getMaxStackSize() - slot.getAmount());
+                    slot.setAmount(slot.getAmount() + added);
+                    remaining -= added;
+                    if (remaining == 0) break;
+                }
             }
-            if (available >= needed) return true;
+            for (int index = 0; index < simulated.length && remaining > 0; index++) {
+                if (simulated[index] == null || simulated[index].getType() == Material.AIR) {
+                    int added = Math.min(remaining, requested.getMaxStackSize());
+                    simulated[index] = requested.clone();
+                    simulated[index].setAmount(added);
+                    remaining -= added;
+                }
+            }
+            if (remaining > 0) return false;
         }
-        return false;
+        return true;
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────────
