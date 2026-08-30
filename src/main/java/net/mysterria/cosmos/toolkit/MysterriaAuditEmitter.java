@@ -9,6 +9,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -38,6 +39,9 @@ public final class MysterriaAuditEmitter {
             MysterriaAudit audit = registration == null ? null : registration.getProvider();
             if (audit == null) return;
 
+            Map<String, Object> metadataValues = new LinkedHashMap<>();
+            if (metadata != null) metadata.forEach(metadataValues::put);
+
             // AuditEmission takes the bounded deep snapshot here, before the provider queues any
             // asynchronous write, so nested metadata cannot change after this call returns.
             audit.emit(new AuditEmission(
@@ -51,7 +55,7 @@ public final class MysterriaAuditEmitter {
                     subjectId,
                     targetId,
                     reason,
-                    metadata == null ? Map.of() : Map.copyOf(metadata)));
+                    metadataValues));
         } catch (RuntimeException | LinkageError failure) {
             // Audit is explicitly best effort; never fail a committed gameplay operation.
             if (plugin != null) {

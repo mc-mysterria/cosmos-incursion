@@ -41,11 +41,11 @@ public class EventHistoryStore {
     private volatile int holderStreak = 0;
 
     // MVP acting-effort rewards that couldn't be granted because the player was offline at
-    // distribution time, queued to be paid via the normal online grant path on next join
-    // (PlayerJoinListener) rather than through COI's cruder, unscaled offline API. Keyed by
-    // UUID string rather than UUID directly since Gson doesn't natively support non-primitive
-    // map keys.
-    private final Map<UUID, Double> pendingMvpEffort = new ConcurrentHashMap<>();
+    // distribution time, queued with their source event so the eventual grant keeps the same
+    // audit correlation. Persistence converts player UUID keys to strings for Gson.
+    private final Map<UUID, List<PendingMvpReward>> pendingMvpRewards = new ConcurrentHashMap<>();
+
+    public record PendingMvpReward(UUID eventId, double effort) {}
 
     public EventHistoryStore(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -57,6 +57,7 @@ public class EventHistoryStore {
 
     private record PersistedState(List<EventResult> history, int holderTownId, String holderTownName,
                                   int holderStreak, Map<String, Double> pendingMvpEffort,
+                                  Map<String, List<PendingMvpReward>> pendingMvpRewards,
                                   long cooldownEndTime) {}
 
     public void load() {
@@ -75,13 +76,17 @@ public class EventHistoryStore {
                 holderTownName = state.holderTownName();
                 holderStreak = state.holderStreak();
                 cooldownEndTime = state.cooldownEndTime();
-                if (state.pendingMvpEffort() != null) {
+                if (state.pendingMvpRewards() != null) {
+                    state.pendingMvpRewards().forEach((uuidString, rewards) ->
+                            pendingMvpRewards.put(UUID.fromString(uuidString), new ArrayList<>(rewards)));
+                } else if (state.pendingMvpEffort() != null) {
                     state.pendingMvpEffort().forEach((uuidString, effort) ->
-                            pendingMvpEffort.put(UUID.fromString(uuidString), effort));
+                            pendingMvpRewards.put(UUID.fromString(uuidString),
+                                    new ArrayList<>(List.of(new PendingMvpReward(null, effort)))));
                 }
                 plugin.log("Loaded " + history.size() + " event history entries" +
                         (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : "") +
-                        (pendingMvpEffort.isEmpty() ? "" : ", " + pendingMvpEffort.size() + " pending offline MVP reward(s)"));
+                        (pendingMvpRewards.isEmpty() ? "" : ", " + pendingMvpRewards.size() + " pending offline MVP reward(s)"));
             }
         } catch (IOException e) {
             plugin.log("Error loading event history: " + e.getMessage());
@@ -89,42 +94,51 @@ public class EventHistoryStore {
         }
     }
 
-    public void save() {
+    public boolean save() {
         try (FileWriter writer = new FileWriter(historyFile)) {
-            Map<String, Double> pendingMvpEffortByString = new LinkedHashMap<>();
-            pendingMvpEffort.forEach((uuid, effort) -> pendingMvpEffortByString.put(uuid.toString(), effort));
+            Map<String, List<PendingMvpReward>> pendingMvpRewardsByString = new LinkedHashMap<>();
+            pendingMvpRewards.forEach((uuid, rewards) ->
+                    pendingMvpRewardsByString.put(uuid.toString(), new ArrayList<>(rewards)));
 
             PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName,
-                    holderStreak, pendingMvpEffortByString, cooldownEndTime);
+                    holderStreak, null, pendingMvpRewardsByString, cooldownEndTime);
             gson.toJson(state, writer);
+            return true;
         } catch (IOException e) {
             plugin.log("Error saving event history: " + e.getMessage());
             e.printStackTrace();
+            return false;
         }
     }
 
     /** Queues an MVP reward for a player who was offline at distribution time. */
-    public void queuePendingMvpEffort(UUID playerId, double effort) {
-        pendingMvpEffort.merge(playerId, effort, Double::sum);
-        save();
+    public boolean queuePendingMvpReward(UUID playerId, UUID eventId, double effort) {
+        List<PendingMvpReward> previous = pendingMvpRewards.get(playerId);
+        List<PendingMvpReward> updated = previous == null ? new ArrayList<>() : new ArrayList<>(previous);
+        updated.add(new PendingMvpReward(eventId, effort));
+        pendingMvpRewards.put(playerId, updated);
+        if (save()) return true;
+        if (previous == null) pendingMvpRewards.remove(playerId);
+        else pendingMvpRewards.put(playerId, previous);
+        return false;
     }
 
-    /** Removes and returns any pending MVP effort for a player (0 if none), for granting on join. */
-    public double drainPendingMvpEffort(UUID playerId) {
-        Double effort = pendingMvpEffort.remove(playerId);
-        if (effort != null) {
-            save();
-        }
-        return effort != null ? effort : 0.0;
+    /** Removes and returns pending MVP rewards for a player, retaining their source events. */
+    public List<PendingMvpReward> drainPendingMvpRewards(UUID playerId) {
+        List<PendingMvpReward> rewards = pendingMvpRewards.remove(playerId);
+        if (rewards == null) return List.of();
+        if (save()) return List.copyOf(rewards);
+        pendingMvpRewards.put(playerId, rewards);
+        return List.of();
     }
 
     /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */
-    public void recordResult(EventResult result) {
+    public boolean recordResult(EventResult result) {
         history.add(result);
         while (history.size() > MAX_HISTORY) {
             history.remove(0);
         }
-        save();
+        return save();
     }
 
     public int getHolderTownId() {
