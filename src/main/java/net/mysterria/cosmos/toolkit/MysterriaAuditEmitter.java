@@ -15,7 +15,7 @@ import java.util.logging.Level;
  * Best-effort bridge to the optional Mysterria audit ledger.
  *
  * <p>Cosmos emits only after its owning mutation has reached a final outcome. A missing,
- * incompatible, or failing provider is deliberately ignored so audit delivery can never change
+ * incompatible, or failing audit client is deliberately ignored so audit delivery can never change
  * an incursion, reward, or shop transaction.</p>
  */
 public final class MysterriaAuditEmitter {
