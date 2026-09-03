@@ -16,8 +16,8 @@ import net.mysterria.cosmos.domain.beacon.task.BeaconCaptureTask;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.toolkit.ZonePlacerToolkit;
 import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
-import dev.ua.ikeepcalm.coi.api.audit.AuditOutcome;
-import dev.ua.ikeepcalm.coi.api.audit.AuditRisk;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 

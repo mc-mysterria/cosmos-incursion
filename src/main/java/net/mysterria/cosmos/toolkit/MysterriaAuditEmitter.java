@@ -1,13 +1,10 @@
 package net.mysterria.cosmos.toolkit;
 
-import dev.ua.ikeepcalm.coi.api.audit.AuditEmission;
-import dev.ua.ikeepcalm.coi.api.audit.AuditOutcome;
-import dev.ua.ikeepcalm.coi.api.audit.AuditPrivacy;
-import dev.ua.ikeepcalm.coi.api.audit.AuditRisk;
-import dev.ua.ikeepcalm.coi.api.audit.MysterriaAudit;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditPrivacy;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditProducer;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.mysterria.cosmos.CosmosIncursion;
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.RegisteredServiceProvider;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,8 +20,20 @@ import java.util.logging.Level;
  */
 public final class MysterriaAuditEmitter {
     private static final String NAMESPACE = "mysterria-cosmos.";
+    private static AuditProducer producer;
 
     private MysterriaAuditEmitter() {
+    }
+
+    public static void initialize(CosmosIncursion plugin) {
+        producer = AuditProducer.create(plugin.getDataFolder().toPath().toAbsolutePath().getParent(),
+                "mysterria-cosmos", plugin.getPluginMeta().getVersion());
+    }
+
+    public static void close() {
+        AuditProducer current = producer;
+        producer = null;
+        if (current != null) current.close();
     }
 
     public static void emit(CosmosIncursion plugin, String event, AuditOutcome outcome,
@@ -34,28 +43,14 @@ public final class MysterriaAuditEmitter {
         if (event == null || event.isBlank() || outcome == null || risk == null) return;
 
         try {
-            RegisteredServiceProvider<MysterriaAudit> registration =
-                    Bukkit.getServicesManager().getRegistration(MysterriaAudit.class);
-            MysterriaAudit audit = registration == null ? null : registration.getProvider();
-            if (audit == null) return;
+            AuditProducer current = producer;
+            if (current == null) return;
 
             Map<String, Object> metadataValues = new LinkedHashMap<>();
             if (metadata != null) metadata.forEach(metadataValues::put);
 
-            // AuditEmission takes the bounded deep snapshot here, before the provider queues any
-            // asynchronous write, so nested metadata cannot change after this call returns.
-            audit.emit(new AuditEmission(
-                    NAMESPACE + event,
-                    outcome,
-                    risk,
-                    AuditPrivacy.STAFF_RESTRICTED,
-                    correlationId,
-                    businessId,
-                    actorId,
-                    subjectId,
-                    targetId,
-                    reason,
-                    metadataValues));
+            current.emit(NAMESPACE + event, outcome, risk, AuditPrivacy.STAFF_RESTRICTED,
+                    correlationId, businessId, actorId, subjectId, targetId, reason, metadataValues);
         } catch (RuntimeException | LinkageError failure) {
             // Audit is explicitly best effort; never fail a committed gameplay operation.
             if (plugin != null) {
