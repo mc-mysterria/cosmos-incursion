@@ -13,10 +13,16 @@ import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.*;
 
@@ -242,13 +248,19 @@ public class ZoneShopGUI {
     }
 
     private void executePurchase(Player player, ShopItem si, TownData town, int returnPage) {
+        UUID correlationId = UUID.randomUUID();
+        String businessId = "zone-shop.purchase." + correlationId;
         Map<ResourceType, Double> prices = si.getPrices();
 
         // Re-validate balance at purchase time
         Map<ResourceType, Double> balance = zoneManager.getTownBalance(town.id());
+        Map<ResourceType, Double> balanceBefore = new EnumMap<>(ResourceType.class);
+        balanceBefore.putAll(balance);
         for (Map.Entry<ResourceType, Double> entry : prices.entrySet()) {
             if (entry.getValue() <= 0) continue;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) {
+                emitPurchaseResult(correlationId, businessId, player, town, si, si.getItem(), prices, balanceBefore, balanceBefore,
+                        AuditOutcome.DENIED, "insufficient_balance", Map.of());
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                         .append(Component.text("Your town no longer has enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
                 open(player, returnPage);
@@ -258,29 +270,59 @@ public class ZoneShopGUI {
 
         List<ItemStack> toGive = si.getItems();
         if (toGive.isEmpty()) {
+            emitPurchaseResult(correlationId, businessId, player, town, si, si.getItem(), prices, balanceBefore, balanceBefore,
+                    AuditOutcome.FAILED, "item_resolution_failed", Map.of());
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                     .append(Component.text("This item could not be resolved.", NamedTextColor.RED)));
             open(player, returnPage);
             return;
         }
-        for (ItemStack stack : toGive) {
-            if (!hasInventorySpace(player, stack)) {
-                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
-                open(player, returnPage);
-                return;
-            }
+        if (!hasInventorySpace(player, toGive)) {
+            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
+                    balanceBefore, balanceBefore, AuditOutcome.DENIED, "inventory_full",
+                    Map.of("items", toGive.stream().map(this::itemEvidence).toList()));
+            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+            open(player, returnPage);
+            return;
         }
 
         if (!zoneManager.deductFromTown(town.id(), prices)) {
+            Map<ResourceType, Double> balanceAfter = new EnumMap<>(ResourceType.class);
+            balanceAfter.putAll(zoneManager.getTownBalance(town.id()));
+            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
+                    balanceBefore, balanceAfter, AuditOutcome.FAILED,
+                    "balance_changed_before_commit", Map.of());
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                     .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
             open(player, returnPage);
             return;
         }
 
+        List<ItemStack> grantedItems = new ArrayList<>();
+        List<Map<String, Object>> droppedItems = new ArrayList<>();
+        int requestedItemAmount = 0;
+        int grantedItemAmount = 0;
+        int droppedItemAmount = 0;
         for (ItemStack stack : toGive) {
-            player.getInventory().addItem(stack);
+            ItemStack requested = stack.clone();
+            requestedItemAmount += requested.getAmount();
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(requested.clone());
+            int leftoverAmount = leftovers.values().stream().mapToInt(ItemStack::getAmount).sum();
+            int inventoryAmount = requested.getAmount() - leftoverAmount;
+            if (inventoryAmount > 0) {
+                ItemStack granted = requested.clone();
+                granted.setAmount(inventoryAmount);
+                grantedItems.add(granted);
+                grantedItemAmount += inventoryAmount;
+            }
+            for (ItemStack leftover : leftovers.values()) {
+                droppedItemAmount += leftover.getAmount();
+                Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+                Map<String, Object> evidence = itemEvidence(leftover);
+                evidence.put("entity_uuid", dropped.getUniqueId().toString());
+                droppedItems.add(evidence);
+            }
         }
 
         ItemStack primary = si.getItem();
@@ -289,10 +331,25 @@ public class ZoneShopGUI {
                 : Component.text(primary.getType().name().replace('_', ' '), NamedTextColor.WHITE);
 
         String plainItemName = itemNamePlain(primary);
-        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
+        String priceSummary = priceSummary(prices);
 
-        String priceSummary = txLogger.getHistory(town.id()).isEmpty() ? ""
-                : txLogger.getHistory(town.id()).get(0).priceSummary();
+        // The deduction and item delivery are now committed. Emit a canonical ledger event while
+        // retaining ShopTransactionLogger as the operational history fallback during review.
+        ItemStack primaryGrantedItem = grantedItems.isEmpty() ? toGive.get(0) : grantedItems.get(0);
+        emitPurchaseResult(correlationId, businessId, player, town, si, primaryGrantedItem, prices, balanceBefore,
+                zoneManager.getTownBalance(town.id()), AuditOutcome.COMMITTED, null,
+                Map.of("items", toGive.stream().map(this::itemEvidence).toList(),
+                        "requested_item_count", toGive.size(),
+                        "granted_item_count", grantedItems.size(),
+                        "dropped_item_count", droppedItems.size(),
+                        "requested_total_amount", requestedItemAmount,
+                        "granted_total_amount", grantedItemAmount,
+                        "dropped_total_amount", droppedItemAmount,
+                        "price_summary", priceSummary));
+        emitGrantedPhysicalItems(correlationId, businessId, player, town, si, grantedItems);
+        emitDroppedPhysicalItems(correlationId, businessId, player, town, si, droppedItems);
+
+        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
 
         Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Purchased ", NamedTextColor.GREEN))
@@ -374,20 +431,155 @@ public class ZoneShopGUI {
         return item.getType().name().replace('_', ' ');
     }
 
+    private void emitPurchaseResult(UUID correlationId, String businessId, Player player, TownData town,
+                                    ShopItem shopItem, ItemStack primaryItem,
+                                    Map<ResourceType, Double> prices,
+                                    Map<ResourceType, Double> balanceBefore,
+                                    Map<ResourceType, Double> balanceAfter, AuditOutcome outcome,
+                                    String reason, Map<String, ?> extra) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("town_id", town.id());
+        metadata.put("town_name", town.name());
+        metadata.put("shop_item_id", shopItem.getId().toString());
+        metadata.put("coi_item_id", shopItem.getCoiItemId() == null ? "" : shopItem.getCoiItemId());
+        metadata.put("logical_type", "zone_shop_item");
+        metadata.put("logical_id", shopItem.getId().toString());
+        metadata.put("price", resourceAmounts(prices));
+        metadata.put("balance_before", resourceAmounts(balanceBefore));
+        metadata.put("balance_after", resourceAmounts(balanceAfter));
+        Map<String, Object> primaryEvidence = itemEvidence(primaryItem);
+        metadata.put("item", primaryEvidence);
+        copyPhysicalIdentity(metadata, primaryEvidence);
+        if (extra != null) metadata.putAll(extra);
+        MysterriaAuditEmitter.emit(plugin, "shop.purchase", outcome,
+                outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                correlationId, businessId, player.getUniqueId(), player.getUniqueId(), null,
+                reason, metadata);
+    }
+
+    private void emitGrantedPhysicalItems(UUID correlationId, String businessId, Player player,
+                                          TownData town, ShopItem shopItem, List<ItemStack> items) {
+        Map<String, Map<String, Object>> aggregated = new LinkedHashMap<>();
+        for (ItemStack item : items) {
+            Map<String, Object> evidence = itemEvidence(item);
+            String key = evidence.containsKey("item_uuid")
+                    ? "uuid:" + evidence.get("item_uuid")
+                    : "material:" + evidence.getOrDefault("material", "unknown")
+                    + ":parent:" + evidence.getOrDefault("parent_item_uuid", "");
+            Map<String, Object> existing = aggregated.get(key);
+            if (existing == null) {
+                aggregated.put(key, new LinkedHashMap<>(evidence));
+            } else {
+                int amount = ((Number) existing.getOrDefault("amount", 0)).intValue()
+                        + ((Number) evidence.getOrDefault("amount", 0)).intValue();
+                existing.put("amount", amount);
+            }
+        }
+
+        for (Map<String, Object> evidence : aggregated.values()) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("town_id", town.id());
+            metadata.put("town_name", town.name());
+            metadata.put("shop_item_id", shopItem.getId().toString());
+            metadata.put("logical_type", "zone_shop_item");
+            metadata.put("logical_id", shopItem.getId().toString());
+            metadata.put("material", evidence.getOrDefault("material", "unknown"));
+            metadata.put("amount", evidence.getOrDefault("amount", 0));
+            copyPhysicalIdentity(metadata, evidence);
+            MysterriaAuditEmitter.emit(plugin, "shop.item_granted", AuditOutcome.COMMITTED,
+                    AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
+                    player.getUniqueId(), null, null, metadata);
+        }
+    }
+
+    private void emitDroppedPhysicalItems(UUID correlationId, String businessId, Player player,
+                                          TownData town, ShopItem shopItem,
+                                          List<Map<String, Object>> items) {
+        for (Map<String, Object> evidence : items) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("town_id", town.id());
+            metadata.put("town_name", town.name());
+            metadata.put("shop_item_id", shopItem.getId().toString());
+            metadata.put("logical_type", "zone_shop_item");
+            metadata.put("logical_id", shopItem.getId().toString());
+            metadata.put("material", evidence.getOrDefault("material", "unknown"));
+            metadata.put("amount", evidence.getOrDefault("amount", 0));
+            metadata.put("entity_uuid", evidence.getOrDefault("entity_uuid", ""));
+            copyPhysicalIdentity(metadata, evidence);
+            MysterriaAuditEmitter.emit(plugin, "shop.item_dropped", AuditOutcome.COMMITTED,
+                    AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
+                    player.getUniqueId(), null, "inventory_fallback", metadata);
+        }
+    }
+
+    private void copyPhysicalIdentity(Map<String, Object> target, Map<String, Object> evidence) {
+        if (evidence.containsKey("item_uuid")) target.put("item_uuid", evidence.get("item_uuid"));
+        if (evidence.containsKey("parent_item_uuid")) {
+            target.put("parent_item_uuid", evidence.get("parent_item_uuid"));
+        }
+    }
+
+    private Map<String, Double> resourceAmounts(Map<ResourceType, Double> values) {
+        Map<String, Double> result = new LinkedHashMap<>();
+        values.forEach((type, amount) -> result.put(type.configKey(), amount));
+        return result;
+    }
+
+    private String priceSummary(Map<ResourceType, Double> prices) {
+        StringJoiner summary = new StringJoiner(", ");
+        for (ResourceType type : ResourceType.values()) {
+            double amount = prices.getOrDefault(type, 0.0);
+            if (amount > 0) summary.add(String.format("%.0f %s", amount, type.displayName()));
+        }
+        return summary.length() == 0 ? "free" : summary.toString();
+    }
+
+    private Map<String, Object> itemEvidence(ItemStack item) {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        if (item == null) return evidence;
+        evidence.put("material", item.getType().name().toLowerCase(Locale.ROOT));
+        evidence.put("amount", item.getAmount());
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            String itemUuid = meta.getPersistentDataContainer().get(
+                    new NamespacedKey("circleofimagination", "item_uuid"), PersistentDataType.STRING);
+            if (itemUuid != null && !itemUuid.isBlank()) evidence.put("item_uuid", itemUuid);
+            String parentItemUuid = meta.getPersistentDataContainer().get(
+                    new NamespacedKey("circleofimagination", "item_parent_uuid"), PersistentDataType.STRING);
+            if (parentItemUuid != null && !parentItemUuid.isBlank()) {
+                evidence.put("parent_item_uuid", parentItemUuid);
+            }
+        }
+        return evidence;
+    }
+
     // ── Inventory space check ────────────────────────────────────────────────────
 
-    private boolean hasInventorySpace(Player player, ItemStack item) {
-        int needed = item.getAmount();
-        int available = 0;
-        for (ItemStack slot : player.getInventory().getStorageContents()) {
-            if (slot == null || slot.getType() == Material.AIR) {
-                available += item.getMaxStackSize();
-            } else if (slot.isSimilar(item)) {
-                available += item.getMaxStackSize() - slot.getAmount();
+    private boolean hasInventorySpace(Player player, List<ItemStack> items) {
+        ItemStack[] simulated = Arrays.stream(player.getInventory().getStorageContents())
+                .map(stack -> stack == null ? null : stack.clone())
+                .toArray(ItemStack[]::new);
+        for (ItemStack requested : items) {
+            int remaining = requested.getAmount();
+            for (ItemStack slot : simulated) {
+                if (slot != null && slot.isSimilar(requested)) {
+                    int added = Math.min(remaining, slot.getMaxStackSize() - slot.getAmount());
+                    slot.setAmount(slot.getAmount() + added);
+                    remaining -= added;
+                    if (remaining == 0) break;
+                }
             }
-            if (available >= needed) return true;
+            for (int index = 0; index < simulated.length && remaining > 0; index++) {
+                if (simulated[index] == null || simulated[index].getType() == Material.AIR) {
+                    int added = Math.min(remaining, requested.getMaxStackSize());
+                    simulated[index] = requested.clone();
+                    simulated[index].setAmount(added);
+                    remaining -= added;
+                }
+            }
+            if (remaining > 0) return false;
         }
-        return false;
+        return true;
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────────

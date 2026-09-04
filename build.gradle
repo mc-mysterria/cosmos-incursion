@@ -8,6 +8,7 @@ group = 'net.mysterria.cosmos'
 version = '1.1.0'
 
 repositories {
+    mavenLocal()
     mavenCentral()
 
     maven {
@@ -50,9 +51,11 @@ shadowJar {
     archiveClassifier.set('')
     relocate 'dev.rollczi.litecommands', 'net.mysterria.cosmos.libs.litecommands'
     relocate 'dev.triumphteam.gui', 'net.mysterria.cosmos.libs.gui'
+    relocate 'dev.ua.ikeepcalm.mysterria.audit', 'net.mysterria.cosmos.libs.audit'
 }
 
 dependencies {
+    implementation 'dev.ua.ikeepcalm.mysterria:audit-client:1.0.0'
     implementation "dev.rollczi:litecommands-bukkit:3.10.9"
     implementation("dev.triumphteam:triumph-gui-paper:3.1.13")
     compileOnly("com.incredibleplugins:lands-api:8.0.0")
@@ -61,7 +64,12 @@ dependencies {
     compileOnly("xyz.jpenilla:squaremap-api:1.3.5")
     compileOnly 'net.william278.husktowns:husktowns-bukkit:3.1'
     compileOnly 'de.bluecolored:bluemap-api:2.7.4'
-    compileOnly("dev.ua.ikeepcalm:circle-of-imagination-api:1.4.4-SNAPSHOT")
+    def coiApiJar = project.findProperty('coiApiJar')
+    if (coiApiJar) {
+        compileOnly files(coiApiJar)
+    } else {
+        compileOnly("dev.ua.ikeepcalm:circle-of-imagination-api:1.4.8-SNAPSHOT")
+    }
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     compileOnly("net.citizensnpcs:citizens-main:2.0.37-SNAPSHOT") {
         exclude group: "*", module: "*"

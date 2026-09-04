@@ -16,6 +16,9 @@ import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -27,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Replaces the old winner-take-all payout ({@code EventManager} used to hand the entire reward
@@ -93,15 +97,56 @@ public class RewardDistributor {
             standings.add(new TownScore(townId, townName, score, share, rank, qualified, nationId, nationName));
         }
 
+        int previousHolderId = plugin.getEventHistoryStore().getHolderTownId();
+        String previousHolderName = plugin.getEventHistoryStore().getHolderTownName();
+        int previousHolderStreak = plugin.getEventHistoryStore().getHolderStreak();
+        TownScore winner = standings.stream()
+                .filter(town -> town.rank() == 1 && town.qualified())
+                .findFirst().orElse(null);
+
         int dethronerTownId = applyHolderStreakAndReturnDethroner(standings);
         applyPodiumBuffs(standings, config);
 
         Map<ResourceType, Double> pool = computeResourcePool(event, config);
-        payoutResources(standings, pool, config, dethronerTownId);
+        payoutResources(event, standings, pool, config, dethronerTownId);
 
-        List<PlayerContribution> mvps = payoutMvps(config);
+        List<PlayerContribution> mvps = payoutMvps(event, config);
 
-        recordHistory(standings, mvps);
+        boolean historySaved = recordHistory(standings, mvps);
+        if (winner != null) {
+            AuditOutcome historyOutcome = historySaved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+            AuditRisk historyRisk = historySaved ? AuditRisk.NORMAL : AuditRisk.HIGH;
+            String historyFailure = historySaved ? null : "history_persistence_failed";
+            Map<String, Object> winnerMetadata = new java.util.LinkedHashMap<>();
+            winnerMetadata.put("town_id", winner.townId());
+            winnerMetadata.put("town_name", winner.townName() == null ? "" : winner.townName());
+            winnerMetadata.put("score", winner.score());
+            winnerMetadata.put("share", winner.share());
+            winnerMetadata.put("rank", winner.rank());
+            winnerMetadata.put("qualified", winner.qualified());
+            MysterriaAuditEmitter.emit(plugin, "incursion.winner", historyOutcome,
+                    historyRisk, event.getEventId(), event.getEventId() + ".winner", null, null, null,
+                    historyFailure, winnerMetadata);
+
+            int holderTownId = plugin.getEventHistoryStore().getHolderTownId();
+            int holderStreak = plugin.getEventHistoryStore().getHolderStreak();
+            if (previousHolderId != holderTownId || previousHolderStreak != holderStreak) {
+                Map<String, Object> holderMetadata = new java.util.LinkedHashMap<>();
+                holderMetadata.put("previous_town_id", previousHolderId);
+                holderMetadata.put("previous_town_name", previousHolderName == null ? "" : previousHolderName);
+                holderMetadata.put("previous_streak", previousHolderStreak);
+                holderMetadata.put("town_id", holderTownId);
+                holderMetadata.put("town_name", plugin.getEventHistoryStore().getHolderTownName() == null
+                        ? "" : plugin.getEventHistoryStore().getHolderTownName());
+                holderMetadata.put("streak", holderStreak);
+                String holderChange = previousHolderId == 0 ? "new_holder"
+                        : (previousHolderId == holderTownId ? "holder_defended" : "holder_dethroned");
+                holderMetadata.put("holder_change", holderChange);
+                MysterriaAuditEmitter.emit(plugin, "incursion.holder_changed", historyOutcome,
+                        historyRisk, event.getEventId(), event.getEventId() + ".holder", null, null, null,
+                        historySaved ? holderChange : historyFailure, holderMetadata);
+            }
+        }
         broadcastStandings(standings, mvps);
         plugin.getDiscordToolkit().sendEventResults(standings, mvps);
 
@@ -209,10 +254,12 @@ public class RewardDistributor {
         return total;
     }
 
-    private void payoutResources(List<TownScore> standings, Map<ResourceType, Double> pool,
+    private void payoutResources(IncursionEvent event, List<TownScore> standings, Map<ResourceType, Double> pool,
                                  CosmosConfig config, int dethronerTownId) {
         if (pool.isEmpty()) return;
 
+        List<Map<String, Object>> committedPayouts = new ArrayList<>();
+        Map<String, Double> resourcePool = resourceAmounts(pool);
         for (TownScore town : standings) {
             if (!town.qualified() || town.share() <= 0) continue;
 
@@ -229,7 +276,33 @@ public class RewardDistributor {
             plugin.log(String.format(
                     "Deposited event resources to %s (rank %d, share %.1f%%, multiplier %.2fx): %s",
                     town.townName(), town.rank(), town.share() * 100, multiplier, payout));
+
+            Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+            metadata.put("town_id", town.townId());
+            metadata.put("town_name", town.townName());
+            metadata.put("rank", town.rank());
+            metadata.put("share", town.share());
+            metadata.put("multiplier", multiplier);
+            metadata.put("resource_pool", resourcePool);
+            metadata.put("payout", resourceAmounts(payout));
+            committedPayouts.add(metadata);
         }
+
+        boolean balancesSaved = plugin.getPermanentZoneManager().saveBalances();
+        for (Map<String, Object> metadata : committedPayouts) {
+            int townId = ((Number) metadata.get("town_id")).intValue();
+            MysterriaAuditEmitter.emit(plugin, "incursion.reward_granted",
+                    balancesSaved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
+                    balancesSaved ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                    event.getEventId(), event.getEventId() + ".reward." + townId,
+                    null, null, null, balancesSaved ? null : "balance_persistence_failed", metadata);
+        }
+    }
+
+    private Map<String, Double> resourceAmounts(Map<ResourceType, Double> values) {
+        Map<String, Double> result = new java.util.LinkedHashMap<>();
+        values.forEach((type, amount) -> result.put(type.configKey(), amount));
+        return result;
     }
 
     private double nationMultiplier(TownScore town, List<TownScore> standings, CosmosConfig config) {
@@ -253,28 +326,64 @@ public class RewardDistributor {
      * grant path — see {@link #grantPendingMvpReward} — the next time they join, rather than
      * through COI's cruder, unscaled offline API.
      */
-    private List<PlayerContribution> payoutMvps(CosmosConfig config) {
+    private List<PlayerContribution> payoutMvps(IncursionEvent event, CosmosConfig config) {
         List<PlayerContribution> mvps = plugin.getContributionTracker().top(config.getMvpCount());
 
-        for (PlayerContribution mvp : mvps) {
+        for (int index = 0; index < mvps.size(); index++) {
+            PlayerContribution mvp = mvps.get(index);
             Player player = Bukkit.getPlayer(mvp.playerId());
-            if (player == null || !player.isOnline()) {
+            boolean online = player != null && player.isOnline();
+            Map<String, Object> resultMetadata = new java.util.LinkedHashMap<>();
+            resultMetadata.put("player_name", mvp.playerName());
+            resultMetadata.put("score", mvp.score());
+            resultMetadata.put("rank", index + 1);
+            resultMetadata.put("online", online);
+            resultMetadata.put("acting_effort", config.getMvpActingEffort());
+            MysterriaAuditEmitter.emit(plugin, "incursion.mvp.result", AuditOutcome.OBSERVED,
+                    AuditRisk.NORMAL, event.getEventId(), event.getEventId() + ".mvp." + mvp.playerId(),
+                    mvp.playerId(), mvp.playerId(), null, null, resultMetadata);
+
+            if (!online) {
                 if (config.getMvpActingEffort() > 0) {
-                    plugin.getEventHistoryStore().queuePendingMvpEffort(mvp.playerId(), config.getMvpActingEffort());
+                    boolean queued = plugin.getEventHistoryStore().queuePendingMvpReward(
+                            mvp.playerId(), event.getEventId(), config.getMvpActingEffort());
+                    MysterriaAuditEmitter.emit(plugin, "incursion.mvp.reward_pending",
+                            queued ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
+                            queued ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                            event.getEventId(), event.getEventId() + ".mvp-reward." + mvp.playerId(),
+                            null, mvp.playerId(), null,
+                            queued ? "player_offline" : "pending_reward_persistence_failed",
+                            Map.of("acting_effort", config.getMvpActingEffort()));
                 }
                 continue;
             }
 
+            int grantedActingPoints = 0;
             if (config.getMvpActingEffort() > 0) {
-                CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
+                grantedActingPoints = CoiToolkit.grantActingEffort(
+                        player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
             }
+            boolean commandApplied = true;
             if (config.getMvpCommand() != null && !config.getMvpCommand().isBlank()) {
                 String command = config.getMvpCommand().replace("%player%", player.getName());
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+                commandApplied = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
             }
 
             player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
                     .append(Component.text("You were an MVP of the incursion!", NamedTextColor.GREEN)));
+
+            boolean effortApplied = config.getMvpActingEffort() <= 0 || grantedActingPoints > 0;
+            AuditOutcome rewardOutcome = effortApplied && commandApplied
+                    ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+            String failureReason = !effortApplied ? "acting_effort_not_granted"
+                    : (!commandApplied ? "reward_command_failed" : null);
+            MysterriaAuditEmitter.emit(plugin, "incursion.mvp.reward_granted", rewardOutcome,
+                    rewardOutcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                    event.getEventId(), event.getEventId() + ".mvp-reward." + mvp.playerId(),
+                    player.getUniqueId(), player.getUniqueId(), null, failureReason,
+                    Map.of("acting_effort", config.getMvpActingEffort(),
+                            "acting_points_granted", grantedActingPoints,
+                            "command_applied", commandApplied, "online", true));
         }
 
         return mvps;
@@ -286,31 +395,71 @@ public class RewardDistributor {
      * reapplies a buff to a town member who was offline when their town earned it.
      */
     public void grantPendingMvpReward(Player player) {
-        double effort = plugin.getEventHistoryStore().drainPendingMvpEffort(player.getUniqueId());
-        if (effort <= 0) return;
+        List<EventHistoryStore.PendingMvpReward> rewards =
+                plugin.getEventHistoryStore().getPendingMvpRewards(player.getUniqueId());
+        if (rewards.isEmpty()) return;
 
-        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
-
-        String command = config().getMvpCommand();
-        if (command != null && !command.isBlank()) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+        int acknowledged = 0;
+        for (EventHistoryStore.PendingMvpReward reward : rewards) {
+            UUID correlationId = reward.eventId();
+            String businessId = correlationId == null
+                    ? "mvp-pending:" + player.getUniqueId()
+                    : correlationId + ".mvp-reward." + player.getUniqueId();
+            int grantedActingPoints = 0;
+            boolean commandApplied = false;
+            boolean acknowledgedReward = false;
+            String reason;
+            try {
+                if (reward.effort() > 0) {
+                    grantedActingPoints = CoiToolkit.grantActingEffort(
+                            player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort());
+                }
+                boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
+                String command = config().getMvpCommand();
+                commandApplied = command == null || command.isBlank()
+                        || Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+                if (!effortApplied) {
+                    reason = "acting_effort_not_granted";
+                } else if (!commandApplied) {
+                    reason = "reward_command_failed";
+                } else {
+                    acknowledgedReward = plugin.getEventHistoryStore()
+                            .acknowledgePendingMvpReward(player.getUniqueId(), reward);
+                    reason = acknowledgedReward ? "pending_reward_join" : "pending_ack_persistence_failed";
+                }
+            } catch (RuntimeException failure) {
+                plugin.log("Failed to process queued MVP reward for " + player.getName()
+                        + ": " + failure.getClass().getSimpleName());
+                reason = "pending_reward_processing_failed";
+            }
+            if (acknowledgedReward) acknowledged++;
+            AuditOutcome outcome = acknowledgedReward ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+            MysterriaAuditEmitter.emit(plugin, "incursion.mvp.reward_granted", outcome,
+                    acknowledgedReward ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                    correlationId, businessId, player.getUniqueId(), player.getUniqueId(), null, reason,
+                    Map.of("acting_effort", reward.effort(),
+                            "acting_points_granted", grantedActingPoints,
+                            "command_applied", commandApplied, "online", true));
         }
 
-        player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
-                .append(Component.text("You were an MVP of a recent incursion — reward granted!", NamedTextColor.GREEN)));
-        plugin.log("Granted queued MVP reward to " + player.getName() + " on join");
+        if (acknowledged > 0) {
+            player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
+                    .append(Component.text("You were an MVP of a recent incursion — reward processed!", NamedTextColor.GREEN)));
+        }
+        plugin.log("Processed " + acknowledged + " of " + rewards.size()
+                + " queued MVP reward(s) for " + player.getName() + " on join");
     }
 
     // ── History + announcement ───────────────────────────────────────────────────
 
-    private void recordHistory(List<TownScore> standings, List<PlayerContribution> mvps) {
+    private boolean recordHistory(List<TownScore> standings, List<PlayerContribution> mvps) {
         PlayerContribution topMvp = mvps.isEmpty() ? null : mvps.get(0);
         EventResult result = new EventResult(
                 System.currentTimeMillis(),
                 standings,
                 topMvp != null ? topMvp.playerId() : null,
                 topMvp != null ? topMvp.playerName() : null);
-        plugin.getEventHistoryStore().recordResult(result);
+        return plugin.getEventHistoryStore().recordResult(result);
     }
 
     private void broadcastStandings(List<TownScore> standings, List<PlayerContribution> mvps) {

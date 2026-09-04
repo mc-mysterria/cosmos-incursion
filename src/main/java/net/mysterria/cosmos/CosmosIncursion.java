@@ -50,6 +50,7 @@ import net.mysterria.cosmos.toolkit.BuffToolkit;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.toolkit.EffectsToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.NoOpMapIntegration;
@@ -116,6 +117,7 @@ public final class CosmosIncursion extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+        MysterriaAuditEmitter.initialize(this);
 
         log("Enabling Cosmos Incursion...");
 
@@ -276,6 +278,8 @@ public final class CosmosIncursion extends JavaPlugin {
         if (liteCommands != null) {
             liteCommands.unregister();
         }
+
+        MysterriaAuditEmitter.close();
 
         log("Cosmos Incursion disabled!");
     }
