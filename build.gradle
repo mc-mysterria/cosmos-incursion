@@ -55,7 +55,7 @@ shadowJar {
 }
 
 dependencies {
-    implementation 'dev.ua.ikeepcalm.mysterria:audit-client:1.0.0-SNAPSHOT'
+    implementation 'dev.ua.ikeepcalm.mysterria:audit-client:1.0.0'
     implementation "dev.rollczi:litecommands-bukkit:3.10.9"
     implementation("dev.triumphteam:triumph-gui-paper:3.1.13")
     compileOnly("com.incredibleplugins:lands-api:8.0.0")
