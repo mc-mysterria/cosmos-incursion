@@ -26,7 +26,8 @@ public final class MysterriaAuditEmitter {
     }
 
     public static void initialize(CosmosIncursion plugin) {
-        producer = AuditProducer.create(plugin.getDataFolder().toPath().toAbsolutePath().getParent(),
+        producer = AuditProducer.create(plugin.getDataFolder().toPath().toAbsolutePath().getParent()
+                        .resolve("mysterria-audit-spool"),
                 "mysterria-cosmos", plugin.getPluginMeta().getVersion());
     }
 
