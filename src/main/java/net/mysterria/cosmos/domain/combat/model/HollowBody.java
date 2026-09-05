@@ -7,8 +7,8 @@ import org.bukkit.inventory.ItemStack;
 import java.util.UUID;
 
 /**
- * Represents a Hollow Body NPC spawned when a player combat logs
- * Stores data needed for penalty application
+ * Represents a Hollow Body NPC spawned when a player combat logs.
+ * Owns the transferred inventory until the hollow is killed or the player rejoins.
  */
 @Getter
 public class HollowBody {
@@ -19,13 +19,16 @@ public class HollowBody {
     private final Location spawnLocation;
     private final long spawnTime;
     private final long despawnTime;
-    private final ItemStack[] inventory;
-    private final ItemStack[] armor;
+    private ItemStack[] inventory;
+    private ItemStack[] armor;
+    private ItemStack offhand;
     private boolean wasKilled;
+    private boolean itemsDropped;
+    private boolean npcRemoved;
     private Location deathLocation;
 
     public HollowBody(UUID playerId, String playerName, int npcId, Location spawnLocation,
-                      long durationMillis, ItemStack[] inventory, ItemStack[] armor) {
+                      long durationMillis, ItemStack[] inventory, ItemStack[] armor, ItemStack offhand) {
         this.playerId = playerId;
         this.playerName = playerName;
         this.npcId = npcId;
@@ -34,7 +37,10 @@ public class HollowBody {
         this.despawnTime = spawnTime + durationMillis;
         this.inventory = inventory;
         this.armor = armor;
+        this.offhand = offhand;
         this.wasKilled = false;
+        this.itemsDropped = false;
+        this.npcRemoved = false;
         this.deathLocation = null;
     }
 
@@ -47,10 +53,28 @@ public class HollowBody {
     }
 
     /**
-     * Check if this Hollow Body should despawn (timeout)
+     * Mark the Citizens NPC entity as despawned/destroyed while keeping outcome state
+     * for reconnect handling.
+     */
+    public void markNpcRemoved() {
+        this.npcRemoved = true;
+    }
+
+    /**
+     * Clear stored items after they have been dropped or restored so they cannot be applied twice.
+     */
+    public void clearStoredItems() {
+        this.inventory = null;
+        this.armor = null;
+        this.offhand = null;
+        this.itemsDropped = true;
+    }
+
+    /**
+     * Check if this Hollow Body NPC entity should despawn (timeout)
      */
     public boolean shouldDespawn() {
-        return System.currentTimeMillis() >= despawnTime;
+        return !npcRemoved && System.currentTimeMillis() >= despawnTime;
     }
 
     /**

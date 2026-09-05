@@ -8,9 +8,11 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -63,7 +65,8 @@ public class CitizensToolkit {
     }
 
     /**
-     * Create a Hollow Body NPC for a combat-logged player
+     * Create a Hollow Body NPC for a combat-logged player.
+     * Transfers inventory to the hollow (player is cleared + saved) so killing the NPC cannot dupe items.
      */
     public HollowBody createHollowBody(Player player, Location location) {
         if (registry == null) {
@@ -72,9 +75,11 @@ public class CitizensToolkit {
         }
 
         try {
-            // Capture player inventory before creating NPC
-            ItemStack[] inventory = player.getInventory().getContents().clone();
-            ItemStack[] armor = player.getInventory().getArmorContents().clone();
+            // Deep-clone storage / armor / offhand separately (no overlap → no double drops)
+            PlayerInventory playerInv = player.getInventory();
+            ItemStack[] inventory = deepClone(playerInv.getStorageContents());
+            ItemStack[] armor = deepClone(playerInv.getArmorContents());
+            ItemStack offhand = cloneOrNull(playerInv.getItemInOffHand());
 
             // Create NPC name from config
             String npcName = config.getNpcNameFormat().replace("%player%", player.getName());
@@ -98,7 +103,7 @@ public class CitizensToolkit {
             // Calculate duration
             long durationMillis = config.getNpcDurationMinutes() * 60_000L;
 
-            // Create HollowBody wrapper with inventory
+            // Create HollowBody wrapper with transferred inventory
             HollowBody hollowBody = new HollowBody(
                     player.getUniqueId(),
                     player.getName(),
@@ -106,18 +111,19 @@ public class CitizensToolkit {
                     location,
                     durationMillis,
                     inventory,
-                    armor
+                    armor,
+                    offhand
             );
 
-            // Clear player's actual inventory so only the NPC holds the items
-            player.getInventory().clear();
-            player.getInventory().setArmorContents(null);
+            // Transfer: clear player so only the hollow holds these items, then persist to disk
+            clearPlayerInventory(player);
+            player.saveData();
 
             // Store mappings
             hollowBodies.put(player.getUniqueId(), hollowBody);
             npcIdToPlayerId.put(npc.getId(), player.getUniqueId());
 
-            plugin.log("Created Hollow Body NPC for " + player.getName() + " (ID: " + npc.getId() + ")");
+            plugin.log("Created Hollow Body NPC for " + player.getName() + " (ID: " + npc.getId() + ") - inventory transferred");
             return hollowBody;
         } catch (Exception e) {
             plugin.log("Error creating Hollow Body for " + player.getName() + ": " + e.getMessage());
@@ -127,12 +133,14 @@ public class CitizensToolkit {
     }
 
     /**
-     * Remove a Hollow Body NPC
+     * Remove a Hollow Body NPC and forget reconnect state (caller must restore/drop first if needed)
      */
     public void removeHollowBody(UUID playerId) {
         HollowBody hollowBody = hollowBodies.remove(playerId);
         if (hollowBody != null) {
-            removeNPC(hollowBody.getNpcId());
+            if (!hollowBody.isNpcRemoved()) {
+                removeNPC(hollowBody.getNpcId());
+            }
             npcIdToPlayerId.remove(hollowBody.getNpcId());
             plugin.log("Removed Hollow Body for player " + playerId);
         }
@@ -157,7 +165,7 @@ public class CitizensToolkit {
     }
 
     /**
-     * Mark an NPC as killed and drop its inventory
+     * Mark an NPC as killed and drop its inventory once
      */
     public void markNPCKilled(int npcId, org.bukkit.Location deathLocation) {
         UUID playerId = npcIdToPlayerId.get(npcId);
@@ -166,7 +174,7 @@ public class CitizensToolkit {
             if (hollowBody != null) {
                 hollowBody.markKilled(deathLocation);
 
-                // Drop the player's inventory at death location
+                // Drop the player's inventory at death location (once)
                 dropInventory(hollowBody, deathLocation);
 
                 plugin.log("Hollow Body NPC " + npcId + " was killed (player: " + playerId + ") - items dropped");
@@ -175,9 +183,13 @@ public class CitizensToolkit {
     }
 
     /**
-     * Drop a Hollow Body's stored inventory at a location
+     * Drop a Hollow Body's stored inventory at a location, then clear the snapshot.
      */
     private void dropInventory(HollowBody hollowBody, org.bukkit.Location location) {
+        if (hollowBody.isItemsDropped()) {
+            plugin.log("Skipping hollow inventory drop for " + hollowBody.getPlayerName() + " - already dropped");
+            return;
+        }
         if (location == null || location.getWorld() == null) {
             plugin.log("Cannot drop inventory - invalid location");
             return;
@@ -186,65 +198,69 @@ public class CitizensToolkit {
         org.bukkit.World world = location.getWorld();
         int droppedItems = 0;
 
-        // Drop main inventory items
-        if (hollowBody.getInventory() != null) {
-            for (org.bukkit.inventory.ItemStack item : hollowBody.getInventory()) {
-                if (item != null && item.getType() != org.bukkit.Material.AIR) {
-                    world.dropItemNaturally(location, item);
-                    droppedItems++;
-                }
-            }
+        droppedItems += dropItemArray(world, location, hollowBody.getInventory());
+        droppedItems += dropItemArray(world, location, hollowBody.getArmor());
+        if (hollowBody.getOffhand() != null && hollowBody.getOffhand().getType() != Material.AIR) {
+            world.dropItemNaturally(location, hollowBody.getOffhand());
+            droppedItems++;
         }
 
-        // Drop armor items
-        if (hollowBody.getArmor() != null) {
-            for (org.bukkit.inventory.ItemStack item : hollowBody.getArmor()) {
-                if (item != null && item.getType() != org.bukkit.Material.AIR) {
-                    world.dropItemNaturally(location, item);
-                    droppedItems++;
-                }
-            }
-        }
-
+        hollowBody.clearStoredItems();
         plugin.log("Dropped " + droppedItems + " items from " + hollowBody.getPlayerName() + "'s Hollow Body");
     }
 
+    private int dropItemArray(org.bukkit.World world, Location location, ItemStack[] items) {
+        if (items == null) {
+            return 0;
+        }
+        int dropped = 0;
+        for (ItemStack item : items) {
+            if (item != null && item.getType() != Material.AIR) {
+                world.dropItemNaturally(location, item);
+                dropped++;
+            }
+        }
+        return dropped;
+    }
+
     /**
-     * Get Hollow Body for a player
+     * Get Hollow Body for a player (includes pending reconnect state after NPC despawn)
      */
     public HollowBody getHollowBody(UUID playerId) {
         return hollowBodies.get(playerId);
     }
 
     /**
-     * Check if player has an active Hollow Body
+     * Check if player has an active Hollow Body / pending combat-log outcome
      */
     public boolean hasHollowBody(UUID playerId) {
         return hollowBodies.containsKey(playerId);
     }
 
     /**
-     * Clean up expired Hollow Bodies
+     * Despawn expired Hollow Body NPC entities but keep outcome state until the player rejoins.
+     * Prevents dupe when a killed hollow times out before reconnect, and item loss when an
+     * unkilled hollow times out after inventory was transferred off the player.
      */
     public void cleanupExpired() {
         if (registry == null) {
             return;
         }
 
-        hollowBodies.entrySet().removeIf(entry -> {
-            HollowBody hollowBody = entry.getValue();
+        for (HollowBody hollowBody : hollowBodies.values()) {
             if (hollowBody.shouldDespawn()) {
                 removeNPC(hollowBody.getNpcId());
                 npcIdToPlayerId.remove(hollowBody.getNpcId());
-                plugin.log("Hollow Body for " + hollowBody.getPlayerName() + " despawned (timeout)");
-                return true;
+                hollowBody.markNpcRemoved();
+                plugin.log("Hollow Body NPC for " + hollowBody.getPlayerName()
+                        + " despawned (timeout) - pending reconnect state kept (killed="
+                        + hollowBody.isWasKilled() + ")");
             }
-            return false;
-        });
+        }
     }
 
     /**
-     * Despawn all remaining Hollow Body NPCs (called when event ends)
+     * Despawn all Hollow Body NPC entities (event end) but keep reconnect outcome state.
      */
     public void despawnAllHollowBodies() {
         if (registry == null) {
@@ -252,14 +268,16 @@ public class CitizensToolkit {
         }
 
         int despawnedCount = 0;
-        for (HollowBody hollowBody : new java.util.ArrayList<>(hollowBodies.values())) {
-            removeNPC(hollowBody.getNpcId());
-            npcIdToPlayerId.remove(hollowBody.getNpcId());
-            despawnedCount++;
+        for (HollowBody hollowBody : hollowBodies.values()) {
+            if (!hollowBody.isNpcRemoved()) {
+                removeNPC(hollowBody.getNpcId());
+                npcIdToPlayerId.remove(hollowBody.getNpcId());
+                hollowBody.markNpcRemoved();
+                despawnedCount++;
+            }
         }
 
-        hollowBodies.clear();
-        plugin.log("Force-despawned " + despawnedCount + " Hollow Body NPCs due to event end");
+        plugin.log("Force-despawned " + despawnedCount + " Hollow Body NPCs due to event end (reconnect state retained)");
     }
 
     /**
@@ -267,6 +285,31 @@ public class CitizensToolkit {
      */
     public boolean isAvailable() {
         return registry != null;
+    }
+
+    private static void clearPlayerInventory(Player player) {
+        PlayerInventory inv = player.getInventory();
+        inv.clear();
+        inv.setArmorContents(new ItemStack[4]);
+        inv.setItemInOffHand(new ItemStack(Material.AIR));
+    }
+
+    private static ItemStack[] deepClone(ItemStack[] source) {
+        if (source == null) {
+            return null;
+        }
+        ItemStack[] copy = new ItemStack[source.length];
+        for (int i = 0; i < source.length; i++) {
+            copy[i] = cloneOrNull(source[i]);
+        }
+        return copy;
+    }
+
+    private static ItemStack cloneOrNull(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return null;
+        }
+        return item.clone();
     }
 
 }
