@@ -4,13 +4,12 @@ import net.citizensnpcs.api.event.NPCDeathEvent;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
+import net.mysterria.cosmos.toolkit.InventoryUtils;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
-import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
 /**
@@ -95,7 +94,7 @@ public class CombatLogHandler implements Listener {
                 plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
                 // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
-                clearPlayerInventory(player);
+                InventoryUtils.clearPlayerInventory(player);
 
                 // Teleport player to death location
                 if (hollowBody.getDeathLocation() != null) {
@@ -120,21 +119,14 @@ public class CombatLogHandler implements Listener {
         }
     }
 
-    private static void clearPlayerInventory(Player player) {
-        PlayerInventory inv = player.getInventory();
-        inv.clear();
-        inv.setArmorContents(new ItemStack[4]);
-        inv.setItemInOffHand(new ItemStack(Material.AIR));
-    }
-
     private static void restoreTransferredInventory(Player player, HollowBody hollowBody) {
         if (hollowBody.isItemsDropped()) {
-            clearPlayerInventory(player);
+            InventoryUtils.clearPlayerInventory(player);
             return;
         }
 
         PlayerInventory inv = player.getInventory();
-        clearPlayerInventory(player);
+        InventoryUtils.clearPlayerInventory(player);
 
         if (hollowBody.getInventory() != null) {
             inv.setStorageContents(hollowBody.getInventory());

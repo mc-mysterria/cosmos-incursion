@@ -116,7 +116,7 @@ public class CitizensToolkit {
             );
 
             // Transfer: clear player so only the hollow holds these items, then persist to disk
-            clearPlayerInventory(player);
+            InventoryUtils.clearPlayerInventory(player);
             player.saveData();
 
             // Store mappings
@@ -285,13 +285,6 @@ public class CitizensToolkit {
      */
     public boolean isAvailable() {
         return registry != null;
-    }
-
-    private static void clearPlayerInventory(Player player) {
-        PlayerInventory inv = player.getInventory();
-        inv.clear();
-        inv.setArmorContents(new ItemStack[4]);
-        inv.setItemInOffHand(new ItemStack(Material.AIR));
     }
 
     private static ItemStack[] deepClone(ItemStack[] source) {
