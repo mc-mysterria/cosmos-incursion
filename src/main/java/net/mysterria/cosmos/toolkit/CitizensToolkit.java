@@ -14,7 +14,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,6 +28,9 @@ public class CitizensToolkit {
 
     private final CosmosIncursion plugin;
     private final CosmosConfig config;
+    /** Grace period after NPC despawn before pending reconnect state is evicted. */
+    private static final long PENDING_EVICT_GRACE_MILLIS = 6L * 60L * 60L * 1000L;
+
     private final Map<UUID, HollowBody> hollowBodies;
     private final Map<Integer, UUID> npcIdToPlayerId;
     private NPCRegistry registry;
@@ -254,6 +259,9 @@ public class CitizensToolkit {
             return;
         }
 
+        long now = System.currentTimeMillis();
+        List<UUID> toEvict = new ArrayList<>();
+
         for (HollowBody hollowBody : hollowBodies.values()) {
             if (hollowBody.shouldDespawn()) {
                 removeNPC(hollowBody.getNpcId());
@@ -263,6 +271,32 @@ public class CitizensToolkit {
                         + " despawned (timeout) - pending reconnect state kept (killed="
                         + hollowBody.isWasKilled() + ")");
             }
+
+            // Evict pending reconnect state after grace TTL so never-returning players
+            // do not retain item snapshots for the whole server session.
+            if (hollowBody.isNpcRemoved()
+                    && now >= hollowBody.getDespawnTime() + PENDING_EVICT_GRACE_MILLIS) {
+                toEvict.add(hollowBody.getPlayerId());
+            }
+        }
+
+        for (UUID playerId : toEvict) {
+            HollowBody hollowBody = hollowBodies.get(playerId);
+            if (hollowBody == null) {
+                continue;
+            }
+            if (!hollowBody.isItemsDropped()) {
+                dropInventory(hollowBody, hollowBody.getSpawnLocation());
+                if (!hollowBody.isItemsDropped()) {
+                    plugin.log("WARNING: voiding undroppable hollow items for "
+                            + hollowBody.getPlayerName() + " during grace eviction");
+                    hollowBody.clearStoredItems();
+                }
+            }
+            hollowBodies.remove(playerId);
+            npcIdToPlayerId.remove(hollowBody.getNpcId());
+            plugin.log("Evicted pending hollow state for " + hollowBody.getPlayerName()
+                    + " after grace TTL (killed=" + hollowBody.isWasKilled() + ")");
         }
     }
 
