@@ -111,6 +111,7 @@ public class CombatLogHandler implements Listener {
 
             // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
             InventoryUtils.clearPlayerInventory(player);
+            player.saveData();
 
             // Teleport player to death location
             if (hollowBody.getDeathLocation() != null) {
@@ -125,6 +126,7 @@ public class CombatLogHandler implements Listener {
         } else {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
             restoreTransferredInventory(player, hollowBody);
+            player.saveData();
         }
 
         // Remove the Hollow Body / pending outcome (items already dropped or restored)
