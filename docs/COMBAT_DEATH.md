@@ -56,24 +56,25 @@ Protection item granted via `/cosmos admin give paperangel <player> [amount]`.
 Requires Citizens plugin (soft dependency).
 
 ### On Disconnect in Zone (`CombatLogHandler`)
-1. Full inventory + armor snapshot captured
-2. Citizens NPC spawned at player's location as "Hollow Body"
-3. NPC vulnerable to attack; persists for `combat-log.npc-duration-minutes`
+1. Full inventory transferred to the Hollow Body (storage + armor + offhand deep-cloned)
+2. Player inventory cleared and `saveData()` so the player no longer holds those items
+3. Citizens NPC spawned at player's location as "Hollow Body"
+4. NPC vulnerable to attack; persists for `combat-log.npc-duration-minutes`
 
 ### When Hollow Body Dies
-- Drops ALL stored items at death location (lootable by any player)
-- Marks NPC as killed with death location stored
+- Drops transferred items once at death location (lootable by any player)
+- Marks NPC as killed; stored snapshot cleared so it cannot drop again
 
 ### On Player Reconnect (`PlayerJoinListener`)
 | NPC State   | Outcome                                                        |
 |-------------|----------------------------------------------------------------|
-| Killed      | Inventory cleared → teleported to NPC death location → killed (triggers death penalty) |
-| Survived    | No penalty; NPC despawned normally                            |
+| Killed      | Inventory stays empty → teleported to NPC death location → killed (triggers death penalty) |
+| Survived    | Transferred inventory restored once; NPC/outcome cleared       |
 | No NPC      | Normal login                                                   |
 
 ### Cleanup
-- All remaining Hollow Bodies force-despawned when event enters `ENDING` state
-- Expired NPCs cleaned up by a periodic task every 30 seconds
+- NPC entities force-despawned when event enters `ENDING` or on timeout
+- Killed/survived outcome state is retained until the player rejoins (prevents leave/kill item dupe and restore loss)
 
 ---
 
