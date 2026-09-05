@@ -88,35 +88,47 @@ public class CombatLogHandler implements Listener {
         }
 
         HollowBody hollowBody = citizensToolkit.getHollowBody(player.getUniqueId());
+        if (hollowBody == null) {
+            return;
+        }
 
-        if (hollowBody != null) {
-            if (hollowBody.isWasKilled()) {
-                plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
+        // Defer by 1 tick so a same-tick NPCDeathEvent is observed before we decide restore vs penalty
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            HollowBody pending = citizensToolkit.getHollowBody(player.getUniqueId());
+            if (pending == null) {
+                return;
+            }
+            applyReconnectOutcome(player, pending);
+        }, 1L);
+    }
 
-                // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
-                InventoryUtils.clearPlayerInventory(player);
+    private void applyReconnectOutcome(Player player, HollowBody hollowBody) {
+        if (hollowBody.isWasKilled()) {
+            plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
-                // Teleport player to death location
-                if (hollowBody.getDeathLocation() != null) {
-                    player.teleport(hollowBody.getDeathLocation());
-                }
+            // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
+            InventoryUtils.clearPlayerInventory(player);
 
-                // Kill the player to apply death mechanics and sequence regression
-                // Delay by 1 tick to ensure player is fully loaded
-                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (player.isOnline()) {
-                        player.setHealth(0);
-                        plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
-                    }
-                }, 1L);
-            } else {
-                plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
-                restoreTransferredInventory(player, hollowBody);
+            // Teleport player to death location
+            if (hollowBody.getDeathLocation() != null) {
+                player.teleport(hollowBody.getDeathLocation());
             }
 
-            // Remove the Hollow Body / pending outcome (items already dropped or restored)
-            citizensToolkit.removeHollowBody(player.getUniqueId());
+            // Kill the player to apply death mechanics and sequence regression
+            if (player.isOnline()) {
+                player.setHealth(0);
+                plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
+            }
+        } else {
+            plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
+            restoreTransferredInventory(player, hollowBody);
         }
+
+        // Remove the Hollow Body / pending outcome (items already dropped or restored)
+        citizensToolkit.removeHollowBody(player.getUniqueId());
     }
 
     private static void restoreTransferredInventory(Player player, HollowBody hollowBody) {
