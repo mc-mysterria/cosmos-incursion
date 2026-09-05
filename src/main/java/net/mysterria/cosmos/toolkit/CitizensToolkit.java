@@ -191,8 +191,15 @@ public class CitizensToolkit {
             return;
         }
         if (location == null || location.getWorld() == null) {
-            plugin.log("Cannot drop inventory - invalid location");
-            return;
+            Location fallback = hollowBody.getSpawnLocation();
+            if (fallback == null || fallback.getWorld() == null) {
+                plugin.log("Cannot drop inventory for " + hollowBody.getPlayerName()
+                        + " - invalid death location and no spawn fallback");
+                return;
+            }
+            plugin.log("Invalid death drop location for " + hollowBody.getPlayerName()
+                    + " - falling back to hollow spawn");
+            location = fallback;
         }
 
         org.bukkit.World world = location.getWorld();
