@@ -37,6 +37,16 @@ public class ContributionTracker {
     }
 
     /**
+     * Returns every player who accrued any contribution this event, in no particular order.
+     * Used to fan out per-participant rewards that don't depend on ranking (e.g. vault credit).
+     */
+    public List<PlayerContribution> all() {
+        return scores.entrySet().stream()
+                .map(e -> new PlayerContribution(e.getKey(), names.getOrDefault(e.getKey(), "Unknown"), e.getValue()))
+                .toList();
+    }
+
+    /**
      * Returns the top {@code count} players by score, descending. Ties break on player UUID so
      * an exact tie is reproducible instead of depending on map iteration order.
      */

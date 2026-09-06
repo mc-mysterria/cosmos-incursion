@@ -16,6 +16,8 @@ import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
+import dev.ua.ikeepcalm.coi.api.event.VaultCreditEvent;
+import dev.ua.ikeepcalm.coi.api.model.VaultTrack;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -105,7 +107,24 @@ public class RewardDistributor {
         broadcastStandings(standings, mvps);
         plugin.getDiscordToolkit().sendEventResults(standings, mvps);
 
+        emitVaultCredits();
+
         return standings;
+    }
+
+    /**
+     * Fires CoI's {@link VaultCreditEvent} on the {@code WORLD} track, once per online player who
+     * contributed anything this event (Plan 04, C-4 Cosmos emitter). CoI accumulates the credit
+     * toward the current ISO week's weekly vault, or ignores it if that feature is off — nothing
+     * to configure here. Offline contributors are skipped: the event needs an online {@code Player}
+     * and the credit is small, per-event, and not worth queueing.
+     */
+    private void emitVaultCredits() {
+        for (PlayerContribution contribution : plugin.getContributionTracker().all()) {
+            Player player = Bukkit.getPlayer(contribution.playerId());
+            if (player == null || !player.isOnline()) continue;
+            Bukkit.getPluginManager().callEvent(new VaultCreditEvent(player, VaultTrack.WORLD, 1));
+        }
     }
 
     // ── Scoring ──────────────────────────────────────────────────────────────────
