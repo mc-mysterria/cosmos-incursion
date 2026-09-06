@@ -68,7 +68,7 @@ dependencies {
     if (coiApiJar) {
         compileOnly files(coiApiJar)
     } else {
-        compileOnly("dev.ua.ikeepcalm:circle-of-imagination-api:1.4.8-SNAPSHOT")
+        compileOnly("dev.ua.ikeepcalm:circle-of-imagination-api:1.4.9-SNAPSHOT")
     }
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     compileOnly("net.citizensnpcs:citizens-main:2.0.37-SNAPSHOT") {
