@@ -27,8 +27,7 @@ success and failure outcomes. Metadata is immutable and bounded; balances and pa
 | `shop.item_dropped` | An inventory fallback places a purchased item in the world | purchase correlation/business ID, item/parent UUID when present, dropped entity UUID, material, amount |
 
 `EventHistoryStore` remains operational because holder, streak, cooldown, event leaderboard, and
-pending offline MVP behavior read it directly. `ShopTransactionLogger` and its per-town text files
-remain enabled as a review-window fallback; they can be retired only after ledger parity and runtime
-queries have been validated.
+pending offline MVP behavior read it directly. Shop history in the GUI uses bounded in-memory
+records; the duplicate shop transaction text/console writer has been removed.
 
 Pending MVP rewards are durably claimed before acting or command delivery, preserving the original at-most-once policy. A failed claim leaves the reward pending; a failure or crash after claim requires staff reconciliation and is not automatically replayed. Canonical shop events replace the duplicate text/console transaction logger; bounded in-memory history remains available in the shop GUI.
