@@ -9,7 +9,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
-import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
+import net.mysterria.cosmos.domain.market.service.ShopTransactionHistory;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
@@ -37,10 +37,10 @@ public class ZoneShopGUI {
     private final CosmosIncursion plugin;
     private final ZoneShopManager shopManager;
     private final PermanentZoneManager zoneManager;
-    private final ShopTransactionLogger txLogger;
+    private final ShopTransactionHistory txLogger;
 
     public ZoneShopGUI(CosmosIncursion plugin, ZoneShopManager shopManager,
-                       PermanentZoneManager zoneManager, ShopTransactionLogger txLogger) {
+                       PermanentZoneManager zoneManager, ShopTransactionHistory txLogger) {
         this.plugin = plugin;
         this.shopManager = shopManager;
         this.zoneManager = zoneManager;
@@ -139,7 +139,7 @@ public class ZoneShopGUI {
     }
 
     public void openTransactionHistory(Player player, TownData town, int page) {
-        var logger = plugin.getShopTransactionLogger();
+        var logger = plugin.getShopTransactionHistory();
         var allTx = logger.getHistory(town.id());
 
         int pageSize = 45;
@@ -334,7 +334,7 @@ public class ZoneShopGUI {
         String priceSummary = priceSummary(prices);
 
         // The deduction and item delivery are now committed. Emit a canonical ledger event while
-        // retaining ShopTransactionLogger as the operational history fallback during review.
+        // retaining bounded in-memory history for the shop GUI.
         ItemStack primaryGrantedItem = grantedItems.isEmpty() ? toGive.get(0) : grantedItems.get(0);
         emitPurchaseResult(correlationId, businessId, player, town, si, primaryGrantedItem, prices, balanceBefore,
                 zoneManager.getTownBalance(town.id()), AuditOutcome.COMMITTED, null,
@@ -349,7 +349,7 @@ public class ZoneShopGUI {
         emitGrantedPhysicalItems(correlationId, businessId, player, town, si, grantedItems);
         emitDroppedPhysicalItems(correlationId, businessId, player, town, si, droppedItems);
 
-        txLogger.log(town.id(), player.getName(), town.name(), plainItemName, prices);
+        txLogger.record(town.id(), player.getName(), town.name(), plainItemName, prices);
 
         Component msg = Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Purchased ", NamedTextColor.GREEN))
@@ -535,6 +535,15 @@ public class ZoneShopGUI {
     }
 
     private Map<String, Object> itemEvidence(ItemStack item) {
+        try {
+            return captureItemEvidence(item);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private Map<String, Object> captureItemEvidence(ItemStack item) {
         Map<String, Object> evidence = new LinkedHashMap<>();
         if (item == null) return evidence;
         evidence.put("material", item.getType().name().toLowerCase(Locale.ROOT));

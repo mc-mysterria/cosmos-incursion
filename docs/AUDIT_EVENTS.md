@@ -1,9 +1,8 @@
 # Cosmos audit event catalog
 
-Cosmos emits best-effort events to the optional `MysterriaAudit` Bukkit service. Events are
-emitted only after the owning operation has a final result, except for `incursion.mvp.result`,
-which records the finalized ranking before reward delivery. A missing or failing provider never
-changes gameplay behavior.
+Cosmos emits best-effort events through its shaded neutral audit client. Events follow the final operation result, except `incursion.mvp.result`, which records finalized ranking before reward delivery. Audit failures do not change gameplay.
+
+The optional per-server audit engine owns SQLite and local staff searches. Each producer writes to its own bounded spool directory even when the engine is absent. Existing gameplay dependencies remain separate from audit transport.
 
 All events use the `mysterria-cosmos.` namespace and `STAFF_RESTRICTED` privacy. Incursion
 lifecycle, rewards, and MVP records reuse the incursion UUID as their correlation ID. A zone-shop
@@ -31,3 +30,5 @@ success and failure outcomes. Metadata is immutable and bounded; balances and pa
 pending offline MVP behavior read it directly. `ShopTransactionLogger` and its per-town text files
 remain enabled as a review-window fallback; they can be retired only after ledger parity and runtime
 queries have been validated.
+
+Pending MVP rewards are durably claimed before acting or command delivery, preserving the original at-most-once policy. A failed claim leaves the reward pending; a failure or crash after claim requires staff reconciliation and is not automatically replayed. Canonical shop events replace the duplicate text/console transaction logger; bounded in-memory history remains available in the shop GUI.

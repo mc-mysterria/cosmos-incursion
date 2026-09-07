@@ -33,7 +33,7 @@ import net.mysterria.cosmos.domain.exclusion.listener.LandsZoneProtectionListene
 import net.mysterria.cosmos.domain.market.gui.ZoneShopAdminGUI;
 import net.mysterria.cosmos.domain.market.gui.ZoneShopGUI;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
-import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
+import net.mysterria.cosmos.domain.market.service.ShopTransactionHistory;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.task.*;
@@ -100,7 +100,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     // Shop
     private ZoneShopManager zoneShopManager;
-    private ShopTransactionLogger shopTransactionLogger;
+    private ShopTransactionHistory shopTransactionHistory;
     private ZoneShopGUI zoneShopGUI;
     private ZoneShopAdminGUI zoneShopAdminGUI;
 
@@ -215,8 +215,8 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing zone shop...");
         zoneShopManager = new ZoneShopManager(this);
         zoneShopManager.load();
-        shopTransactionLogger = new ShopTransactionLogger(this);
-        zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionLogger);
+        shopTransactionHistory = new ShopTransactionHistory();
+        zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionHistory);
         zoneShopAdminGUI = new ZoneShopAdminGUI(zoneShopManager);
 
         // Initialize Discord webhook notifications
@@ -495,7 +495,7 @@ public final class CosmosIncursion extends JavaPlugin {
     public EventManager getEventManager() { return eventManager; }
     public PlayerStateManager getPlayerStateManager() { return playerStateManager; }
     public PermanentZoneManager getPermanentZoneManager() { return permanentZoneManager; }
-    public ShopTransactionLogger getShopTransactionLogger() { return shopTransactionLogger; }
+    public ShopTransactionHistory getShopTransactionHistory() { return shopTransactionHistory; }
 
     public void log(String message) {
         Component debugMessage = Component.text("[CI] ").color(NamedTextColor.GOLD).append(Component.text(message).color(NamedTextColor.WHITE));

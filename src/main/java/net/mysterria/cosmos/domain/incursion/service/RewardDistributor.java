@@ -426,35 +426,37 @@ public class RewardDistributor {
                     : correlationId + ".mvp-reward." + player.getUniqueId();
             int grantedActingPoints = 0;
             boolean commandApplied = false;
-            boolean acknowledgedReward = false;
+            boolean rewardGranted = false;
             String reason;
             try {
-                if (reward.effort() > 0) {
-                    grantedActingPoints = CoiToolkit.grantActingEffort(
-                            player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort());
-                }
-                boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
-                String command = config().getMvpCommand();
-                commandApplied = command == null || command.isBlank()
-                        || Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
-                if (!effortApplied) {
-                    reason = "acting_effort_not_granted";
-                } else if (!commandApplied) {
-                    reason = "reward_command_failed";
+                // Claim durably before either non-idempotent grant. Retrying after
+                // a command or acknowledgment failure can pay acting on every join.
+                boolean claimed = plugin.getEventHistoryStore()
+                        .claimPendingMvpReward(player.getUniqueId(), reward);
+                if (!claimed) {
+                    reason = "pending_claim_persistence_failed";
                 } else {
-                    acknowledgedReward = plugin.getEventHistoryStore()
-                            .acknowledgePendingMvpReward(player.getUniqueId(), reward);
-                    reason = acknowledgedReward ? "pending_reward_join" : "pending_ack_persistence_failed";
+                    if (reward.effort() > 0) {
+                        grantedActingPoints = CoiToolkit.grantActingEffort(
+                                player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort());
+                    }
+                    boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
+                    String command = config().getMvpCommand();
+                    commandApplied = command == null || command.isBlank()
+                            || Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+                    rewardGranted = effortApplied && commandApplied;
+                    reason = !effortApplied ? "acting_effort_not_granted"
+                            : (!commandApplied ? "reward_command_failed" : "pending_reward_join");
                 }
             } catch (RuntimeException failure) {
                 plugin.log("Failed to process queued MVP reward for " + player.getName()
                         + ": " + failure.getClass().getSimpleName());
                 reason = "pending_reward_processing_failed";
             }
-            if (acknowledgedReward) acknowledged++;
-            AuditOutcome outcome = acknowledgedReward ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+            if (rewardGranted) acknowledged++;
+            AuditOutcome outcome = rewardGranted ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
             MysterriaAuditEmitter.emit(plugin, "incursion.mvp.reward_granted", outcome,
-                    acknowledgedReward ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                    rewardGranted ? AuditRisk.NORMAL : AuditRisk.HIGH,
                     correlationId, businessId, player.getUniqueId(), player.getUniqueId(), null, reason,
                     Map.of("acting_effort", reward.effort(),
                             "acting_points_granted", grantedActingPoints,

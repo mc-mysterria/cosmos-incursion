@@ -161,13 +161,13 @@ public class EventHistoryStore {
         }
     }
 
-    /** Removes one applied reward only after the removal is durably persisted. */
-    public boolean acknowledgePendingMvpReward(UUID playerId, PendingMvpReward reward) {
+    /** Claims one reward before delivery; failed persistence leaves it pending. */
+    public boolean claimPendingMvpReward(UUID playerId, PendingMvpReward reward) {
         synchronized (persistenceLock) {
             List<PendingMvpReward> current = pendingMvpRewards.get(playerId);
-            if (current == null) return true;
+            if (current == null) return false;
             List<PendingMvpReward> updated = new ArrayList<>(current);
-            if (!updated.remove(reward)) return true;
+            if (!updated.remove(reward)) return false;
             if (updated.isEmpty()) pendingMvpRewards.remove(playerId);
             else pendingMvpRewards.put(playerId, updated);
             if (saveLocked()) return true;
