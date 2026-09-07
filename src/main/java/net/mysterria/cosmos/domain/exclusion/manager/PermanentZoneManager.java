@@ -796,15 +796,20 @@ public class PermanentZoneManager {
         Map<ResourceType, Double> balance = townBalances.get(townId);
         if (balance == null) return false;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            if (!Double.isFinite(entry.getValue()) || entry.getValue() < 0) return false;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
         }
+        Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);
+        previous.putAll(balance);
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             double remaining = balance.getOrDefault(entry.getKey(), 0.0) - entry.getValue();
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        saveBalances();
-        return true;
+        if (saveBalances()) return true;
+        balance.clear();
+        balance.putAll(previous);
+        return false;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */

@@ -6,10 +6,8 @@ import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditProducer;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.mysterria.cosmos.CosmosIncursion;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.logging.Level;
 
 /**
  * Best-effort bridge to the optional Mysterria audit ledger.
@@ -20,7 +18,7 @@ import java.util.logging.Level;
  */
 public final class MysterriaAuditEmitter {
     private static final String NAMESPACE = "mysterria-cosmos.";
-    private static AuditProducer producer;
+    private static volatile AuditProducer producer;
 
     private MysterriaAuditEmitter() {
     }
@@ -37,6 +35,11 @@ public final class MysterriaAuditEmitter {
         if (current != null) current.close();
     }
 
+    public static void recordFailure() {
+        AuditProducer current = producer;
+        if (current != null) current.recordFailure();
+    }
+
     public static void emit(CosmosIncursion plugin, String event, AuditOutcome outcome,
                             AuditRisk risk, UUID correlationId, String businessId,
                             UUID actorId, UUID subjectId, UUID targetId, String reason,
@@ -47,16 +50,12 @@ public final class MysterriaAuditEmitter {
             AuditProducer current = producer;
             if (current == null) return;
 
-            Map<String, Object> metadataValues = new LinkedHashMap<>();
-            if (metadata != null) metadata.forEach(metadataValues::put);
-
             current.emit(NAMESPACE + event, outcome, risk, AuditPrivacy.STAFF_RESTRICTED,
-                    correlationId, businessId, actorId, subjectId, targetId, reason, metadataValues);
+                    correlationId, businessId, actorId, subjectId, targetId, reason, metadata);
         } catch (RuntimeException | LinkageError failure) {
             // Audit is explicitly best effort; never fail a committed gameplay operation.
-            if (plugin != null) {
-                plugin.getLogger().log(Level.FINE, "Mysterria audit emission unavailable", failure);
-            }
+            AuditProducer current = producer;
+            if (current != null) current.recordFailure();
         }
     }
 
