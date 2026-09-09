@@ -180,8 +180,20 @@ public class CoiToolkit {
      * @return actual bar points granted (0 if the player isn't a Beyonder, or the source is capped)
      */
     public static int grantActingEffort(Player player, ActingSourceCategory sourceCategory, double effort) {
+        return grantActingEffort(player, sourceCategory, effort, null);
+    }
+
+    public static int grantActingEffort(Player player, ActingSourceCategory sourceCategory, double effort,
+                                       java.util.UUID operationId) {
         if (coiApi.isBeyonder(player)) {
-            return coiApi.grantActingEffort(player, sourceCategory, effort);
+            try {
+                dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI.class.getMethod("grantActingEffortForOperation", Player.class,
+                        ActingSourceCategory.class, double.class, java.util.UUID.class);
+            } catch (NoSuchMethodException olderApi) {
+                return coiApi.grantActingEffort(player, sourceCategory, effort);
+            }
+            // Probe before dispatch, never retry after a possibly committed mutation throws.
+            return coiApi.grantActingEffortForOperation(player, sourceCategory, effort, operationId);
         }
         return 0;
     }
