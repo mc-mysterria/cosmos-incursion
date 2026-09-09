@@ -31,3 +31,7 @@ pending offline MVP behavior read it directly. Shop history in the GUI uses boun
 records; the duplicate shop transaction text/console writer has been removed.
 
 Pending MVP rewards are durably claimed before acting or command delivery, preserving the original at-most-once policy. A failed claim leaves the reward pending; a failure or crash after claim requires staff reconciliation and is not automatically replayed. Canonical shop events replace the duplicate text/console transaction logger; bounded in-memory history remains available in the shop GUI.
+
+## Overlap policy
+
+Event history, holder streaks, cooldowns and pending MVP rewards remain functional state; the shop GUI keeps its bounded memory view. MVP operation IDs propagate to coordinated COI acting APIs, with an older-API gameplay fallback selected before dispatch.
