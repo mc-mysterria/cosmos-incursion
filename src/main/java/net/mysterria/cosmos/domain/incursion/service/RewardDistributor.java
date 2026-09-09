@@ -380,7 +380,7 @@ public class RewardDistributor {
             int grantedActingPoints = 0;
             if (config.getMvpActingEffort() > 0) {
                 grantedActingPoints = CoiToolkit.grantActingEffort(
-                        player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
+                        player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort(), event.getEventId());
             }
             boolean commandApplied = true;
             if (config.getMvpCommand() != null && !config.getMvpCommand().isBlank()) {
@@ -438,7 +438,7 @@ public class RewardDistributor {
                 } else {
                     if (reward.effort() > 0) {
                         grantedActingPoints = CoiToolkit.grantActingEffort(
-                                player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort());
+                                player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort(), correlationId);
                     }
                     boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
                     String command = config().getMvpCommand();
