@@ -193,8 +193,17 @@ public class CoiToolkit {
                 return coiApi.grantActingEffort(player, sourceCategory, effort);
             }
             // Probe before dispatch, never retry after a possibly committed mutation throws.
-            return coiApi.grantActingEffortForOperation(player, sourceCategory, effort, operationId);
+            try {
+                return (Integer) dev.ua.ikeepcalm.coi.api.CircleOfImaginationAPI.class
+                        .getMethod("grantActingEffortForOperation", Player.class,
+                                ActingSourceCategory.class, double.class, java.util.UUID.class)
+                        .invoke(coiApi, player, sourceCategory, effort, operationId);
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException("COI operation API invocation failed", error);
+            }
         }
         return 0;
     }
 }
+
+
