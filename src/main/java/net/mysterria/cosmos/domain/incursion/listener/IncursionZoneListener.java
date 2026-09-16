@@ -16,10 +16,26 @@ import org.bukkit.event.Listener;
 
 public class IncursionZoneListener implements Listener {
 
+    /** Set by Circle of Imagination while a Fool marionettist possesses a body. */
+    private static final String POSSESSION_ORIGINAL_MAX_HEALTH = "coi_possession_original_max_health";
+
     private final PlayerStateManager playerStateManager;
 
     public IncursionZoneListener(PlayerStateManager playerStateManager) {
         this.playerStateManager = playerStateManager;
+    }
+
+    /**
+     * During possession the controller's Beyonder carries the borrowed body's health pool, so
+     * normalizing against it would multiply damage. COI publishes the controller's own max health
+     * as player metadata; use it when present.
+     */
+    private static double possessionOriginalMaxHealth(Player player) {
+        if (!player.hasMetadata(POSSESSION_ORIGINAL_MAX_HEALTH)) return 0;
+        for (org.bukkit.metadata.MetadataValue value : player.getMetadata(POSSESSION_ORIGINAL_MAX_HEALTH)) {
+            if (value.asDouble() > 0) return value.asDouble();
+        }
+        return 0;
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -36,7 +52,8 @@ public class IncursionZoneListener implements Listener {
 
         if (!CoiToolkit.isBeyonder(damager) || !CoiToolkit.isBeyonder(damaged)) return;
 
-        double damagerMaxHP = CoiToolkit.getBeyonderData(damager).maxHealth();
+        double damagerMaxHP = possessionOriginalMaxHealth(damager);
+        if (damagerMaxHP <= 0) damagerMaxHP = CoiToolkit.getBeyonderData(damager).maxHealth();
         double damagedMaxHP = CoiToolkit.getBeyonderData(damaged).maxHealth();
         if (damagerMaxHP <= 0) return;
 
