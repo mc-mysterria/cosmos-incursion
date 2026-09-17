@@ -24,6 +24,11 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -217,8 +222,9 @@ public class PermanentZoneManager {
         }
     }
 
-    public void saveBalances() {
-        try (FileWriter fw = new FileWriter(balanceFile)) {
+    public boolean saveBalances() {
+        Path temporary = null;
+        try {
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
                 Map<String, Double> inner = new LinkedHashMap<>();
@@ -227,9 +233,27 @@ public class PermanentZoneManager {
                 }
                 serializable.put(String.valueOf(entry.getKey()), inner);
             }
-            gson.toJson(serializable, fw);
-        } catch (IOException e) {
+            String json = gson.toJson(serializable);
+            Path target = balanceFile.toPath().toAbsolutePath();
+            temporary = Files.createTempFile(target.getParent(), balanceFile.getName(), ".tmp");
+            Files.writeString(temporary, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (IOException | JsonIOException e) {
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
+            return false;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
@@ -772,15 +796,20 @@ public class PermanentZoneManager {
         Map<ResourceType, Double> balance = townBalances.get(townId);
         if (balance == null) return false;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            if (!Double.isFinite(entry.getValue()) || entry.getValue() < 0) return false;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
         }
+        Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);
+        previous.putAll(balance);
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             double remaining = balance.getOrDefault(entry.getKey(), 0.0) - entry.getValue();
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        saveBalances();
-        return true;
+        if (saveBalances()) return true;
+        balance.clear();
+        balance.putAll(previous);
+        return false;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
