@@ -392,7 +392,8 @@ public class RewardDistributor {
     /**
      * Grants an online MVP's acting effort and command reward. Acting effort legitimately grants
      * 0 points to non-Beyonders and capped sources, so it is recorded as evidence rather than
-     * failing the row; the outcome follows the command reward, the part Cosmos controls.
+     * failing the row. The row fails when the acting grant or a configured command fails; a
+     * command exception is recorded (with the acting result) before it propagates.
      */
     private void payOnlineMvp(IncursionEvent event, Player player, CosmosConfig config) {
         int grantedActingPoints = 0;
@@ -407,46 +408,87 @@ public class RewardDistributor {
                         + ": " + failure.getClass().getSimpleName());
             }
         }
-        boolean commandApplied = dispatchMvpCommand(player, config.getMvpCommand());
+        UUID correlationId = event.getEventId();
+        String businessId = correlationId + ".mvp-reward." + player.getUniqueId();
+        CommandResult command;
+        try {
+            command = dispatchMvpCommand(player, config.getMvpCommand());
+        } catch (RuntimeException failure) {
+            MvpGrantResult failed = new MvpGrantResult(config.getMvpActingEffort(), grantedActingPoints,
+                    actingError, CommandResult.threw(failure), false);
+            emitMvpRewardGranted(correlationId, businessId, player, failed, failed.reason(null), "distribution");
+            throw failure;
+        }
 
         player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
                 .append(Component.text("You were an MVP of the incursion!", NamedTextColor.GREEN)));
 
-        String reason = actingError != null ? "acting_grant_failed"
-                : (commandApplied ? null : "reward_command_failed");
-        emitMvpRewardGranted(event.getEventId(), event.getEventId() + ".mvp-reward." + player.getUniqueId(),
-                player, new MvpGrantResult(config.getMvpActingEffort(), grantedActingPoints, actingError,
-                        commandApplied), reason, "distribution");
+        MvpGrantResult result = new MvpGrantResult(config.getMvpActingEffort(), grantedActingPoints,
+                actingError, command, false);
+        emitMvpRewardGranted(correlationId, businessId, player, result, result.reason(null), "distribution");
     }
 
-    /** What one MVP reward delivery actually did; a thrown acting grant fails the row. */
-    private record MvpGrantResult(double actingEffort, int actingGranted, String actingError,
-                                  boolean commandApplied) {
-        boolean succeeded() {
-            return commandApplied && actingError == null;
+    /** Outcome of the configured MVP console command. */
+    private record CommandResult(boolean configured, boolean applied, String error) {
+        static final CommandResult UNSET = new CommandResult(false, false, null);
+
+        static CommandResult threw(RuntimeException failure) {
+            return new CommandResult(true, false, failure.getClass().getName());
+        }
+
+        boolean failed() {
+            return configured && !applied;
         }
     }
 
-    /** Runs the configured MVP console command; an unset command counts as applied. */
-    private boolean dispatchMvpCommand(Player player, String command) {
-        if (command == null || command.isBlank()) return true;
-        return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+    /** What one MVP reward delivery actually did. */
+    private record MvpGrantResult(double actingEffort, int actingGranted, String actingError,
+                                  CommandResult command, boolean processingFailed) {
+        boolean failed() {
+            return processingFailed || actingError != null || command.failed();
+        }
+
+        boolean nothingApplied() {
+            return actingGranted <= 0 && !command.applied();
+        }
+
+        AuditOutcome outcome() {
+            if (failed()) return AuditOutcome.FAILED;
+            return nothingApplied() ? AuditOutcome.OBSERVED : AuditOutcome.COMMITTED;
+        }
+
+        /** Failure reason, "no_reward_applied" when nothing was applied, otherwise successReason. */
+        String reason(String successReason) {
+            if (actingError != null) return "acting_grant_failed";
+            if (command.failed()) return "reward_command_failed";
+            return nothingApplied() ? "no_reward_applied" : successReason;
+        }
+    }
+
+    /** Runs the configured MVP console command; an unset command is reported as not configured. */
+    private CommandResult dispatchMvpCommand(Player player, String command) {
+        if (command == null || command.isBlank()) return CommandResult.UNSET;
+        boolean applied = Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
+                command.replace("%player%", player.getName()));
+        return new CommandResult(true, applied, null);
     }
 
     private void emitMvpRewardGranted(UUID correlationId, String businessId, Player player,
                                       MvpGrantResult result, String reason, String trigger) {
-        AuditOutcome outcome = result.succeeded() ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+        AuditOutcome outcome = result.outcome();
         Map<String, Object> metadata = new java.util.LinkedHashMap<>();
         metadata.put("acting_effort", result.actingEffort());
         metadata.put("acting_applied", result.actingGranted() > 0);
         metadata.put("acting_granted", result.actingGranted());
         if (result.actingError() != null) metadata.put("acting_error", result.actingError());
-        metadata.put("command_applied", result.commandApplied());
+        metadata.put("command_configured", result.command().configured());
+        metadata.put("command_applied", result.command().applied());
+        if (result.command().error() != null) metadata.put("command_error", result.command().error());
         metadata.put("online", true);
         metadata.put("trigger", trigger);
         MysterriaAuditEmitter.putPlayerLocation(metadata, player);
         MysterriaAuditEmitter.emit(plugin, "incursion.mvp.reward_granted", outcome,
-                outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                outcome == AuditOutcome.FAILED ? AuditRisk.HIGH : AuditRisk.NORMAL,
                 correlationId, businessId, player.getUniqueId(), player.getUniqueId(), null, reason, metadata);
     }
 
@@ -474,42 +516,46 @@ public class RewardDistributor {
     }
 
     /**
-     * Claims and delivers one queued MVP reward, then emits its audit row. The audit outcome
-     * follows the command reward; the return value keeps the pre-audit join-message rule
-     * (acting effort actually granted, or none owed, and command applied) so players see exactly
-     * the messages they saw before.
+     * Claims and delivers one queued MVP reward, then emits its audit row. Returns whether the
+     * reward was delivered without an exception. As in the pre-audit code, the join message does
+     * not depend on how many acting points were granted (capped players and non-Beyonders still
+     * see it) or on the command return value.
      */
     private boolean grantPendingReward(Player player, EventHistoryStore.PendingMvpReward reward) {
         UUID correlationId = pendingCorrelationId(player.getUniqueId(), reward);
         String businessId = correlationId + ".mvp-reward." + player.getUniqueId();
         int grantedActingPoints = 0;
-        boolean commandApplied = false;
-        String reason;
+        CommandResult command = CommandResult.UNSET;
+        String failureReason = null;
         try {
             // Claim durably before either non-idempotent grant. Retrying after
             // a command or acknowledgment failure can pay acting on every join.
             boolean claimed = plugin.getEventHistoryStore()
                     .claimPendingMvpReward(player.getUniqueId(), reward);
             if (!claimed) {
-                reason = "pending_claim_persistence_failed";
+                failureReason = "pending_claim_persistence_failed";
             } else {
                 if (reward.effort() > 0) {
                     grantedActingPoints = CoiToolkit.grantActingEffort(
                             player, CoiToolkit.SOURCE_WORLD_CONTENT, reward.effort(), correlationId);
                 }
-                commandApplied = dispatchMvpCommand(player, config().getMvpCommand());
-                reason = commandApplied ? "pending_reward_join" : "reward_command_failed";
+                try {
+                    command = dispatchMvpCommand(player, config().getMvpCommand());
+                } catch (RuntimeException failure) {
+                    command = CommandResult.threw(failure);
+                    throw failure;
+                }
             }
         } catch (RuntimeException failure) {
             plugin.log("Failed to process queued MVP reward for " + player.getName()
                     + ": " + failure.getClass().getSimpleName());
-            reason = "pending_reward_processing_failed";
-            commandApplied = false;
+            failureReason = "pending_reward_processing_failed";
         }
-        emitMvpRewardGranted(correlationId, businessId, player,
-                new MvpGrantResult(reward.effort(), grantedActingPoints, null, commandApplied), reason, "join");
-        boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
-        return effortApplied && commandApplied;
+        MvpGrantResult result = new MvpGrantResult(reward.effort(), grantedActingPoints, null, command,
+                failureReason != null);
+        emitMvpRewardGranted(correlationId, businessId, player, result,
+                failureReason != null ? failureReason : result.reason("pending_reward_join"), "join");
+        return failureReason == null;
     }
 
     /**
