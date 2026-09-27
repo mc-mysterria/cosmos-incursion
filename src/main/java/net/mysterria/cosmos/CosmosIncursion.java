@@ -215,7 +215,8 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing zone shop...");
         zoneShopManager = new ZoneShopManager(this);
         zoneShopManager.load();
-        shopTransactionHistory = new ShopTransactionHistory();
+        shopTransactionHistory = new ShopTransactionHistory(this);
+        shopTransactionHistory.load();
         zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionHistory);
         zoneShopAdminGUI = new ZoneShopAdminGUI(zoneShopManager);
 
@@ -265,6 +266,11 @@ public final class CosmosIncursion extends JavaPlugin {
         // Save event history (win records, holder streak)
         if (eventHistoryStore != null) {
             eventHistoryStore.save();
+        }
+
+        // Flush the debounced shop GUI history before the scheduler stops
+        if (shopTransactionHistory != null) {
+            shopTransactionHistory.flush();
         }
 
         // Save permanent zone data and clean up display entities
