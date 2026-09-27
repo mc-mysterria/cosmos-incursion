@@ -6,6 +6,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import net.mysterria.cosmos.toolkit.item.CoiItemIdentity;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.command.CommandSender;
@@ -77,33 +78,24 @@ public class ZoneShopManager {
      * {@code admin.zone_shop_edited} row with the before/after catalogue.
      */
     public boolean replaceItems(List<ShopItem> newItems, CommandSender actor, String operation) {
-        List<String> before = describe(items);
+        List<ShopItem> before = List.copyOf(items);
         setItems(newItems);
         return saveAndAudit(before, actor, operation);
     }
 
     /** Appends one item on behalf of an admin, saves, and records {@code admin.zone_shop_edited}. */
     public boolean addItem(ShopItem item, CommandSender actor, String operation) {
-        List<String> before = describe(items);
+        List<ShopItem> before = List.copyOf(items);
         addItem(item);
         return saveAndAudit(before, actor, operation);
     }
 
-    private boolean saveAndAudit(List<String> before, CommandSender actor, String operation) {
+    private boolean saveAndAudit(List<ShopItem> beforeItems, CommandSender actor, String operation) {
         boolean saved = save();
-        List<String> after = describe(items);
+        List<ShopItem> afterItems = List.copyOf(items);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("operation", operation);
-        metadata.put("item_count_before", before.size());
-        metadata.put("item_count_after", after.size());
-        metadata.put("items_before", String.join("; ", before));
-        metadata.put("items_after", String.join("; ", after));
-        List<String> added = new ArrayList<>(after);
-        before.forEach(added::remove);
-        List<String> removed = new ArrayList<>(before);
-        after.forEach(removed::remove);
-        metadata.put("items_added", String.join("; ", added));
-        metadata.put("items_removed", String.join("; ", removed));
+        putCatalogueDiff(metadata, beforeItems, afterItems);
         MysterriaAuditEmitter.putActor(metadata, actor);
         UUID correlationId = UUID.randomUUID();
         MysterriaAuditEmitter.emit(plugin, "admin.zone_shop_edited",
@@ -113,7 +105,78 @@ public class ZoneShopManager {
         return saved;
     }
 
-    /** Stable, id-free description of each entry: logical item plus price. */
+    /**
+     * Adds the before/after catalogue, the added/removed entries, the shop entry IDs, and the CoI
+     * physical identities ({@code item_uuid}/{@code parent_item_uuid}) of listed stacks. The GUI
+     * regenerates entry IDs on every save, so the added/removed diff is keyed by logical identity
+     * (including physical item UUIDs) and price, not by entry ID. When an added entry carries a
+     * tracked item, the first one is also promoted to top-level {@code item_uuid}/
+     * {@code parent_item_uuid}.
+     */
+    private static void putCatalogueDiff(Map<String, Object> metadata, List<ShopItem> beforeItems,
+                                         List<ShopItem> afterItems) {
+        List<String> before = describe(beforeItems);
+        List<String> after = describe(afterItems);
+        List<String> added = new ArrayList<>(after);
+        before.forEach(added::remove);
+        List<String> removed = new ArrayList<>(before);
+        after.forEach(removed::remove);
+        metadata.put("item_count_before", before.size());
+        metadata.put("item_count_after", after.size());
+        metadata.put("items_before", String.join("; ", before));
+        metadata.put("items_after", String.join("; ", after));
+        metadata.put("items_added", String.join("; ", added));
+        metadata.put("items_removed", String.join("; ", removed));
+        metadata.put("shop_item_ids_before", joinIds(beforeItems));
+        metadata.put("shop_item_ids_after", joinIds(afterItems));
+
+        Set<String> uuidsBefore = trackedUuids(beforeItems);
+        Set<String> uuidsAfter = trackedUuids(afterItems);
+        Set<String> uuidsAdded = new LinkedHashSet<>(uuidsAfter);
+        uuidsAdded.removeAll(uuidsBefore);
+        Set<String> uuidsRemoved = new LinkedHashSet<>(uuidsBefore);
+        uuidsRemoved.removeAll(uuidsAfter);
+        metadata.put("item_uuids_added", String.join(",", uuidsAdded));
+        metadata.put("item_uuids_removed", String.join(",", uuidsRemoved));
+        promoteFirstAddedIdentity(metadata, afterItems, uuidsAdded);
+    }
+
+    private static void promoteFirstAddedIdentity(Map<String, Object> metadata, List<ShopItem> afterItems,
+                                                  Set<String> uuidsAdded) {
+        for (ShopItem entry : afterItems) {
+            if (entry.isCoi()) continue;
+            Map<String, Object> evidence = CoiItemIdentity.evidence(entry.getItem());
+            Object itemUuid = evidence.get("item_uuid");
+            if (itemUuid == null || !uuidsAdded.contains(itemUuid.toString())) continue;
+            metadata.put("item_uuid", itemUuid);
+            if (evidence.containsKey("parent_item_uuid")) {
+                metadata.put("parent_item_uuid", evidence.get("parent_item_uuid"));
+            }
+            metadata.put("item_shop_item_id", entry.getId().toString());
+            return;
+        }
+    }
+
+    private static String joinIds(List<ShopItem> entries) {
+        StringJoiner ids = new StringJoiner(",");
+        entries.forEach(entry -> ids.add(entry.getId().toString()));
+        return ids.toString();
+    }
+
+    private static Set<String> trackedUuids(List<ShopItem> entries) {
+        Set<String> result = new LinkedHashSet<>();
+        for (ShopItem entry : entries) {
+            if (entry.isCoi()) continue;
+            Object itemUuid = CoiItemIdentity.evidence(entry.getItem()).get("item_uuid");
+            if (itemUuid != null) result.add(itemUuid.toString());
+        }
+        return result;
+    }
+
+    /**
+     * Description of each entry without its (regenerated) entry ID: logical item, CoI physical
+     * identity when tagged, and price.
+     */
     private static List<String> describe(List<ShopItem> entries) {
         List<String> result = new ArrayList<>();
         for (ShopItem entry : entries) {
@@ -121,8 +184,7 @@ public class ZoneShopManager {
             if (entry.isCoi()) {
                 identity = "coi:" + entry.getCoiItemId();
             } else {
-                ItemStack stack = entry.getItem();
-                identity = stack.getType().name().toLowerCase(Locale.ROOT) + "x" + stack.getAmount();
+                identity = describeStack(entry.getItem());
             }
             StringJoiner price = new StringJoiner(",");
             for (ResourceType type : ResourceType.values()) {
@@ -132,6 +194,19 @@ public class ZoneShopManager {
             result.add(identity + "[" + price + "]");
         }
         return result;
+    }
+
+    private static String describeStack(ItemStack stack) {
+        Map<String, Object> evidence = CoiItemIdentity.evidence(stack);
+        StringBuilder identity = new StringBuilder()
+                .append(stack.getType().name().toLowerCase(Locale.ROOT)).append('x').append(stack.getAmount());
+        if (evidence.containsKey("item_uuid")) identity.append("{item_uuid=").append(evidence.get("item_uuid"));
+        if (evidence.containsKey("parent_item_uuid")) {
+            identity.append(evidence.containsKey("item_uuid") ? "," : "{")
+                    .append("parent_item_uuid=").append(evidence.get("parent_item_uuid"));
+        }
+        if (evidence.containsKey("item_uuid") || evidence.containsKey("parent_item_uuid")) identity.append('}');
+        return identity.toString();
     }
 
     @SuppressWarnings("unchecked")

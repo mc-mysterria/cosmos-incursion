@@ -14,15 +14,14 @@ import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import net.mysterria.cosmos.toolkit.item.CoiItemIdentity;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 
 import java.util.*;
 
@@ -538,31 +537,7 @@ public class ZoneShopGUI {
     }
 
     private Map<String, Object> itemEvidence(ItemStack item) {
-        try {
-            return captureItemEvidence(item);
-        } catch (RuntimeException | LinkageError failure) {
-            MysterriaAuditEmitter.recordFailure();
-            return new LinkedHashMap<>();
-        }
-    }
-
-    private Map<String, Object> captureItemEvidence(ItemStack item) {
-        Map<String, Object> evidence = new LinkedHashMap<>();
-        if (item == null) return evidence;
-        evidence.put("material", item.getType().name().toLowerCase(Locale.ROOT));
-        evidence.put("amount", item.getAmount());
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            String itemUuid = meta.getPersistentDataContainer().get(
-                    new NamespacedKey("circleofimagination", "item_uuid"), PersistentDataType.STRING);
-            if (itemUuid != null && !itemUuid.isBlank()) evidence.put("item_uuid", itemUuid);
-            String parentItemUuid = meta.getPersistentDataContainer().get(
-                    new NamespacedKey("circleofimagination", "item_parent"), PersistentDataType.STRING);
-            if (parentItemUuid != null && !parentItemUuid.isBlank()) {
-                evidence.put("parent_item_uuid", parentItemUuid);
-            }
-        }
-        return evidence;
+        return CoiItemIdentity.evidence(item);
     }
 
     // ── Inventory space check ────────────────────────────────────────────────────
