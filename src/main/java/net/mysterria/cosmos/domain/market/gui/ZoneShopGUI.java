@@ -38,6 +38,11 @@ public class ZoneShopGUI {
     private final PermanentZoneManager zoneManager;
     private final ShopTransactionHistory txLogger;
 
+    private static final long DENIAL_AUDIT_INTERVAL_MS = 5_000L;
+    private static final int DENIAL_AUDIT_MAX_TRACKED = 1024;
+    /** Last pre-confirmation denial row per player; touched only on the main thread. */
+    private final Map<UUID, Long> lastDenialAudit = new HashMap<>();
+
     public ZoneShopGUI(CosmosIncursion plugin, ZoneShopManager shopManager,
                        PermanentZoneManager zoneManager, ShopTransactionHistory txLogger) {
         this.plugin = plugin;
@@ -291,12 +296,21 @@ public class ZoneShopGUI {
             }
         }
 
-        if (!zoneManager.deductFromTown(town.id(), prices)) {
+        PermanentZoneManager.DeductResult deduction;
+        try {
+            deduction = zoneManager.tryDeductFromTown(town.id(), prices);
+        } catch (RuntimeException failure) {
+            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
+                    balanceBefore, zoneManager.getTownBalance(town.id()), AuditOutcome.FAILED,
+                    "balance_persist_threw", Map.of("error", failure.getClass().getName()));
+            throw failure;
+        }
+        if (deduction != PermanentZoneManager.DeductResult.DEDUCTED) {
             Map<ResourceType, Double> balanceAfter = new EnumMap<>(ResourceType.class);
             balanceAfter.putAll(zoneManager.getTownBalance(town.id()));
             emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
                     balanceBefore, balanceAfter, AuditOutcome.FAILED,
-                    "balance_changed_before_commit", Map.of());
+                    deductionFailureReason(deduction), Map.of());
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                     .append(Component.text("Purchase failed — insufficient town balance.", NamedTextColor.RED)));
             open(player, returnPage);
@@ -305,9 +319,11 @@ public class ZoneShopGUI {
 
         List<ItemStack> grantedItems = new ArrayList<>();
         List<Map<String, Object>> droppedItems = new ArrayList<>();
+        List<Map<String, Object>> undeliveredItems = new ArrayList<>();
         int requestedItemAmount = 0;
         int grantedItemAmount = 0;
         int droppedItemAmount = 0;
+        int undeliveredItemAmount = 0;
         for (ItemStack stack : toGive) {
             ItemStack requested = stack.clone();
             requestedItemAmount += requested.getAmount();
@@ -321,10 +337,18 @@ public class ZoneShopGUI {
                 grantedItemAmount += inventoryAmount;
             }
             for (ItemStack leftover : leftovers.values()) {
-                droppedItemAmount += leftover.getAmount();
                 Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), leftover);
-                Map<String, Object> evidence = itemEvidence(leftover);
+                // ItemSpawnEvent may be cancelled: only a live entity counts as delivered.
+                if (dropped == null || !dropped.isValid() || dropped.isDead()) {
+                    undeliveredItemAmount += leftover.getAmount();
+                    undeliveredItems.add(itemEvidence(leftover));
+                    continue;
+                }
+                ItemStack actual = dropped.getItemStack();
+                droppedItemAmount += actual.getAmount();
+                Map<String, Object> evidence = itemEvidence(actual);
                 evidence.put("entity_uuid", dropped.getUniqueId().toString());
+                MysterriaAuditEmitter.putLocation(evidence, dropped.getLocation());
                 droppedItems.add(evidence);
             }
         }
@@ -337,21 +361,31 @@ public class ZoneShopGUI {
         String plainItemName = itemNamePlain(primary);
         String priceSummary = priceSummary(prices);
 
-        // The deduction and item delivery are now committed. Emit a canonical ledger event while
-        // retaining bounded in-memory history for the shop GUI.
+        // The deduction is committed. The purchase row is COMMITTED only when every requested
+        // item reached the inventory or a live dropped entity; otherwise it is FAILED with the
+        // undelivered amounts. Bounded in-memory history for the shop GUI is kept either way.
         ItemStack primaryGrantedItem = grantedItems.isEmpty() ? toGive.get(0) : grantedItems.get(0);
+        Map<String, Object> delivery = new LinkedHashMap<>();
+        delivery.put("items", toGive.stream().map(this::itemEvidence).toList());
+        delivery.put("requested_item_count", toGive.size());
+        delivery.put("granted_item_count", grantedItems.size());
+        delivery.put("dropped_item_count", droppedItems.size());
+        delivery.put("undelivered_item_count", undeliveredItems.size());
+        delivery.put("requested_total_amount", requestedItemAmount);
+        delivery.put("granted_total_amount", grantedItemAmount);
+        delivery.put("dropped_total_amount", droppedItemAmount);
+        delivery.put("undelivered_total_amount", undeliveredItemAmount);
+        delivery.put("price_summary", priceSummary);
+        boolean fullyDelivered = undeliveredItems.isEmpty();
         emitPurchaseResult(correlationId, businessId, player, town, si, primaryGrantedItem, prices, balanceBefore,
-                zoneManager.getTownBalance(town.id()), AuditOutcome.COMMITTED, null,
-                Map.of("items", toGive.stream().map(this::itemEvidence).toList(),
-                        "requested_item_count", toGive.size(),
-                        "granted_item_count", grantedItems.size(),
-                        "dropped_item_count", droppedItems.size(),
-                        "requested_total_amount", requestedItemAmount,
-                        "granted_total_amount", grantedItemAmount,
-                        "dropped_total_amount", droppedItemAmount,
-                        "price_summary", priceSummary));
+                zoneManager.getTownBalance(town.id()),
+                fullyDelivered ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
+                fullyDelivered ? null : "delivery_incomplete", delivery);
         emitGrantedPhysicalItems(correlationId, businessId, player, town, si, grantedItems);
-        emitDroppedPhysicalItems(correlationId, businessId, player, town, si, droppedItems);
+        emitDroppedPhysicalItems(correlationId, businessId, player, town, si, droppedItems,
+                AuditOutcome.COMMITTED, "inventory_fallback");
+        emitDroppedPhysicalItems(correlationId, businessId, player, town, si, undeliveredItems,
+                AuditOutcome.FAILED, "drop_spawn_cancelled");
 
         txLogger.record(town.id(), player.getName(), town.name(), plainItemName, prices);
 
@@ -388,6 +422,7 @@ public class ZoneShopGUI {
             event.setCancelled(true);
 
             if (townOpt.isEmpty()) {
+                emitPurchaseDenied(player, si, null, "not_town_member", Map.of());
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                         .append(Component.text("You must be in a town to purchase items.", NamedTextColor.RED)));
                 return;
@@ -396,6 +431,7 @@ public class ZoneShopGUI {
             TownData town = townOpt.get();
 
             if (!TownsToolkit.canManageTownShop(player)) {
+                emitPurchaseDenied(player, si, town, "missing_permission", Map.of());
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                         .append(Component.text("Only the town mayor or a trusted member can purchase items.", NamedTextColor.RED)));
                 return;
@@ -404,6 +440,7 @@ public class ZoneShopGUI {
             Map<ResourceType, Double> prices = si.getPrices();
 
             if (prices.isEmpty() || prices.values().stream().allMatch(v -> v <= 0)) {
+                emitPurchaseDenied(player, si, town, "price_unset", Map.of());
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                         .append(Component.text("This item has no price set.", NamedTextColor.RED)));
                 return;
@@ -414,6 +451,9 @@ public class ZoneShopGUI {
             for (Map.Entry<ResourceType, Double> entry : prices.entrySet()) {
                 if (entry.getValue() <= 0) continue;
                 if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) {
+                    emitPurchaseDenied(player, si, town, "insufficient_balance",
+                            Map.of("resource", entry.getKey().configKey(),
+                                    "balance", resourceAmounts(balance)));
                     player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                             .append(Component.text("Your town doesn't have enough " + entry.getKey().displayName() + ".", NamedTextColor.RED)));
                     return;
@@ -425,6 +465,55 @@ public class ZoneShopGUI {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private static String deductionFailureReason(PermanentZoneManager.DeductResult result) {
+        return switch (result) {
+            case INVALID_AMOUNT -> "invalid_price";
+            case PERSIST_FAILED -> "balance_persist_failed";
+            default -> "balance_changed_before_commit";
+        };
+    }
+
+    /**
+     * Records a purchase refused before the confirmation screen. Rate-limited per player so
+     * repeated clicks on a refused item do not produce one row per click. Main thread only.
+     */
+    private void emitPurchaseDenied(Player player, ShopItem shopItem, TownData town, String reason,
+                                    Map<String, ?> extra) {
+        long now = System.currentTimeMillis();
+        UUID playerId = player.getUniqueId();
+        Long last = lastDenialAudit.get(playerId);
+        if (last != null && now - last < DENIAL_AUDIT_INTERVAL_MS) return;
+        if (lastDenialAudit.size() >= DENIAL_AUDIT_MAX_TRACKED) {
+            lastDenialAudit.values().removeIf(time -> now - time >= DENIAL_AUDIT_INTERVAL_MS);
+        }
+        lastDenialAudit.put(playerId, now);
+
+        try {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            if (town != null) {
+                metadata.put("town_id", town.id());
+                metadata.put("town_name", town.name());
+            }
+            metadata.put("shop_item_id", shopItem.getId().toString());
+            metadata.put("coi_item_id", shopItem.getCoiItemId() == null ? "" : shopItem.getCoiItemId());
+            metadata.put("logical_type", "zone_shop_item");
+            metadata.put("logical_id", shopItem.getId().toString());
+            metadata.put("price", resourceAmounts(shopItem.getPrices()));
+            metadata.put("stage", "pre_confirmation");
+            Map<String, Object> itemEvidence = itemEvidence(shopItem.getItem());
+            metadata.put("item", itemEvidence);
+            copyPhysicalIdentity(metadata, itemEvidence);
+            if (extra != null) metadata.putAll(extra);
+            MysterriaAuditEmitter.putPlayerLocation(metadata, player);
+            UUID correlationId = UUID.randomUUID();
+            MysterriaAuditEmitter.emit(plugin, "shop.purchase", AuditOutcome.DENIED, AuditRisk.NORMAL,
+                    correlationId, "zone-shop.purchase." + correlationId, playerId, playerId, null,
+                    reason, metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
+    }
 
     private String itemNamePlain(ItemStack item) {
         if (item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
@@ -498,9 +587,14 @@ public class ZoneShopGUI {
         }
     }
 
+    /**
+     * One row per overflow stack. Delivered drops carry the entity UUID and the entity's own
+     * location; undelivered stacks (cancelled spawn) carry the player's location.
+     */
     private void emitDroppedPhysicalItems(UUID correlationId, String businessId, Player player,
                                           TownData town, ShopItem shopItem,
-                                          List<Map<String, Object>> items) {
+                                          List<Map<String, Object>> items, AuditOutcome outcome,
+                                          String reason) {
         for (Map<String, Object> evidence : items) {
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("town_id", town.id());
@@ -512,10 +606,15 @@ public class ZoneShopGUI {
             metadata.put("amount", evidence.getOrDefault("amount", 0));
             metadata.put("entity_uuid", evidence.getOrDefault("entity_uuid", ""));
             copyPhysicalIdentity(metadata, evidence);
-            MysterriaAuditEmitter.putPlayerLocation(metadata, player);
-            MysterriaAuditEmitter.emit(plugin, "shop.item_dropped", AuditOutcome.COMMITTED,
-                    AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
-                    player.getUniqueId(), null, "inventory_fallback", metadata);
+            if (evidence.containsKey("world")) {
+                for (String key : List.of("world", "x", "y", "z")) metadata.put(key, evidence.get(key));
+            } else {
+                MysterriaAuditEmitter.putPlayerLocation(metadata, player);
+            }
+            MysterriaAuditEmitter.emit(plugin, "shop.item_dropped", outcome,
+                    outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                    correlationId, businessId, player.getUniqueId(),
+                    player.getUniqueId(), null, reason, metadata);
         }
     }
 
