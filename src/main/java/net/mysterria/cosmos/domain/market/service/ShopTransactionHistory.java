@@ -161,7 +161,7 @@ public class ShopTransactionHistory {
                 }
                 writtenGeneration = generation;
             } catch (IOException e) {
-                plugin.log("Failed to save zone shop history: " + e.getMessage());
+                plugin.getLogger().warning("Failed to save zone shop history: " + e.getMessage());
             } finally {
                 if (temporary != null) {
                     try {
