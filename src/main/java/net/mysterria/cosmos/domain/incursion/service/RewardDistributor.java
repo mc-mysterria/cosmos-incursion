@@ -291,7 +291,13 @@ public class RewardDistributor {
             Map<ResourceType, Double> payout = new EnumMap<>(ResourceType.class);
             pool.forEach((type, amount) -> payout.put(type, amount * effectiveShare));
 
-            boolean deposited = plugin.getPermanentZoneManager().depositToTown(town.townId(), payout);
+            boolean deposited;
+            try {
+                deposited = plugin.getPermanentZoneManager().depositToTown(town.townId(), payout);
+            } catch (RuntimeException failure) {
+                emitTownRewardSaveThrew(event, town, payout, failure);
+                throw failure;
+            }
             plugin.log(String.format(
                     "Deposited event resources to %s (rank %d, share %.1f%%, multiplier %.2fx): %s",
                     town.townName(), town.rank(), town.share() * 100, multiplier, payout));
@@ -320,6 +326,29 @@ public class RewardDistributor {
                 plugin.getPermanentZoneManager().trackDeferredPersist(event.getEventId(), businessId,
                         town.townId(), "incursion.reward_granted");
             }
+        }
+    }
+
+    /**
+     * Records a town payout whose balance save threw (for example Gson rejecting a non-finite
+     * amount): the credit is applied in memory but not persisted, so the row is FAILED.
+     */
+    private void emitTownRewardSaveThrew(IncursionEvent event, TownScore town, Map<ResourceType, Double> payout,
+                                         RuntimeException failure) {
+        try {
+            Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+            metadata.put("town_id", town.townId());
+            metadata.put("town_name", town.townName());
+            metadata.put("rank", town.rank());
+            metadata.put("payout", resourceAmounts(payout));
+            metadata.put("applied_in_memory", true);
+            metadata.put("persisted", false);
+            metadata.put("error", failure.getClass().getName());
+            MysterriaAuditEmitter.emit(plugin, "incursion.reward_granted", AuditOutcome.FAILED, AuditRisk.HIGH,
+                    event.getEventId(), event.getEventId() + ".reward." + town.townId(),
+                    null, null, null, "persist_serialization_failed", metadata);
+        } catch (RuntimeException | LinkageError auditFailure) {
+            MysterriaAuditEmitter.recordFailure();
         }
     }
 

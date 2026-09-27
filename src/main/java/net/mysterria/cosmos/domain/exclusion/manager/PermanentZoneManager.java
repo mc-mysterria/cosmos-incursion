@@ -806,7 +806,13 @@ public class PermanentZoneManager {
     public boolean depositToTown(int townId, Map<ResourceType, Double> amounts,
                                  CommandSender actor, String reason) {
         Map<ResourceType, Double> before = snapshotBalance(townId);
-        boolean saved = depositToTown(townId, amounts);
+        boolean saved;
+        try {
+            saved = depositToTown(townId, amounts);
+        } catch (RuntimeException failure) {
+            emitBalanceSaveThrew(townId, "deposit", before, amounts, actor, reason, failure);
+            throw failure;
+        }
         emitBalanceAdjusted(townId, "deposit", before, amounts, saved, actor, reason);
         return saved;
     }
@@ -816,11 +822,22 @@ public class PermanentZoneManager {
      * Returns {@code true} if the balance was sufficient and deduction succeeded.
      */
     public boolean deductFromTown(int townId, Map<ResourceType, Double> amounts) {
+        return tryDeductFromTown(townId, amounts) == DeductResult.DEDUCTED;
+    }
+
+    /** Why a {@link #tryDeductFromTown} call did or did not deduct. */
+    public enum DeductResult { DEDUCTED, NO_BALANCE, INVALID_AMOUNT, INSUFFICIENT, PERSIST_FAILED }
+
+    /**
+     * Same as {@link #deductFromTown}, but reports why a deduction was refused so callers can
+     * audit insufficient funds, invalid prices, and persistence failures separately.
+     */
+    public DeductResult tryDeductFromTown(int townId, Map<ResourceType, Double> amounts) {
         Map<ResourceType, Double> balance = townBalances.get(townId);
-        if (balance == null) return false;
+        if (balance == null) return DeductResult.NO_BALANCE;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
-            if (!Double.isFinite(entry.getValue()) || entry.getValue() < 0) return false;
-            if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
+            if (!Double.isFinite(entry.getValue()) || entry.getValue() < 0) return DeductResult.INVALID_AMOUNT;
+            if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return DeductResult.INSUFFICIENT;
         }
         Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);
         previous.putAll(balance);
@@ -829,10 +846,10 @@ public class PermanentZoneManager {
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        if (saveBalances()) return true;
+        if (saveBalances()) return DeductResult.DEDUCTED;
         balance.clear();
         balance.putAll(previous);
-        return false;
+        return DeductResult.PERSIST_FAILED;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
@@ -842,7 +859,7 @@ public class PermanentZoneManager {
                 k -> new EnumMap<>(ResourceType.class));
         if (amount <= 0) balance.remove(type);
         else balance.put(type, amount);
-        boolean saved = saveBalances();
+        boolean saved = saveAuditingThrow(townId, "set", before, Map.of(type, amount), actor);
         emitBalanceAdjusted(townId, "set", before, Map.of(type, amount), saved, actor, "admin_command");
         return saved;
     }
@@ -856,10 +873,50 @@ public class PermanentZoneManager {
         double result = Math.max(0, current + delta);
         if (result == 0) balance.remove(type);
         else balance.put(type, result);
-        boolean saved = saveBalances();
-        emitBalanceAdjusted(townId, delta >= 0 ? "add" : "remove", before, Map.of(type, delta), saved,
-                actor, "admin_command");
+        String operation = delta >= 0 ? "add" : "remove";
+        boolean saved = saveAuditingThrow(townId, operation, before, Map.of(type, delta), actor);
+        emitBalanceAdjusted(townId, operation, before, Map.of(type, delta), saved, actor, "admin_command");
         return saved;
+    }
+
+    /** Saves balances for an admin mutation; a thrown save emits a FAILED row before propagating. */
+    private boolean saveAuditingThrow(int townId, String operation, Map<ResourceType, Double> before,
+                                      Map<ResourceType, Double> requested, CommandSender actor) {
+        try {
+            return saveBalances();
+        } catch (RuntimeException failure) {
+            emitBalanceSaveThrew(townId, operation, before, requested, actor, "admin_command", failure);
+            throw failure;
+        }
+    }
+
+    /**
+     * Records a balance mutation whose save threw (for example Gson rejecting a non-finite
+     * amount). The change stays applied in memory but is not persisted and is not tracked as
+     * deferred, so the row is FAILED.
+     */
+    private void emitBalanceSaveThrew(int townId, String operation, Map<ResourceType, Double> before,
+                                      Map<ResourceType, Double> requested, CommandSender actor,
+                                      String trigger, RuntimeException failure) {
+        try {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("town_id", townId);
+            metadata.put("operation", operation);
+            metadata.put("requested", resourceAmounts(requested));
+            metadata.put("balance_before", resourceAmounts(before));
+            metadata.put("balance_after", resourceAmounts(snapshotBalance(townId)));
+            metadata.put("applied_in_memory", true);
+            metadata.put("persisted", false);
+            metadata.put("trigger", trigger);
+            metadata.put("error", failure.getClass().getName());
+            MysterriaAuditEmitter.putActor(metadata, actor);
+            UUID correlationId = UUID.randomUUID();
+            MysterriaAuditEmitter.emit(plugin, "town.balance_adjusted", AuditOutcome.FAILED, AuditRisk.HIGH,
+                    correlationId, "town.balance." + correlationId, MysterriaAuditEmitter.actorId(actor),
+                    null, null, "persist_serialization_failed", metadata);
+        } catch (RuntimeException | LinkageError auditFailure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
     }
 
     private Map<ResourceType, Double> snapshotBalance(int townId) {
@@ -906,7 +963,14 @@ public class PermanentZoneManager {
 
     private record DeferredPersist(UUID correlationId, String businessId, int townId, String sourceEvent) {}
 
+    /** Upper bound on tracked deferred changes; the oldest are dropped (and counted) beyond it. */
+    static final int MAX_DEFERRED_PERSISTS = 1024;
+
     private final Queue<DeferredPersist> deferredPersists = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private final java.util.concurrent.atomic.AtomicInteger deferredPersistCount =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong droppedDeferredPersists =
+            new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * Registers a balance change whose own save failed. Because {@link #saveBalances()} writes
@@ -915,11 +979,28 @@ public class PermanentZoneManager {
      */
     public void trackDeferredPersist(UUID correlationId, String businessId, int townId, String sourceEvent) {
         deferredPersists.add(new DeferredPersist(correlationId, businessId, townId, sourceEvent));
+        if (deferredPersistCount.incrementAndGet() <= MAX_DEFERRED_PERSISTS) return;
+        if (deferredPersists.poll() != null) {
+            deferredPersistCount.decrementAndGet();
+            if (droppedDeferredPersists.incrementAndGet() == 1) {
+                plugin.log("Deferred balance-persist audit queue is full (" + MAX_DEFERRED_PERSISTS
+                        + "); dropping the oldest entries");
+            }
+        }
     }
 
     private void emitDeferredPersisted() {
+        long dropped = droppedDeferredPersists.getAndSet(0);
+        if (dropped > 0) {
+            UUID correlationId = UUID.randomUUID();
+            MysterriaAuditEmitter.emit(plugin, "town.balance_persisted", AuditOutcome.OBSERVED,
+                    AuditRisk.HIGH, correlationId, "town.balance.deferred-overflow." + correlationId,
+                    null, null, null, "deferred_persist_overflow",
+                    Map.of("dropped_deferred_count", dropped, "max_deferred", MAX_DEFERRED_PERSISTS));
+        }
         DeferredPersist deferred;
         while ((deferred = deferredPersists.poll()) != null) {
+            deferredPersistCount.decrementAndGet();
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("town_id", deferred.townId());
             metadata.put("source_event", deferred.sourceEvent());
