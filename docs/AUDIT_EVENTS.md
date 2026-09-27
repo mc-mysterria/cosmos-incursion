@@ -18,13 +18,14 @@ success and failure outcomes. Metadata is immutable and bounded; balances and pa
 | `incursion.cancelled` | Zone generation fails, no zones are available, or an admin/shutdown stop completes | reason, error (when available), event stats |
 | `incursion.winner` | Qualified rank-one town determined | town ID/name, score, share, rank |
 | `incursion.holder_changed` | Holder/streak state updated in `EventHistoryStore` | previous/current holder and streak, reason |
-| `incursion.reward_granted` | That town's payout deposited and balances persisted (one row per town, own outcome) | town, rank/share/multiplier, pool, payout |
+| `incursion.reward_granted` | That town's payout deposited (one row per town). `COMMITTED` when its own save persisted; `ATTEMPTED` with reason `persist_deferred` when the credit is applied in memory but the save failed (a later save stores it and emits `town.balance_persisted`) | town, rank/share/multiplier, pool, payout, `applied_in_memory`, `persisted` |
 | `incursion.mvp.result` | Final MVP list selected | player UUID/name, score, rank, online state, location when online |
 | `incursion.mvp.reward_pending` | Offline MVP effort queued in `EventHistoryStore` | player, acting effort, offline reason |
 | `incursion.mvp.reward_granted` | Command reward applied (online or on join); acting effort is evidence, not the outcome | player, acting effort, `acting_applied`, `acting_granted`, command result, trigger, location |
 | `incursion.acting_granted` | COI acting grant returned (extraction, beacon capture, PvP); `DENIED` when COI granted 0 points; LOW risk | source, source category, tier, effort, points granted, repeat multiplier, victim, location |
-| `town.balance_adjusted` | Town balance changed and persisted (admin set/add/remove, extraction deposit) | town, operation, requested amounts, balance before/after, actor name/type, actor location |
-| `admin.zone_shop_edited` | Shop catalogue replaced (editor GUI save) or extended (`addcoi`) and saved | operation, item counts, catalogue before/after/added/removed, actor |
+| `town.balance_adjusted` | Town balance changed (admin set/add/remove, extraction deposit). `COMMITTED` when persisted; `ATTEMPTED`/`persist_deferred` when applied in memory but the save failed | town, operation, requested amounts, balance before/after, `applied_in_memory`, `persisted`, trigger, actor name/type, actor location |
+| `town.balance_persisted` | A later successful balance save stored a change previously reported as `persist_deferred`; same correlation ID as the deferred row | town, source event, persisted balance |
+| `admin.zone_shop_edited` | Shop catalogue replaced (editor GUI save) or extended (`addcoi`) and saved | operation, item counts, catalogue before/after/added/removed (with CoI `item_uuid`/`parent_item_uuid` per stack), shop entry IDs before/after, `item_uuids_added`/`item_uuids_removed`, top-level `item_uuid`/`parent_item_uuid` of the first newly listed tracked stack, actor |
 | `shop.purchase` | Town balance deduction and item delivery result | town, shop/COI item IDs, top-level physical item/parent UUID when present, price, balance before/after, outcome |
 | `shop.item_granted` | An item from a committed purchase is placed in inventory | purchase correlation/business ID, item/parent UUID when present, logical shop item, material, amount |
 | `shop.item_dropped` | An inventory fallback places a purchased item in the world | purchase correlation/business ID, item/parent UUID when present, dropped entity UUID, material, amount |

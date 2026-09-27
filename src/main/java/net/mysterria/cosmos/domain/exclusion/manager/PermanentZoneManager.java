@@ -247,6 +247,7 @@ public class PermanentZoneManager {
             } catch (AtomicMoveNotSupportedException unsupported) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
+            emitDeferredPersisted();
             return true;
         } catch (IOException | JsonIOException e) {
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
@@ -786,9 +787,11 @@ public class PermanentZoneManager {
 
     /**
      * Credits a town and persists balances. The credit stays in memory even when the write
-     * fails (it is retried by the next save), matching the previous behaviour.
+     * fails (it is retried by the next save of any town), matching the previous behaviour.
+     * Callers auditing a failed write must label it {@link #PERSIST_DEFERRED} and register it via
+     * {@link #trackDeferredPersist}, never FAILED: a later successful save will store it.
      *
-     * @return whether the updated balance was persisted
+     * @return whether the updated balance was persisted by this call
      */
     public boolean depositToTown(int townId, Map<ResourceType, Double> amounts) {
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
@@ -867,7 +870,9 @@ public class PermanentZoneManager {
 
     /**
      * Records one town balance mutation. Emitted after the in-memory change and the save
-     * attempt; COMMITTED only when the new balance was persisted.
+     * attempt; COMMITTED only when the new balance was persisted. A failed save leaves the change
+     * applied in memory, so the row is ATTEMPTED/{@link #PERSIST_DEFERRED} and a
+     * {@code town.balance_persisted} row follows once a later save stores it.
      */
     private void emitBalanceAdjusted(int townId, String operation, Map<ResourceType, Double> before,
                                      Map<ResourceType, Double> requested, boolean saved,
@@ -878,15 +883,51 @@ public class PermanentZoneManager {
         metadata.put("requested", resourceAmounts(requested));
         metadata.put("balance_before", resourceAmounts(before));
         metadata.put("balance_after", resourceAmounts(snapshotBalance(townId)));
+        metadata.put("applied_in_memory", true);
+        metadata.put("persisted", saved);
+        metadata.put("trigger", reason);
         MysterriaAuditEmitter.putActor(metadata, actor);
         UUID actorId = MysterriaAuditEmitter.actorId(actor);
         UUID correlationId = UUID.randomUUID();
+        String businessId = "town.balance." + correlationId;
         MysterriaAuditEmitter.emit(plugin, "town.balance_adjusted",
-                saved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
-                !saved ? AuditRisk.CRITICAL
+                saved ? AuditOutcome.COMMITTED : AuditOutcome.ATTEMPTED,
+                !saved ? AuditRisk.HIGH
                         : ("admin_command".equals(reason) ? AuditRisk.HIGH : AuditRisk.NORMAL),
-                correlationId, "town.balance." + correlationId, actorId, null, null,
-                saved ? reason : "balance_persistence_failed", metadata);
+                correlationId, businessId, actorId, null, null,
+                saved ? reason : PERSIST_DEFERRED, metadata);
+        if (!saved) trackDeferredPersist(correlationId, businessId, townId, "town.balance_adjusted");
+    }
+
+    // ── Deferred balance persistence ─────────────────────────────────────────────
+
+    /** Audit reason for a balance change applied in memory whose save failed and awaits a retry. */
+    public static final String PERSIST_DEFERRED = "persist_deferred";
+
+    private record DeferredPersist(UUID correlationId, String businessId, int townId, String sourceEvent) {}
+
+    private final Queue<DeferredPersist> deferredPersists = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    /**
+     * Registers a balance change whose own save failed. Because {@link #saveBalances()} writes
+     * every town, the next successful save persists it; that save emits one
+     * {@code town.balance_persisted} row per registered change under the original correlation.
+     */
+    public void trackDeferredPersist(UUID correlationId, String businessId, int townId, String sourceEvent) {
+        deferredPersists.add(new DeferredPersist(correlationId, businessId, townId, sourceEvent));
+    }
+
+    private void emitDeferredPersisted() {
+        DeferredPersist deferred;
+        while ((deferred = deferredPersists.poll()) != null) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("town_id", deferred.townId());
+            metadata.put("source_event", deferred.sourceEvent());
+            metadata.put("balance_persisted", resourceAmounts(snapshotBalance(deferred.townId())));
+            MysterriaAuditEmitter.emit(plugin, "town.balance_persisted", AuditOutcome.COMMITTED,
+                    AuditRisk.NORMAL, deferred.correlationId(), deferred.businessId() + ".persisted",
+                    null, null, null, "deferred_persist_succeeded", metadata);
+        }
     }
 
     private static Map<String, Double> resourceAmounts(Map<ResourceType, Double> values) {

@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.beacon.model.BeaconCapture;
 import net.mysterria.cosmos.domain.beacon.service.BeaconManager;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
@@ -303,13 +304,22 @@ public class RewardDistributor {
             metadata.put("multiplier", multiplier);
             metadata.put("resource_pool", resourcePool);
             metadata.put("payout", resourceAmounts(payout));
-            // Each town's row follows its own deposit+save, so one failed write cannot
-            // mislabel towns whose balance was already durably stored.
+            metadata.put("applied_in_memory", true);
+            metadata.put("persisted", deposited);
+            // Each town's row follows its own deposit+save. A failed save keeps the credit in
+            // memory and a later save of any town stores it, so the row is ATTEMPTED with
+            // persist_deferred (never FAILED) and PermanentZoneManager emits
+            // town.balance_persisted under this correlation once it is written.
+            String businessId = event.getEventId() + ".reward." + town.townId();
             MysterriaAuditEmitter.emit(plugin, "incursion.reward_granted",
-                    deposited ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
+                    deposited ? AuditOutcome.COMMITTED : AuditOutcome.ATTEMPTED,
                     deposited ? AuditRisk.NORMAL : AuditRisk.HIGH,
-                    event.getEventId(), event.getEventId() + ".reward." + town.townId(),
-                    null, null, null, deposited ? null : "balance_persistence_failed", metadata);
+                    event.getEventId(), businessId,
+                    null, null, null, deposited ? null : PermanentZoneManager.PERSIST_DEFERRED, metadata);
+            if (!deposited) {
+                plugin.getPermanentZoneManager().trackDeferredPersist(event.getEventId(), businessId,
+                        town.townId(), "incursion.reward_granted");
+            }
         }
     }
 
