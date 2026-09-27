@@ -109,9 +109,10 @@ public class ZoneShopManager {
      * Adds the before/after catalogue, the added/removed entries, the shop entry IDs, and the CoI
      * physical identities ({@code item_uuid}/{@code parent_item_uuid}) of listed stacks. The GUI
      * regenerates entry IDs on every save, so the added/removed diff is keyed by logical identity
-     * (including physical item UUIDs) and price, not by entry ID. When an added entry carries a
-     * tracked item, the first one is also promoted to top-level {@code item_uuid}/
-     * {@code parent_item_uuid}.
+     * (including physical item UUIDs) and price, not by entry ID. When an added, repriced, or
+     * removed entry carries a tracked item, the first one is also promoted to top-level
+     * {@code item_uuid}/{@code parent_item_uuid}, and all such UUIDs are listed in
+     * {@code item_uuids_affected}.
      */
     private static void putCatalogueDiff(Map<String, Object> metadata, List<ShopItem> beforeItems,
                                          List<ShopItem> afterItems) {
@@ -138,16 +139,35 @@ public class ZoneShopManager {
         uuidsRemoved.removeAll(uuidsAfter);
         metadata.put("item_uuids_added", String.join(",", uuidsAdded));
         metadata.put("item_uuids_removed", String.join(",", uuidsRemoved));
-        promoteFirstAddedIdentity(metadata, afterItems, uuidsAdded);
+
+        // Entries whose logical identity or price changed: added, removed, or repriced.
+        List<ShopItem> changed = new ArrayList<>(changedEntries(afterItems, after, added));
+        changed.addAll(changedEntries(beforeItems, before, removed));
+        Set<String> uuidsAffected = trackedUuids(changed);
+        metadata.put("item_uuids_affected", String.join(",", uuidsAffected));
+        promoteFirstTrackedIdentity(metadata, changed);
     }
 
-    private static void promoteFirstAddedIdentity(Map<String, Object> metadata, List<ShopItem> afterItems,
-                                                  Set<String> uuidsAdded) {
-        for (ShopItem entry : afterItems) {
+    /** Entries of {@code entries} whose description (same index in {@code described}) is in {@code diff}. */
+    private static List<ShopItem> changedEntries(List<ShopItem> entries, List<String> described,
+                                                 List<String> diff) {
+        List<ShopItem> result = new ArrayList<>();
+        for (int i = 0; i < entries.size() && i < described.size(); i++) {
+            if (diff.contains(described.get(i))) result.add(entries.get(i));
+        }
+        return result;
+    }
+
+    /**
+     * Promotes the first changed entry carrying a tracked item (added/repriced entries first,
+     * then removed ones) to top-level {@code item_uuid}/{@code parent_item_uuid}.
+     */
+    private static void promoteFirstTrackedIdentity(Map<String, Object> metadata, List<ShopItem> changed) {
+        for (ShopItem entry : changed) {
             if (entry.isCoi()) continue;
             Map<String, Object> evidence = CoiItemIdentity.evidence(entry.getItem());
             Object itemUuid = evidence.get("item_uuid");
-            if (itemUuid == null || !uuidsAdded.contains(itemUuid.toString())) continue;
+            if (itemUuid == null) continue;
             metadata.put("item_uuid", itemUuid);
             if (evidence.containsKey("parent_item_uuid")) {
                 metadata.put("parent_item_uuid", evidence.get("parent_item_uuid"));

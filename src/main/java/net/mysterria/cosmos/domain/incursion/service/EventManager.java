@@ -481,11 +481,31 @@ public class EventManager {
         }
 
         plugin.log("Event is now ACTIVE");
+        java.util.Map<String, Object> startedMetadata = new java.util.LinkedHashMap<>();
+        startedMetadata.put("zone_count", activeEvent.getIncursionZones().size());
+        startedMetadata.put("beacon_count", beaconManager.getBeaconCount());
+        startedMetadata.put("countdown_seconds", config.getCountdownSeconds());
+        startedMetadata.put("zones", zoneEvidence(activeEvent.getIncursionZones()));
+        // Top-level world/x/y/z: the first zone centre, so the row is location-searchable.
+        if (!activeEvent.getIncursionZones().isEmpty()) {
+            MysterriaAuditEmitter.putLocation(startedMetadata, activeEvent.getIncursionZones().get(0).getCenter());
+        }
         MysterriaAuditEmitter.emitCommitted(plugin, "incursion.started", activeEvent.getEventId(),
-                activeEvent.getEventId().toString(), null, null, null,
-                java.util.Map.of("zone_count", activeEvent.getIncursionZones().size(),
-                        "beacon_count", beaconManager.getBeaconCount(),
-                        "countdown_seconds", config.getCountdownSeconds()));
+                activeEvent.getEventId().toString(), null, null, null, startedMetadata);
+    }
+
+    /** Bounded per-zone name/world/x/y/z evidence for the started row (at most 16 zones). */
+    private static java.util.List<java.util.Map<String, Object>> zoneEvidence(
+            java.util.List<IncursionZone> zones) {
+        java.util.List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();
+        for (IncursionZone zone : zones) {
+            if (result.size() >= 16) break;
+            java.util.Map<String, Object> entry = new java.util.LinkedHashMap<>();
+            entry.put("name", zone.getName());
+            MysterriaAuditEmitter.putLocation(entry, zone.getCenter());
+            result.add(entry);
+        }
+        return result;
     }
 
     private void onEnterEnding() {
