@@ -457,8 +457,10 @@ public class RewardDistributor {
     }
 
     /**
-     * Claims and delivers one queued MVP reward, then emits its audit row. Returns whether the
-     * reward was delivered (claim persisted and command reward applied).
+     * Claims and delivers one queued MVP reward, then emits its audit row. The audit outcome
+     * follows the command reward; the return value keeps the pre-audit join-message rule
+     * (acting effort actually granted, or none owed, and command applied) so players see exactly
+     * the messages they saw before.
      */
     private boolean grantPendingReward(Player player, EventHistoryStore.PendingMvpReward reward) {
         UUID correlationId = pendingCorrelationId(player.getUniqueId(), reward);
@@ -489,7 +491,8 @@ public class RewardDistributor {
         }
         emitMvpRewardGranted(correlationId, businessId, player, reward.effort(), grantedActingPoints,
                 commandApplied, reason, "join");
-        return commandApplied;
+        boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
+        return effortApplied && commandApplied;
     }
 
     /**
