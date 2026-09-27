@@ -54,6 +54,10 @@ shadowJar {
     relocate 'dev.ua.ikeepcalm.mysterria.audit', 'net.mysterria.cosmos.libs.audit'
 }
 
+jar {
+    enabled = false
+}
+
 dependencies {
     implementation 'dev.ua.ikeepcalm.mysterria:audit-client:1.0.0'
     implementation "dev.rollczi:litecommands-bukkit:3.10.9"
