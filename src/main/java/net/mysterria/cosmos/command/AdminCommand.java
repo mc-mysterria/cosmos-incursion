@@ -345,8 +345,7 @@ public class AdminCommand {
         }
 
         ShopItem item = new ShopItem(UUID.randomUUID(), coiId, new EnumMap<>(ResourceType.class));
-        plugin.getZoneShopManager().addItem(item);
-        plugin.getZoneShopManager().save();
+        plugin.getZoneShopManager().addItem(item, sender, "admin_command_add_coi");
 
         sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
             .append(Component.text("Added COI item ", NamedTextColor.GREEN))

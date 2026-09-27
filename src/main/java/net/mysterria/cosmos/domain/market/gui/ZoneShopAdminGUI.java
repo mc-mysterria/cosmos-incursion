@@ -291,8 +291,7 @@ public class ZoneShopAdminGUI {
                         newItems.add(new ShopItem(UUID.randomUUID(), e.getValue(), prices));
                     }
                 });
-            shopManager.setItems(newItems);
-            shopManager.save();
+            shopManager.replaceItems(newItems, player, "admin_gui_save");
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Shop saved — " + newItems.size() + " item(s).", NamedTextColor.GREEN)));
             player.closeInventory();
