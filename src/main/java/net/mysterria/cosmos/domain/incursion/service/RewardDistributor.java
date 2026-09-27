@@ -396,18 +396,35 @@ public class RewardDistributor {
      */
     private void payOnlineMvp(IncursionEvent event, Player player, CosmosConfig config) {
         int grantedActingPoints = 0;
+        String actingError = null;
         if (config.getMvpActingEffort() > 0) {
-            grantedActingPoints = CoiToolkit.grantActingEffort(
-                    player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort(), event.getEventId());
+            try {
+                grantedActingPoints = CoiToolkit.grantActingEffort(
+                        player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort(), event.getEventId());
+            } catch (RuntimeException failure) {
+                actingError = failure.getClass().getName();
+                plugin.log("Failed to grant MVP acting effort to " + player.getName()
+                        + ": " + failure.getClass().getSimpleName());
+            }
         }
         boolean commandApplied = dispatchMvpCommand(player, config.getMvpCommand());
 
         player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
                 .append(Component.text("You were an MVP of the incursion!", NamedTextColor.GREEN)));
 
+        String reason = actingError != null ? "acting_grant_failed"
+                : (commandApplied ? null : "reward_command_failed");
         emitMvpRewardGranted(event.getEventId(), event.getEventId() + ".mvp-reward." + player.getUniqueId(),
-                player, config.getMvpActingEffort(), grantedActingPoints, commandApplied,
-                commandApplied ? null : "reward_command_failed", "distribution");
+                player, new MvpGrantResult(config.getMvpActingEffort(), grantedActingPoints, actingError,
+                        commandApplied), reason, "distribution");
+    }
+
+    /** What one MVP reward delivery actually did; a thrown acting grant fails the row. */
+    private record MvpGrantResult(double actingEffort, int actingGranted, String actingError,
+                                  boolean commandApplied) {
+        boolean succeeded() {
+            return commandApplied && actingError == null;
+        }
     }
 
     /** Runs the configured MVP console command; an unset command counts as applied. */
@@ -417,14 +434,14 @@ public class RewardDistributor {
     }
 
     private void emitMvpRewardGranted(UUID correlationId, String businessId, Player player,
-                                      double actingEffort, int actingGranted, boolean commandApplied,
-                                      String reason, String trigger) {
-        AuditOutcome outcome = commandApplied ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
+                                      MvpGrantResult result, String reason, String trigger) {
+        AuditOutcome outcome = result.succeeded() ? AuditOutcome.COMMITTED : AuditOutcome.FAILED;
         Map<String, Object> metadata = new java.util.LinkedHashMap<>();
-        metadata.put("acting_effort", actingEffort);
-        metadata.put("acting_applied", actingGranted > 0);
-        metadata.put("acting_granted", actingGranted);
-        metadata.put("command_applied", commandApplied);
+        metadata.put("acting_effort", result.actingEffort());
+        metadata.put("acting_applied", result.actingGranted() > 0);
+        metadata.put("acting_granted", result.actingGranted());
+        if (result.actingError() != null) metadata.put("acting_error", result.actingError());
+        metadata.put("command_applied", result.commandApplied());
         metadata.put("online", true);
         metadata.put("trigger", trigger);
         MysterriaAuditEmitter.putPlayerLocation(metadata, player);
@@ -489,8 +506,8 @@ public class RewardDistributor {
             reason = "pending_reward_processing_failed";
             commandApplied = false;
         }
-        emitMvpRewardGranted(correlationId, businessId, player, reward.effort(), grantedActingPoints,
-                commandApplied, reason, "join");
+        emitMvpRewardGranted(correlationId, businessId, player,
+                new MvpGrantResult(reward.effort(), grantedActingPoints, null, commandApplied), reason, "join");
         boolean effortApplied = reward.effort() <= 0 || grantedActingPoints > 0;
         return effortApplied && commandApplied;
     }
