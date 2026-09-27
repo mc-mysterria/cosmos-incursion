@@ -5,6 +5,9 @@ import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditPrivacy;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditProducer;
 import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.mysterria.cosmos.CosmosIncursion;
+import org.bukkit.Location;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 
 import java.util.Map;
 import java.util.UUID;
@@ -64,5 +67,40 @@ public final class MysterriaAuditEmitter {
                                      String reason, Map<String, ?> metadata) {
         emit(plugin, event, AuditOutcome.COMMITTED, AuditRisk.NORMAL, correlationId, businessId,
                 actorId, subjectId, null, reason, metadata);
+    }
+
+    /**
+     * Adds the shared {@code world}/{@code x}/{@code y}/{@code z} location keys for a player. A
+     * missing or offline player adds nothing; location capture never fails the caller.
+     */
+    public static void putPlayerLocation(Map<String, Object> metadata, Player player) {
+        if (metadata == null || player == null) return;
+        try {
+            putLocation(metadata, player.getLocation());
+        } catch (RuntimeException | LinkageError failure) {
+            recordFailure();
+        }
+    }
+
+    /** Adds the shared {@code world}/{@code x}/{@code y}/{@code z} block-position keys. */
+    public static void putLocation(Map<String, Object> metadata, Location location) {
+        if (metadata == null || location == null || location.getWorld() == null) return;
+        metadata.put("world", location.getWorld().getName());
+        metadata.put("x", location.getBlockX());
+        metadata.put("y", location.getBlockY());
+        metadata.put("z", location.getBlockZ());
+    }
+
+    /** Actor UUID for a command sender; {@code null} for console and other non-player senders. */
+    public static UUID actorId(CommandSender sender) {
+        return sender instanceof Player player ? player.getUniqueId() : null;
+    }
+
+    /** Adds actor name/type, plus the actor's location when the sender is a player. */
+    public static void putActor(Map<String, Object> metadata, CommandSender sender) {
+        if (metadata == null || sender == null) return;
+        metadata.put("actor_name", sender.getName());
+        metadata.put("actor_type", sender instanceof Player ? "player" : "console");
+        if (sender instanceof Player player) putPlayerLocation(metadata, player);
     }
 }

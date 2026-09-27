@@ -151,7 +151,7 @@ public class ExtractionTask extends BukkitRunnable {
     private void depositToTown(Player player, Map<ResourceType, Double> amounts) {
         Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
         if (townOpt.isEmpty()) return;
-        permanentZoneManager.depositToTown(townOpt.get().id(), amounts);
+        permanentZoneManager.depositToTown(townOpt.get().id(), amounts, player, "extraction");
     }
 
     private void notifyExtracted(Player player, Map<ResourceType, Double> extracted) {

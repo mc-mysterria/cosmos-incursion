@@ -230,7 +230,7 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().setTownBalance(town.id(), type, amount);
+        plugin.getPermanentZoneManager().setTownBalance(town.id(), type, amount, sender);
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Set " + town.name() + "'s " + type.displayName()
                 + " balance to " + String.format("%.1f", amount) + ".", NamedTextColor.GREEN)));
@@ -249,7 +249,7 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, amount);
+        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, amount, sender);
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Added " + String.format("%.1f", amount) + " " + type.displayName()
@@ -270,7 +270,7 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, -amount);
+        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, -amount, sender);
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Removed " + String.format("%.1f", amount) + " " + type.displayName()

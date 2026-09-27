@@ -13,11 +13,15 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.toolkit.item.ResourceItemToolkit;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
@@ -780,12 +784,28 @@ public class PermanentZoneManager {
 
     // ── Town balance ─────────────────────────────────────────────────────────────
 
-    public void depositToTown(int townId, Map<ResourceType, Double> amounts) {
+    /**
+     * Credits a town and persists balances. The credit stays in memory even when the write
+     * fails (it is retried by the next save), matching the previous behaviour.
+     *
+     * @return whether the updated balance was persisted
+     */
+    public boolean depositToTown(int townId, Map<ResourceType, Double> amounts) {
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             balance.merge(entry.getKey(), entry.getValue(), Double::sum);
         }
+        return saveBalances();
+    }
+
+    /** Credits a town on behalf of {@code actor} and records a {@code town.balance_adjusted} row. */
+    public boolean depositToTown(int townId, Map<ResourceType, Double> amounts,
+                                 CommandSender actor, String reason) {
+        Map<ResourceType, Double> before = snapshotBalance(townId);
+        boolean saved = depositToTown(townId, amounts);
+        emitBalanceAdjusted(townId, "deposit", before, amounts, saved, actor, reason);
+        return saved;
     }
 
     /**
@@ -813,23 +833,66 @@ public class PermanentZoneManager {
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
-    public void setTownBalance(int townId, ResourceType type, double amount) {
+    public boolean setTownBalance(int townId, ResourceType type, double amount, CommandSender actor) {
+        Map<ResourceType, Double> before = snapshotBalance(townId);
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         if (amount <= 0) balance.remove(type);
         else balance.put(type, amount);
-        saveBalances();
+        boolean saved = saveBalances();
+        emitBalanceAdjusted(townId, "set", before, Map.of(type, amount), saved, actor, "admin_command");
+        return saved;
     }
 
     /** Adds (or subtracts if negative) a resource amount for a town (admin command). */
-    public void adjustTownBalance(int townId, ResourceType type, double delta) {
+    public boolean adjustTownBalance(int townId, ResourceType type, double delta, CommandSender actor) {
+        Map<ResourceType, Double> before = snapshotBalance(townId);
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         double current = balance.getOrDefault(type, 0.0);
         double result = Math.max(0, current + delta);
         if (result == 0) balance.remove(type);
         else balance.put(type, result);
-        saveBalances();
+        boolean saved = saveBalances();
+        emitBalanceAdjusted(townId, delta >= 0 ? "add" : "remove", before, Map.of(type, delta), saved,
+                actor, "admin_command");
+        return saved;
+    }
+
+    private Map<ResourceType, Double> snapshotBalance(int townId) {
+        Map<ResourceType, Double> snapshot = new EnumMap<>(ResourceType.class);
+        snapshot.putAll(townBalances.getOrDefault(townId, Collections.emptyMap()));
+        return snapshot;
+    }
+
+    /**
+     * Records one town balance mutation. Emitted after the in-memory change and the save
+     * attempt; COMMITTED only when the new balance was persisted.
+     */
+    private void emitBalanceAdjusted(int townId, String operation, Map<ResourceType, Double> before,
+                                     Map<ResourceType, Double> requested, boolean saved,
+                                     CommandSender actor, String reason) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("town_id", townId);
+        metadata.put("operation", operation);
+        metadata.put("requested", resourceAmounts(requested));
+        metadata.put("balance_before", resourceAmounts(before));
+        metadata.put("balance_after", resourceAmounts(snapshotBalance(townId)));
+        MysterriaAuditEmitter.putActor(metadata, actor);
+        UUID actorId = MysterriaAuditEmitter.actorId(actor);
+        UUID correlationId = UUID.randomUUID();
+        MysterriaAuditEmitter.emit(plugin, "town.balance_adjusted",
+                saved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED,
+                !saved ? AuditRisk.CRITICAL
+                        : ("admin_command".equals(reason) ? AuditRisk.HIGH : AuditRisk.NORMAL),
+                correlationId, "town.balance." + correlationId, actorId, null, null,
+                saved ? reason : "balance_persistence_failed", metadata);
+    }
+
+    private static Map<String, Double> resourceAmounts(Map<ResourceType, Double> values) {
+        Map<String, Double> result = new LinkedHashMap<>();
+        values.forEach((type, amount) -> result.put(type.configKey(), amount));
+        return result;
     }
 
     public Map<ResourceType, Double> getTownBalance(int townId) {
