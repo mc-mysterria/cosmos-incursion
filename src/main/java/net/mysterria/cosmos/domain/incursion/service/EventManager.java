@@ -220,6 +220,31 @@ public class EventManager {
         }
     }
 
+    /**
+     * Emits the single terminal lifecycle row for {@link #activeEvent}. The event name follows the
+     * termination reason; a reward-distribution exception downgrades the outcome to FAILED and
+     * records the exception class.
+     */
+    private void emitTerminalRecord(String distributionFailure) {
+        TerminationReason terminalReason = terminationReason == null
+                ? TerminationReason.UNSPECIFIED : terminationReason;
+        boolean completed = terminalReason.outcome == AuditOutcome.COMMITTED;
+        AuditOutcome outcome = distributionFailure != null ? AuditOutcome.FAILED : terminalReason.outcome;
+        java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("kills", activeEvent.getTotalKills());
+        metadata.put("deaths", activeEvent.getTotalDeaths());
+        metadata.put("zone_count", activeEvent.getIncursionZones().size());
+        metadata.put("termination_reason", terminalReason.code);
+        if (distributionFailure != null) metadata.put("error", distributionFailure);
+        MysterriaAuditEmitter.emit(plugin,
+                completed ? "incursion.completed" : "incursion.cancelled",
+                outcome,
+                outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
+                distributionFailure != null ? "reward_distribution_failed" : terminalReason.code,
+                metadata);
+    }
+
     private void onEnterIdle(EventState fromState) {
         // Cleanup from previous event
         if (activeEvent != null) {
@@ -265,8 +290,16 @@ public class EventManager {
             // (with Nation amplification), and MVP rewards. Replaces the old single-winner
             // beacon-ownership check, which credited only whichever town held a beacon at the
             // exact instant the event ended.
+            // A distribution failure must not skip cleanup or the terminal lifecycle row below.
+            String distributionFailure = null;
             if (beaconManager.hasBeacons()) {
-                rewardDistributor.distribute(activeEvent);
+                try {
+                    rewardDistributor.distribute(activeEvent);
+                } catch (RuntimeException failure) {
+                    distributionFailure = failure.getClass().getName();
+                    plugin.log("Reward distribution failed: " + failure);
+                    failure.printStackTrace();
+                }
 
                 // Reset all beacons
                 beaconManager.resetAllCaptures();
@@ -285,18 +318,7 @@ public class EventManager {
             // Emit exactly one terminal lifecycle record after every synchronous reward and
             // cleanup mutation has completed. EventHistoryStore remains the operational source
             // of truth for holder/cooldown/pending-reward behavior.
-            TerminationReason terminalReason = terminationReason == null
-                    ? TerminationReason.UNSPECIFIED : terminationReason;
-            AuditOutcome terminalOutcome = terminalReason.outcome;
-            MysterriaAuditEmitter.emit(plugin,
-                    terminalOutcome == AuditOutcome.COMMITTED ? "incursion.completed" : "incursion.cancelled",
-                    terminalOutcome,
-                    terminalOutcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
-                    activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
-                    terminalReason.code,
-                    java.util.Map.of("kills", activeEvent.getTotalKills(),
-                            "deaths", activeEvent.getTotalDeaths(),
-                            "zone_count", activeEvent.getIncursionZones().size()));
+            emitTerminalRecord(distributionFailure);
 
             activeEvent = null;
         }
