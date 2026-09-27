@@ -276,14 +276,19 @@ public class ZoneShopGUI {
             open(player, returnPage);
             return;
         }
-        if (!hasInventorySpace(player, toGive)) {
-            emitPurchaseResult(correlationId, businessId, player, town, si, toGive.get(0), prices,
-                    balanceBefore, balanceBefore, AuditOutcome.DENIED, "inventory_full",
-                    Map.of("items", toGive.stream().map(this::itemEvidence).toList()));
-            player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                    .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
-            open(player, returnPage);
-            return;
+        // Per-item check, as before the audit work: each stack is checked against the current
+        // inventory on its own. Anything that does not fit at delivery is dropped and counted
+        // in the committed row (granted/dropped amounts) rather than denying the purchase.
+        for (ItemStack stack : toGive) {
+            if (!hasInventorySpace(player, stack)) {
+                emitPurchaseResult(correlationId, businessId, player, town, si, stack, prices,
+                        balanceBefore, balanceBefore, AuditOutcome.DENIED, "inventory_full",
+                        Map.of("items", toGive.stream().map(this::itemEvidence).toList()));
+                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                        .append(Component.text("Your inventory is full.", NamedTextColor.RED)));
+                open(player, returnPage);
+                return;
+            }
         }
 
         if (!zoneManager.deductFromTown(town.id(), prices)) {
@@ -542,31 +547,18 @@ public class ZoneShopGUI {
 
     // ── Inventory space check ────────────────────────────────────────────────────
 
-    private boolean hasInventorySpace(Player player, List<ItemStack> items) {
-        ItemStack[] simulated = Arrays.stream(player.getInventory().getStorageContents())
-                .map(stack -> stack == null ? null : stack.clone())
-                .toArray(ItemStack[]::new);
-        for (ItemStack requested : items) {
-            int remaining = requested.getAmount();
-            for (ItemStack slot : simulated) {
-                if (slot != null && slot.isSimilar(requested)) {
-                    int added = Math.min(remaining, slot.getMaxStackSize() - slot.getAmount());
-                    slot.setAmount(slot.getAmount() + added);
-                    remaining -= added;
-                    if (remaining == 0) break;
-                }
+    private boolean hasInventorySpace(Player player, ItemStack item) {
+        int needed = item.getAmount();
+        int available = 0;
+        for (ItemStack slot : player.getInventory().getStorageContents()) {
+            if (slot == null || slot.getType() == Material.AIR) {
+                available += item.getMaxStackSize();
+            } else if (slot.isSimilar(item)) {
+                available += item.getMaxStackSize() - slot.getAmount();
             }
-            for (int index = 0; index < simulated.length && remaining > 0; index++) {
-                if (simulated[index] == null || simulated[index].getType() == Material.AIR) {
-                    int added = Math.min(remaining, requested.getMaxStackSize());
-                    simulated[index] = requested.clone();
-                    simulated[index].setAmount(added);
-                    remaining -= added;
-                }
-            }
-            if (remaining > 0) return false;
+            if (available >= needed) return true;
         }
-        return true;
+        return false;
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────────
