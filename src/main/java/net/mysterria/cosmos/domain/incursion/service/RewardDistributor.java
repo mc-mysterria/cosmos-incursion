@@ -467,7 +467,7 @@ public class RewardDistributor {
 
         if (acknowledged > 0) {
             player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
-                    .append(Component.text("You were an MVP of a recent incursion — reward processed!", NamedTextColor.GREEN)));
+                    .append(Component.text("You were an MVP of a recent incursion — reward granted!", NamedTextColor.GREEN)));
         }
         plugin.log("Processed " + acknowledged + " of " + rewards.size()
                 + " queued MVP reward(s) for " + player.getName() + " on join");
