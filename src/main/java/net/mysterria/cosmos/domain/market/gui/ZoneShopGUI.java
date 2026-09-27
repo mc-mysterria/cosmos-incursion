@@ -451,6 +451,7 @@ public class ZoneShopGUI {
         metadata.put("item", primaryEvidence);
         copyPhysicalIdentity(metadata, primaryEvidence);
         if (extra != null) metadata.putAll(extra);
+        MysterriaAuditEmitter.putPlayerLocation(metadata, player);
         MysterriaAuditEmitter.emit(plugin, "shop.purchase", outcome,
                 outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
                 correlationId, businessId, player.getUniqueId(), player.getUniqueId(), null,
@@ -486,6 +487,7 @@ public class ZoneShopGUI {
             metadata.put("material", evidence.getOrDefault("material", "unknown"));
             metadata.put("amount", evidence.getOrDefault("amount", 0));
             copyPhysicalIdentity(metadata, evidence);
+            MysterriaAuditEmitter.putPlayerLocation(metadata, player);
             MysterriaAuditEmitter.emit(plugin, "shop.item_granted", AuditOutcome.COMMITTED,
                     AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
                     player.getUniqueId(), null, null, metadata);
@@ -506,6 +508,7 @@ public class ZoneShopGUI {
             metadata.put("amount", evidence.getOrDefault("amount", 0));
             metadata.put("entity_uuid", evidence.getOrDefault("entity_uuid", ""));
             copyPhysicalIdentity(metadata, evidence);
+            MysterriaAuditEmitter.putPlayerLocation(metadata, player);
             MysterriaAuditEmitter.emit(plugin, "shop.item_dropped", AuditOutcome.COMMITTED,
                     AuditRisk.NORMAL, correlationId, businessId, player.getUniqueId(),
                     player.getUniqueId(), null, "inventory_fallback", metadata);
@@ -554,7 +557,7 @@ public class ZoneShopGUI {
                     new NamespacedKey("circleofimagination", "item_uuid"), PersistentDataType.STRING);
             if (itemUuid != null && !itemUuid.isBlank()) evidence.put("item_uuid", itemUuid);
             String parentItemUuid = meta.getPersistentDataContainer().get(
-                    new NamespacedKey("circleofimagination", "item_parent_uuid"), PersistentDataType.STRING);
+                    new NamespacedKey("circleofimagination", "item_parent"), PersistentDataType.STRING);
             if (parentItemUuid != null && !parentItemUuid.isBlank()) {
                 evidence.put("parent_item_uuid", parentItemUuid);
             }

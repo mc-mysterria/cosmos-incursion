@@ -14,23 +14,32 @@ success and failure outcomes. Metadata is immutable and bounded; balances and pa
 | --- | --- | --- |
 | `incursion.created` | Event object created after start checks | forced/automatic trigger, duration, minimum players |
 | `incursion.started` | Zones and beacons registered and ACTIVE entered | event ID, zone/beacon counts, countdown |
-| `incursion.completed` | Cleanup and reward distribution complete | kills, deaths, zone count |
+| `incursion.completed` | Cleanup and reward distribution complete; `FAILED` with `error` (exception class) if distribution threw | kills, deaths, zone count, termination reason |
 | `incursion.cancelled` | Zone generation fails, no zones are available, or an admin/shutdown stop completes | reason, error (when available), event stats |
 | `incursion.winner` | Qualified rank-one town determined | town ID/name, score, share, rank |
 | `incursion.holder_changed` | Holder/streak state updated in `EventHistoryStore` | previous/current holder and streak, reason |
-| `incursion.reward_granted` | Resource payout deposited to a town balance | town, rank/share/multiplier, pool, payout |
-| `incursion.mvp.result` | Final MVP list selected | player UUID/name, score, rank, online state |
+| `incursion.reward_granted` | That town's payout deposited and balances persisted (one row per town, own outcome) | town, rank/share/multiplier, pool, payout |
+| `incursion.mvp.result` | Final MVP list selected | player UUID/name, score, rank, online state, location when online |
 | `incursion.mvp.reward_pending` | Offline MVP effort queued in `EventHistoryStore` | player, acting effort, offline reason |
-| `incursion.mvp.reward_granted` | Acting effort/command granted (online or on join) | player, acting effort, trigger |
+| `incursion.mvp.reward_granted` | Command reward applied (online or on join); acting effort is evidence, not the outcome | player, acting effort, `acting_applied`, `acting_granted`, command result, trigger, location |
+| `incursion.acting_granted` | COI acting grant returned (extraction, beacon capture, PvP); `DENIED` when COI granted 0 points; LOW risk | source, source category, tier, effort, points granted, repeat multiplier, victim, location |
+| `town.balance_adjusted` | Town balance changed and persisted (admin set/add/remove, extraction deposit) | town, operation, requested amounts, balance before/after, actor name/type, actor location |
+| `admin.zone_shop_edited` | Shop catalogue replaced (editor GUI save) or extended (`addcoi`) and saved | operation, item counts, catalogue before/after/added/removed, actor |
 | `shop.purchase` | Town balance deduction and item delivery result | town, shop/COI item IDs, top-level physical item/parent UUID when present, price, balance before/after, outcome |
 | `shop.item_granted` | An item from a committed purchase is placed in inventory | purchase correlation/business ID, item/parent UUID when present, logical shop item, material, amount |
 | `shop.item_dropped` | An inventory fallback places a purchased item in the world | purchase correlation/business ID, item/parent UUID when present, dropped entity UUID, material, amount |
 
 `EventHistoryStore` remains operational because holder, streak, cooldown, event leaderboard, and
 pending offline MVP behavior read it directly. Shop history in the GUI uses bounded in-memory
-records; the duplicate shop transaction text/console writer has been removed.
+records (50 per town), persisted to `zone-shop-history.yml` with a debounced asynchronous write
+and loaded on enable so the GUI view survives restarts. The duplicate shop transaction
+text/console writer has been removed.
 
-Pending MVP rewards are durably claimed before acting or command delivery, preserving the original at-most-once policy. A failed claim leaves the reward pending; a failure or crash after claim requires staff reconciliation and is not automatically replayed. Canonical shop events replace the duplicate text/console transaction logger; bounded in-memory history remains available in the shop GUI.
+Rows involving a player carry `world`, `x`, `y`, `z` block coordinates. Queued MVP rewards
+migrated from the legacy effort-only format have no event ID; their correlation is a
+deterministic name-based UUID derived from the player and pending entry.
+
+Pending MVP rewards are durably claimed before acting or command delivery, preserving the original at-most-once policy. A failed claim leaves the reward pending; a failure or crash after claim requires staff reconciliation and is not automatically replayed. Canonical shop events replace the duplicate text/console transaction logger; bounded, file-backed history remains available in the shop GUI.
 
 ## Overlap policy
 
