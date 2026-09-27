@@ -252,40 +252,42 @@ public final class CosmosIncursion extends JavaPlugin {
     public void onDisable() {
         log("Disabling Cosmos Incursion...");
 
-        // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
-        // the in-memory event, beacon standings, and town rewards are discarded.
-        if (eventManager != null) {
-            eventManager.finalizeForShutdown();
-        }
+        try {
+            // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
+            // the in-memory event, beacon standings, and town rewards are discarded.
+            if (eventManager != null) {
+                eventManager.finalizeForShutdown();
+            }
 
-        // Save buff data
-        if (buffToolkit != null) {
-            buffToolkit.saveBuffData();
-        }
+            // Save buff data
+            if (buffToolkit != null) {
+                buffToolkit.saveBuffData();
+            }
 
-        // Save event history (win records, holder streak)
-        if (eventHistoryStore != null) {
-            eventHistoryStore.save();
-        }
+            // Save event history (win records, holder streak)
+            if (eventHistoryStore != null) {
+                eventHistoryStore.save();
+            }
 
-        // Flush the debounced shop GUI history before the scheduler stops
-        if (shopTransactionHistory != null) {
-            shopTransactionHistory.flush();
-        }
+            // Flush the debounced shop GUI history before the scheduler stops
+            if (shopTransactionHistory != null) {
+                shopTransactionHistory.flush();
+            }
 
-        // Save permanent zone data and clean up display entities
-        if (permanentZoneManager != null) {
-            permanentZoneManager.cleanup();
-            permanentZoneManager.saveZones();
-            permanentZoneManager.saveBalances();
-        }
+            // Save permanent zone data and clean up display entities
+            if (permanentZoneManager != null) {
+                permanentZoneManager.cleanup();
+                permanentZoneManager.saveZones();
+                permanentZoneManager.saveBalances();
+            }
 
-        // Unregister commands
-        if (liteCommands != null) {
-            liteCommands.unregister();
+            // Unregister commands
+            if (liteCommands != null) {
+                liteCommands.unregister();
+            }
+        } finally {
+            MysterriaAuditEmitter.close();
         }
-
-        MysterriaAuditEmitter.close();
 
         log("Cosmos Incursion disabled!");
     }

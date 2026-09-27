@@ -27,20 +27,36 @@ public final class MysterriaAuditEmitter {
     }
 
     public static void initialize(CosmosIncursion plugin) {
-        producer = AuditProducer.create(plugin.getDataFolder().toPath().toAbsolutePath().getParent()
-                        .resolve("mysterria-audit-spool"),
-                "mysterria-cosmos", plugin.getPluginMeta().getVersion());
+        try {
+            producer = AuditProducer.create(plugin.getDataFolder().toPath().toAbsolutePath().getParent()
+                            .resolve("mysterria-audit-spool"),
+                    "mysterria-cosmos", plugin.getPluginMeta().getVersion());
+        } catch (RuntimeException | LinkageError failure) {
+            // Audit is optional: stay in a disabled no-op state instead of aborting plugin enable.
+            producer = null;
+            plugin.getLogger().warning("Mysterria audit producer unavailable; audit disabled: " + failure);
+        }
     }
 
     public static void close() {
         AuditProducer current = producer;
         producer = null;
-        if (current != null) current.close();
+        if (current == null) return;
+        try {
+            current.close();
+        } catch (RuntimeException | LinkageError ignored) {
+            // Best effort; shutdown must continue.
+        }
     }
 
     public static void recordFailure() {
         AuditProducer current = producer;
-        if (current != null) current.recordFailure();
+        if (current == null) return;
+        try {
+            current.recordFailure();
+        } catch (RuntimeException | LinkageError ignored) {
+            // Best effort; failure accounting must never propagate.
+        }
     }
 
     public static void emit(CosmosIncursion plugin, String event, AuditOutcome outcome,
@@ -57,8 +73,7 @@ public final class MysterriaAuditEmitter {
                     correlationId, businessId, actorId, subjectId, targetId, reason, metadata);
         } catch (RuntimeException | LinkageError failure) {
             // Audit is explicitly best effort; never fail a committed gameplay operation.
-            AuditProducer current = producer;
-            if (current != null) current.recordFailure();
+            recordFailure();
         }
     }
 
