@@ -294,6 +294,10 @@ public class RewardDistributor {
             boolean deposited;
             try {
                 deposited = plugin.getPermanentZoneManager().depositToTown(town.townId(), payout);
+            } catch (IllegalArgumentException rejected) {
+                // Refused before any change (non-finite payout or overflow): nothing applied, nothing to defer.
+                emitTownRewardRejected(event, town, payout, rejected);
+                throw rejected;
             } catch (RuntimeException failure) {
                 emitTownRewardSaveThrew(event, town, payout, failure);
                 throw failure;
@@ -347,6 +351,27 @@ public class RewardDistributor {
             MysterriaAuditEmitter.emit(plugin, "incursion.reward_granted", AuditOutcome.FAILED, AuditRisk.HIGH,
                     event.getEventId(), event.getEventId() + ".reward." + town.townId(),
                     null, null, null, "persist_serialization_failed", metadata);
+        } catch (RuntimeException | LinkageError auditFailure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
+    }
+
+    /** Records a town payout the balance manager refused unchanged because an amount or result was not finite. */
+    private void emitTownRewardRejected(IncursionEvent event, TownScore town, Map<ResourceType, Double> payout,
+                                        IllegalArgumentException rejection) {
+        try {
+            Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+            metadata.put("town_id", town.townId());
+            metadata.put("town_name", town.townName());
+            metadata.put("rank", town.rank());
+            // Stringified: the rejected values may be NaN/Infinity, which JSON serializers refuse as numbers.
+            metadata.put("payout", String.valueOf(payout));
+            metadata.put("applied_in_memory", false);
+            metadata.put("persisted", false);
+            metadata.put("error", rejection.getClass().getName());
+            MysterriaAuditEmitter.emit(plugin, "incursion.reward_granted", AuditOutcome.DENIED, AuditRisk.HIGH,
+                    event.getEventId(), event.getEventId() + ".reward." + town.townId(),
+                    null, null, null, "invalid_amount", metadata);
         } catch (RuntimeException | LinkageError auditFailure) {
             MysterriaAuditEmitter.recordFailure();
         }

@@ -247,9 +247,8 @@ public class PermanentZoneManager {
             } catch (AtomicMoveNotSupportedException unsupported) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
-            emitDeferredPersisted();
-            return true;
-        } catch (IOException | JsonIOException e) {
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException covers Gson refusing to serialize (e.g. a NaN/Infinity balance) as well as JsonIOException.
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
             return false;
         } finally {
@@ -260,6 +259,13 @@ public class PermanentZoneManager {
                 }
             }
         }
+        // Outside the try: the file is already written, so an audit failure here must not report a failed save.
+        try {
+            emitDeferredPersisted();
+        } catch (RuntimeException | LinkageError auditFailure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
+        return true;
     }
 
     public void loadBalances() {
@@ -792,8 +798,12 @@ public class PermanentZoneManager {
      * {@link #trackDeferredPersist}, never FAILED: a later successful save will store it.
      *
      * @return whether the updated balance was persisted by this call
+     * @throws IllegalArgumentException if an amount or resulting balance is not finite; nothing is changed
      */
     public boolean depositToTown(int townId, Map<ResourceType, Double> amounts) {
+        if (!isFiniteCredit(snapshotBalance(townId), amounts)) {
+            throw new IllegalArgumentException("Rejected non-finite deposit for town " + townId + ": " + amounts);
+        }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
@@ -802,10 +812,17 @@ public class PermanentZoneManager {
         return saveBalances();
     }
 
-    /** Credits a town on behalf of {@code actor} and records a {@code town.balance_adjusted} row. */
+    /**
+     * Credits a town on behalf of {@code actor} and records a {@code town.balance_adjusted} row.
+     * A non-finite amount or resulting balance is refused unchanged, audited DENIED, and returns false.
+     */
     public boolean depositToTown(int townId, Map<ResourceType, Double> amounts,
                                  CommandSender actor, String reason) {
         Map<ResourceType, Double> before = snapshotBalance(townId);
+        if (!isFiniteCredit(before, amounts)) {
+            emitBalanceRejected(townId, "deposit", before, amounts, actor, reason);
+            return false;
+        }
         boolean saved;
         try {
             saved = depositToTown(townId, amounts);
@@ -846,15 +863,29 @@ public class PermanentZoneManager {
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        if (saveBalances()) return DeductResult.DEDUCTED;
-        balance.clear();
-        balance.putAll(previous);
-        return DeductResult.PERSIST_FAILED;
+        // Roll back on a false return and on a thrown save alike, so a failed write never keeps the deduction.
+        boolean saved = false;
+        try {
+            saved = saveBalances();
+        } finally {
+            if (!saved) {
+                balance.clear();
+                balance.putAll(previous);
+            }
+        }
+        return saved ? DeductResult.DEDUCTED : DeductResult.PERSIST_FAILED;
     }
 
-    /** Sets the exact amount of one resource type for a town (admin command). */
+    /**
+     * Sets the exact amount of one resource type for a town (admin command). A non-finite amount
+     * is refused unchanged, audited DENIED, and returns false.
+     */
     public boolean setTownBalance(int townId, ResourceType type, double amount, CommandSender actor) {
         Map<ResourceType, Double> before = snapshotBalance(townId);
+        if (!Double.isFinite(amount)) {
+            emitBalanceRejected(townId, "set", before, Map.of(type, amount), actor, "admin_command");
+            return false;
+        }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         if (amount <= 0) balance.remove(type);
@@ -864,16 +895,23 @@ public class PermanentZoneManager {
         return saved;
     }
 
-    /** Adds (or subtracts if negative) a resource amount for a town (admin command). */
+    /**
+     * Adds (or subtracts if negative) a resource amount for a town (admin command). A non-finite
+     * delta or resulting balance is refused unchanged, audited DENIED, and returns false.
+     */
     public boolean adjustTownBalance(int townId, ResourceType type, double delta, CommandSender actor) {
         Map<ResourceType, Double> before = snapshotBalance(townId);
+        String operation = delta >= 0 ? "add" : "remove";
+        double current = before.getOrDefault(type, 0.0);
+        if (!Double.isFinite(delta) || !Double.isFinite(current + delta)) {
+            emitBalanceRejected(townId, operation, before, Map.of(type, delta), actor, "admin_command");
+            return false;
+        }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
-        double current = balance.getOrDefault(type, 0.0);
         double result = Math.max(0, current + delta);
         if (result == 0) balance.remove(type);
         else balance.put(type, result);
-        String operation = delta >= 0 ? "add" : "remove";
         boolean saved = saveAuditingThrow(townId, operation, before, Map.of(type, delta), actor);
         emitBalanceAdjusted(townId, operation, before, Map.of(type, delta), saved, actor, "admin_command");
         return saved;
@@ -917,6 +955,35 @@ public class PermanentZoneManager {
         } catch (RuntimeException | LinkageError auditFailure) {
             MysterriaAuditEmitter.recordFailure();
         }
+    }
+
+    /** Whether every credited amount, and the balance it produces, is finite (no NaN, no overflow to infinity). */
+    private static boolean isFiniteCredit(Map<ResourceType, Double> balance, Map<ResourceType, Double> amounts) {
+        for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            Double amount = entry.getValue();
+            if (amount == null || !Double.isFinite(amount)) return false;
+            if (!Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + amount)) return false;
+        }
+        return true;
+    }
+
+    /** Records a balance mutation refused before any change because an amount or result was not finite. */
+    private void emitBalanceRejected(int townId, String operation, Map<ResourceType, Double> before,
+                                     Map<ResourceType, Double> requested, CommandSender actor, String trigger) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("town_id", townId);
+        metadata.put("operation", operation);
+        // Stringified: the rejected values may be NaN/Infinity, which JSON serializers refuse as numbers.
+        metadata.put("requested", String.valueOf(requested));
+        metadata.put("balance_before", resourceAmounts(before));
+        metadata.put("applied_in_memory", false);
+        metadata.put("persisted", false);
+        metadata.put("trigger", trigger);
+        MysterriaAuditEmitter.putActor(metadata, actor);
+        UUID correlationId = UUID.randomUUID();
+        MysterriaAuditEmitter.emit(plugin, "town.balance_adjusted", AuditOutcome.DENIED, AuditRisk.HIGH,
+                correlationId, "town.balance." + correlationId, MysterriaAuditEmitter.actorId(actor),
+                null, null, "invalid_amount", metadata);
     }
 
     private Map<ResourceType, Double> snapshotBalance(int townId) {

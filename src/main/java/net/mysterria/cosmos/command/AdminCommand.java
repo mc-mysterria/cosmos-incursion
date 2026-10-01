@@ -230,7 +230,11 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().setTownBalance(town.id(), type, amount, sender);
+        if (rejectNonFinite(sender, amount, amount)) return;
+        if (!plugin.getPermanentZoneManager().setTownBalance(town.id(), type, amount, sender)) {
+            sendBalanceSaveFailed(sender);
+            return;
+        }
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Set " + town.name() + "'s " + type.displayName()
                 + " balance to " + String.format("%.1f", amount) + ".", NamedTextColor.GREEN)));
@@ -249,7 +253,12 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, amount, sender);
+        double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
+        if (rejectNonFinite(sender, amount, current + amount)) return;
+        if (!plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, amount, sender)) {
+            sendBalanceSaveFailed(sender);
+            return;
+        }
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Added " + String.format("%.1f", amount) + " " + type.displayName()
@@ -270,7 +279,12 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, -amount, sender);
+        double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
+        if (rejectNonFinite(sender, amount, current - amount)) return;
+        if (!plugin.getPermanentZoneManager().adjustTownBalance(town.id(), type, -amount, sender)) {
+            sendBalanceSaveFailed(sender);
+            return;
+        }
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
             .append(Component.text("Removed " + String.format("%.1f", amount) + " " + type.displayName()
@@ -299,6 +313,24 @@ public class AdminCommand {
             sender.sendMessage(Component.text("  " + rt.displayName() + ": ", col)
                 .append(Component.text(String.format("%.1f", balance.getOrDefault(rt, 0.0)), NamedTextColor.WHITE)));
         }
+    }
+
+    /**
+     * Reports a non-finite amount or resulting balance (NaN, Infinity, or overflow). The manager
+     * refuses these without changing the balance; checking here lets a false return mean a failed save.
+     */
+    private boolean rejectNonFinite(CommandSender sender, double amount, double result) {
+        if (Double.isFinite(amount) && Double.isFinite(result)) return false;
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+            .append(Component.text("Amount must be a finite number and the resulting balance must not overflow. "
+                + "Balance unchanged.", NamedTextColor.RED)));
+        return true;
+    }
+
+    private void sendBalanceSaveFailed(CommandSender sender) {
+        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
+            .append(Component.text("Balance changed in memory but saving to disk failed; the next successful "
+                + "save will persist it. Check the console.", NamedTextColor.RED)));
     }
 
     // ── Shop admin commands ──────────────────────────────────────────────────────

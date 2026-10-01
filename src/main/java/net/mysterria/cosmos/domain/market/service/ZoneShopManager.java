@@ -14,6 +14,11 @@ import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class ZoneShopManager {
@@ -46,36 +51,56 @@ public class ZoneShopManager {
 
     /** Writes the catalogue to disk; returns whether the write succeeded. */
     public boolean save() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (ShopItem si : items) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("id", si.getId().toString());
+        // Write to a temp file and move it over the target so a failed write never truncates the catalogue.
+        Path temporary = null;
+        try {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (ShopItem si : items) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", si.getId().toString());
 
-            if (si.isCoi()) {
-                entry.put("coiItemId", si.getCoiItemId());
-            } else {
-                entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
-            }
+                if (si.isCoi()) {
+                    entry.put("coiItemId", si.getCoiItemId());
+                } else {
+                    entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
+                }
 
-            Map<String, Double> priceMap = new LinkedHashMap<>();
-            for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
-                priceMap.put(p.getKey().name(), p.getValue());
+                Map<String, Double> priceMap = new LinkedHashMap<>();
+                for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
+                    priceMap.put(p.getKey().name(), p.getValue());
+                }
+                entry.put("prices", priceMap);
+                list.add(entry);
             }
-            entry.put("prices", priceMap);
-            list.add(entry);
-        }
-        try (FileWriter fw = new FileWriter(shopFile)) {
-            gson.toJson(list, fw);
+            String json = gson.toJson(list);
+            Path target = shopFile.toPath().toAbsolutePath();
+            temporary = Files.createTempFile(target.getParent(), shopFile.getName(), ".tmp");
+            Files.writeString(temporary, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             return true;
-        } catch (IOException | JsonIOException e) {
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException covers item serialization and Gson rejections (e.g. a NaN price) as well as JsonIOException.
             plugin.log("Failed to save zone shop: " + e.getMessage());
             return false;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
     /**
      * Replaces the catalogue on behalf of an admin, saves it, and records one
-     * {@code admin.zone_shop_edited} row with the before/after catalogue.
+     * {@code admin.zone_shop_edited} row with the before/after catalogue. A failed or throwing
+     * save restores the previous catalogue in memory.
      */
     public boolean replaceItems(List<ShopItem> newItems, CommandSender actor, String operation) {
         List<ShopItem> before = List.copyOf(items);
@@ -91,8 +116,14 @@ public class ZoneShopManager {
     }
 
     private boolean saveAndAudit(List<ShopItem> beforeItems, CommandSender actor, String operation) {
-        boolean saved = save();
+        // afterItems is the attempted catalogue; on failure the row records it while memory reverts.
         List<ShopItem> afterItems = List.copyOf(items);
+        boolean saved = false;
+        try {
+            saved = save();
+        } finally {
+            if (!saved) setItems(beforeItems);
+        }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("operation", operation);
         putCatalogueDiff(metadata, beforeItems, afterItems);
