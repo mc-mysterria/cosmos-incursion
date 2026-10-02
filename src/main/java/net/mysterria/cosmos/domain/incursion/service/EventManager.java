@@ -15,6 +15,9 @@ import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.domain.beacon.task.BeaconCaptureTask;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.toolkit.ZonePlacerToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 
@@ -39,6 +42,23 @@ public class EventManager {
     private long cooldownEndTime;
     private BeaconCaptureTask beaconCaptureTask;
     private ZoneBoundaryParticleTask boundaryParticleTask;
+    private enum TerminationReason {
+        DURATION_ELAPSED("duration_elapsed", AuditOutcome.COMMITTED),
+        ADMIN_FORCE_STOP("admin_force_stop", AuditOutcome.CANCELLED),
+        PLUGIN_SHUTDOWN("plugin_shutdown", AuditOutcome.CANCELLED),
+        UNSPECIFIED("unspecified", AuditOutcome.CANCELLED);
+
+        private final String code;
+        private final AuditOutcome outcome;
+
+        TerminationReason(String code, AuditOutcome outcome) {
+            this.code = code;
+            this.outcome = outcome;
+        }
+    }
+
+    /** Final lifecycle reason selected once when the event enters ENDING. */
+    private TerminationReason terminationReason = TerminationReason.UNSPECIFIED;
 
     public EventManager(CosmosIncursion plugin, ZoneManager zoneManager, BeaconManager beaconManager,
                         BuffToolkit buffToolkit, MapIntegration mapIntegration,
@@ -200,6 +220,31 @@ public class EventManager {
         }
     }
 
+    /**
+     * Emits the single terminal lifecycle row for {@link #activeEvent}. The event name follows the
+     * termination reason; a reward-distribution exception downgrades the outcome to FAILED and
+     * records the exception class.
+     */
+    private void emitTerminalRecord(String distributionFailure) {
+        TerminationReason terminalReason = terminationReason == null
+                ? TerminationReason.UNSPECIFIED : terminationReason;
+        boolean completed = terminalReason.outcome == AuditOutcome.COMMITTED;
+        AuditOutcome outcome = distributionFailure != null ? AuditOutcome.FAILED : terminalReason.outcome;
+        java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("kills", activeEvent.getTotalKills());
+        metadata.put("deaths", activeEvent.getTotalDeaths());
+        metadata.put("zone_count", activeEvent.getIncursionZones().size());
+        metadata.put("termination_reason", terminalReason.code);
+        if (distributionFailure != null) metadata.put("error", distributionFailure);
+        MysterriaAuditEmitter.emit(plugin,
+                completed ? "incursion.completed" : "incursion.cancelled",
+                outcome,
+                outcome == AuditOutcome.COMMITTED ? AuditRisk.NORMAL : AuditRisk.HIGH,
+                activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
+                distributionFailure != null ? "reward_distribution_failed" : terminalReason.code,
+                metadata);
+    }
+
     private void onEnterIdle(EventState fromState) {
         // Cleanup from previous event
         if (activeEvent != null) {
@@ -245,24 +290,42 @@ public class EventManager {
             // (with Nation amplification), and MVP rewards. Replaces the old single-winner
             // beacon-ownership check, which credited only whichever town held a beacon at the
             // exact instant the event ended.
-            if (beaconManager.hasBeacons()) {
-                rewardDistributor.distribute(activeEvent);
+            // A distribution failure must not skip cleanup or the terminal lifecycle row below.
+            // Anything else that escapes still runs the cleanup via finally, but emits no terminal row.
+            String distributionFailure = null;
+            try {
+                try {
+                    if (beaconManager.hasBeacons()) {
+                        try {
+                            rewardDistributor.distribute(activeEvent);
+                        } catch (RuntimeException failure) {
+                            distributionFailure = failure.getClass().getName();
+                            plugin.log("Reward distribution failed: " + failure);
+                            failure.printStackTrace();
+                        } finally {
+                            // Reset all beacons
+                            beaconManager.resetAllCaptures();
+                        }
+                    }
 
-                // Reset all beacons
-                beaconManager.resetAllCaptures();
+                    plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
+                               ", Deaths: " + activeEvent.getTotalDeaths());
+                } finally {
+                    // Clear auto-generated beacons
+                    beaconManager.clearAllBeacons();
+
+                    // Clear all death penalty cooldowns
+                    plugin.getDeathHandler().clearAllCooldowns();
+                    plugin.log("Cleared all death penalty cooldowns");
+                }
+
+                // Emit exactly one terminal lifecycle record after every synchronous reward and
+                // cleanup mutation has completed. EventHistoryStore remains the operational source
+                // of truth for holder/cooldown/pending-reward behavior.
+                emitTerminalRecord(distributionFailure);
+            } finally {
+                activeEvent = null;
             }
-
-            plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
-                       ", Deaths: " + activeEvent.getTotalDeaths());
-
-            // Clear auto-generated beacons
-            beaconManager.clearAllBeacons();
-
-            // Clear all death penalty cooldowns
-            plugin.getDeathHandler().clearAllCooldowns();
-            plugin.log("Cleared all death penalty cooldowns");
-
-            activeEvent = null;
         }
 
         // Start cooldown
@@ -290,6 +353,9 @@ public class EventManager {
         } catch (Exception e) {
             plugin.log("Exception during zone generation, aborting event: " + e.getMessage());
             broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event cancelled - zone generation failed</white>");
+            MysterriaAuditEmitter.emit(plugin, "incursion.cancelled", AuditOutcome.CANCELLED, AuditRisk.HIGH,
+                    activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
+                    "zone_generation_failed", java.util.Map.of("failure_type", "zone_generation_exception"));
             activeEvent = null;
             transitionTo(EventState.IDLE);
             return;
@@ -298,6 +364,9 @@ public class EventManager {
         if (incursionZones.isEmpty()) {
             plugin.log("Failed to generate any zones, aborting event");
             broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event cancelled - could not find suitable zone locations</white>");
+            MysterriaAuditEmitter.emit(plugin, "incursion.cancelled", AuditOutcome.CANCELLED, AuditRisk.NORMAL,
+                    activeEvent.getEventId(), activeEvent.getEventId().toString(), null, null, null,
+                    "no_zones_generated", java.util.Map.of());
             activeEvent = null;
             transitionTo(EventState.IDLE);
             return;
@@ -417,6 +486,31 @@ public class EventManager {
         }
 
         plugin.log("Event is now ACTIVE");
+        java.util.Map<String, Object> startedMetadata = new java.util.LinkedHashMap<>();
+        startedMetadata.put("zone_count", activeEvent.getIncursionZones().size());
+        startedMetadata.put("beacon_count", beaconManager.getBeaconCount());
+        startedMetadata.put("countdown_seconds", config.getCountdownSeconds());
+        startedMetadata.put("zones", zoneEvidence(activeEvent.getIncursionZones()));
+        // Top-level world/x/y/z: the first zone centre, so the row is location-searchable.
+        if (!activeEvent.getIncursionZones().isEmpty()) {
+            MysterriaAuditEmitter.putLocation(startedMetadata, activeEvent.getIncursionZones().get(0).getCenter());
+        }
+        MysterriaAuditEmitter.emitCommitted(plugin, "incursion.started", activeEvent.getEventId(),
+                activeEvent.getEventId().toString(), null, null, null, startedMetadata);
+    }
+
+    /** Bounded per-zone name/world/x/y/z evidence for the started row (at most 16 zones). */
+    private static java.util.List<java.util.Map<String, Object>> zoneEvidence(
+            java.util.List<IncursionZone> zones) {
+        java.util.List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();
+        for (IncursionZone zone : zones) {
+            if (result.size() >= 16) break;
+            java.util.Map<String, Object> entry = new java.util.LinkedHashMap<>();
+            entry.put("name", zone.getName());
+            MysterriaAuditEmitter.putLocation(entry, zone.getCenter());
+            result.add(entry);
+        }
+        return result;
     }
 
     private void onEnterEnding() {
@@ -460,6 +554,13 @@ public class EventManager {
         // Create new event
         long durationMillis = config.getDurationMinutes() * 60_000L;
         activeEvent = new IncursionEvent(durationMillis);
+        terminationReason = TerminationReason.UNSPECIFIED;
+
+        MysterriaAuditEmitter.emitCommitted(plugin, "incursion.created", activeEvent.getEventId(),
+                activeEvent.getEventId().toString(), null, null, forced ? "forced" : "automatic",
+                java.util.Map.of("forced", forced,
+                        "duration_minutes", config.getDurationMinutes(),
+                        "min_players", config.getMinPlayers()));
 
         // Transition to STARTING
         transitionTo(EventState.STARTING);
@@ -475,6 +576,7 @@ public class EventManager {
             return;
         }
 
+        terminationReason = TerminationReason.DURATION_ELAPSED;
         transitionTo(EventState.ENDING);
     }
 
@@ -482,11 +584,12 @@ public class EventManager {
      * Force stop the event immediately
      */
     public boolean forceStop() {
-        if (currentState == EventState.IDLE) {
+        if (currentState != EventState.STARTING && currentState != EventState.ACTIVE) {
             return false;
         }
 
         broadcastMessage("<red>[Cosmos Incursion]</red> <white>Event has been force-stopped by an administrator</white>");
+        terminationReason = TerminationReason.ADMIN_FORCE_STOP;
         transitionTo(EventState.ENDING);
         return true;
     }
@@ -498,9 +601,11 @@ public class EventManager {
      */
     public void finalizeForShutdown() {
         if (currentState == EventState.ACTIVE) {
+            terminationReason = TerminationReason.PLUGIN_SHUTDOWN;
             transitionTo(EventState.ENDING);
             transitionTo(EventState.IDLE);
         } else if (currentState == EventState.STARTING) {
+            terminationReason = TerminationReason.PLUGIN_SHUTDOWN;
             transitionTo(EventState.ENDING);
             transitionTo(EventState.IDLE);
         } else if (currentState == EventState.ENDING) {

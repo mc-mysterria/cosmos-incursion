@@ -33,7 +33,7 @@ import net.mysterria.cosmos.domain.exclusion.listener.LandsZoneProtectionListene
 import net.mysterria.cosmos.domain.market.gui.ZoneShopAdminGUI;
 import net.mysterria.cosmos.domain.market.gui.ZoneShopGUI;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
-import net.mysterria.cosmos.domain.market.service.ShopTransactionLogger;
+import net.mysterria.cosmos.domain.market.service.ShopTransactionHistory;
 import net.mysterria.cosmos.domain.market.service.ZoneShopManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.task.*;
@@ -50,6 +50,7 @@ import net.mysterria.cosmos.toolkit.BuffToolkit;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.toolkit.EffectsToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.NoOpMapIntegration;
@@ -99,7 +100,7 @@ public final class CosmosIncursion extends JavaPlugin {
 
     // Shop
     private ZoneShopManager zoneShopManager;
-    private ShopTransactionLogger shopTransactionLogger;
+    private ShopTransactionHistory shopTransactionHistory;
     private ZoneShopGUI zoneShopGUI;
     private ZoneShopAdminGUI zoneShopAdminGUI;
 
@@ -116,6 +117,7 @@ public final class CosmosIncursion extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+        MysterriaAuditEmitter.initialize(this);
 
         log("Enabling Cosmos Incursion...");
 
@@ -213,8 +215,9 @@ public final class CosmosIncursion extends JavaPlugin {
         log("Initializing zone shop...");
         zoneShopManager = new ZoneShopManager(this);
         zoneShopManager.load();
-        shopTransactionLogger = new ShopTransactionLogger(this);
-        zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionLogger);
+        shopTransactionHistory = new ShopTransactionHistory(this);
+        shopTransactionHistory.load();
+        zoneShopGUI = new ZoneShopGUI(this, zoneShopManager, permanentZoneManager, shopTransactionHistory);
         zoneShopAdminGUI = new ZoneShopAdminGUI(zoneShopManager);
 
         // Initialize Discord webhook notifications
@@ -249,32 +252,41 @@ public final class CosmosIncursion extends JavaPlugin {
     public void onDisable() {
         log("Disabling Cosmos Incursion...");
 
-        // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
-        // the in-memory event, beacon standings, and town rewards are discarded.
-        if (eventManager != null) {
-            eventManager.finalizeForShutdown();
-        }
+        try {
+            // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
+            // the in-memory event, beacon standings, and town rewards are discarded.
+            if (eventManager != null) {
+                eventManager.finalizeForShutdown();
+            }
 
-        // Save buff data
-        if (buffToolkit != null) {
-            buffToolkit.saveBuffData();
-        }
+            // Save buff data
+            if (buffToolkit != null) {
+                buffToolkit.saveBuffData();
+            }
 
-        // Save event history (win records, holder streak)
-        if (eventHistoryStore != null) {
-            eventHistoryStore.save();
-        }
+            // Save event history (win records, holder streak)
+            if (eventHistoryStore != null) {
+                eventHistoryStore.save();
+            }
 
-        // Save permanent zone data and clean up display entities
-        if (permanentZoneManager != null) {
-            permanentZoneManager.cleanup();
-            permanentZoneManager.saveZones();
-            permanentZoneManager.saveBalances();
-        }
+            // Flush the debounced shop GUI history before the scheduler stops
+            if (shopTransactionHistory != null) {
+                shopTransactionHistory.flush();
+            }
 
-        // Unregister commands
-        if (liteCommands != null) {
-            liteCommands.unregister();
+            // Save permanent zone data and clean up display entities
+            if (permanentZoneManager != null) {
+                permanentZoneManager.cleanup();
+                permanentZoneManager.saveZones();
+                permanentZoneManager.saveBalances();
+            }
+
+            // Unregister commands
+            if (liteCommands != null) {
+                liteCommands.unregister();
+            }
+        } finally {
+            MysterriaAuditEmitter.close();
         }
 
         log("Cosmos Incursion disabled!");
@@ -491,7 +503,7 @@ public final class CosmosIncursion extends JavaPlugin {
     public EventManager getEventManager() { return eventManager; }
     public PlayerStateManager getPlayerStateManager() { return playerStateManager; }
     public PermanentZoneManager getPermanentZoneManager() { return permanentZoneManager; }
-    public ShopTransactionLogger getShopTransactionLogger() { return shopTransactionLogger; }
+    public ShopTransactionHistory getShopTransactionHistory() { return shopTransactionHistory; }
 
     public void log(String message) {
         Component debugMessage = Component.text("[CI] ").color(NamedTextColor.GOLD).append(Component.text(message).color(NamedTextColor.WHITE));

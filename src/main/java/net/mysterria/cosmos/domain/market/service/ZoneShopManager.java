@@ -5,10 +5,20 @@ import com.google.gson.reflect.TypeToken;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import net.mysterria.cosmos.toolkit.item.CoiItemIdentity;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
+import org.bukkit.command.CommandSender;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class ZoneShopManager {
@@ -39,30 +49,215 @@ public class ZoneShopManager {
 
     // ── Persistence ─────────────────────────────────────────────────────────────
 
-    public void save() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (ShopItem si : items) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("id", si.getId().toString());
+    /** Writes the catalogue to disk; returns whether the write succeeded. */
+    public boolean save() {
+        // Write to a temp file and move it over the target so a failed write never truncates the catalogue.
+        Path temporary = null;
+        try {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (ShopItem si : items) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", si.getId().toString());
 
-            if (si.isCoi()) {
-                entry.put("coiItemId", si.getCoiItemId());
-            } else {
-                entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
-            }
+                if (si.isCoi()) {
+                    entry.put("coiItemId", si.getCoiItemId());
+                } else {
+                    entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
+                }
 
-            Map<String, Double> priceMap = new LinkedHashMap<>();
-            for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
-                priceMap.put(p.getKey().name(), p.getValue());
+                Map<String, Double> priceMap = new LinkedHashMap<>();
+                for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
+                    priceMap.put(p.getKey().name(), p.getValue());
+                }
+                entry.put("prices", priceMap);
+                list.add(entry);
             }
-            entry.put("prices", priceMap);
-            list.add(entry);
-        }
-        try (FileWriter fw = new FileWriter(shopFile)) {
-            gson.toJson(list, fw);
-        } catch (IOException e) {
+            String json = gson.toJson(list);
+            Path target = shopFile.toPath().toAbsolutePath();
+            temporary = Files.createTempFile(target.getParent(), shopFile.getName(), ".tmp");
+            Files.writeString(temporary, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException covers item serialization and Gson rejections (e.g. a NaN price) as well as JsonIOException.
             plugin.log("Failed to save zone shop: " + e.getMessage());
+            return false;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                }
+            }
         }
+    }
+
+    /**
+     * Replaces the catalogue on behalf of an admin, saves it, and records one
+     * {@code admin.zone_shop_edited} row with the before/after catalogue. A failed or throwing
+     * save restores the previous catalogue in memory.
+     */
+    public boolean replaceItems(List<ShopItem> newItems, CommandSender actor, String operation) {
+        List<ShopItem> before = List.copyOf(items);
+        setItems(newItems);
+        return saveAndAudit(before, actor, operation);
+    }
+
+    /** Appends one item on behalf of an admin, saves, and records {@code admin.zone_shop_edited}. */
+    public boolean addItem(ShopItem item, CommandSender actor, String operation) {
+        List<ShopItem> before = List.copyOf(items);
+        addItem(item);
+        return saveAndAudit(before, actor, operation);
+    }
+
+    private boolean saveAndAudit(List<ShopItem> beforeItems, CommandSender actor, String operation) {
+        // afterItems is the attempted catalogue; on failure the row records it while memory reverts.
+        List<ShopItem> afterItems = List.copyOf(items);
+        boolean saved = false;
+        try {
+            saved = save();
+        } finally {
+            if (!saved) setItems(beforeItems);
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("operation", operation);
+        putCatalogueDiff(metadata, beforeItems, afterItems);
+        MysterriaAuditEmitter.putActor(metadata, actor);
+        UUID correlationId = UUID.randomUUID();
+        MysterriaAuditEmitter.emit(plugin, "admin.zone_shop_edited",
+                saved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, AuditRisk.HIGH,
+                correlationId, "zone-shop.edit." + correlationId, MysterriaAuditEmitter.actorId(actor),
+                null, null, saved ? operation : "shop_persistence_failed", metadata);
+        return saved;
+    }
+
+    /**
+     * Adds the before/after catalogue, the added/removed entries, the shop entry IDs, and the CoI
+     * physical identities ({@code item_uuid}/{@code parent_item_uuid}) of listed stacks. The GUI
+     * regenerates entry IDs on every save, so the added/removed diff is keyed by logical identity
+     * (including physical item UUIDs) and price, not by entry ID. When an added, repriced, or
+     * removed entry carries a tracked item, the first one is also promoted to top-level
+     * {@code item_uuid}/{@code parent_item_uuid}, and all such UUIDs are listed in
+     * {@code item_uuids_affected}.
+     */
+    private static void putCatalogueDiff(Map<String, Object> metadata, List<ShopItem> beforeItems,
+                                         List<ShopItem> afterItems) {
+        List<String> before = describe(beforeItems);
+        List<String> after = describe(afterItems);
+        List<String> added = new ArrayList<>(after);
+        before.forEach(added::remove);
+        List<String> removed = new ArrayList<>(before);
+        after.forEach(removed::remove);
+        metadata.put("item_count_before", before.size());
+        metadata.put("item_count_after", after.size());
+        metadata.put("items_before", String.join("; ", before));
+        metadata.put("items_after", String.join("; ", after));
+        metadata.put("items_added", String.join("; ", added));
+        metadata.put("items_removed", String.join("; ", removed));
+        metadata.put("shop_item_ids_before", joinIds(beforeItems));
+        metadata.put("shop_item_ids_after", joinIds(afterItems));
+
+        Set<String> uuidsBefore = trackedUuids(beforeItems);
+        Set<String> uuidsAfter = trackedUuids(afterItems);
+        Set<String> uuidsAdded = new LinkedHashSet<>(uuidsAfter);
+        uuidsAdded.removeAll(uuidsBefore);
+        Set<String> uuidsRemoved = new LinkedHashSet<>(uuidsBefore);
+        uuidsRemoved.removeAll(uuidsAfter);
+        metadata.put("item_uuids_added", String.join(",", uuidsAdded));
+        metadata.put("item_uuids_removed", String.join(",", uuidsRemoved));
+
+        // Entries whose logical identity or price changed: added, removed, or repriced.
+        List<ShopItem> changed = new ArrayList<>(changedEntries(afterItems, after, added));
+        changed.addAll(changedEntries(beforeItems, before, removed));
+        Set<String> uuidsAffected = trackedUuids(changed);
+        metadata.put("item_uuids_affected", String.join(",", uuidsAffected));
+        promoteFirstTrackedIdentity(metadata, changed);
+    }
+
+    /** Entries of {@code entries} whose description (same index in {@code described}) is in {@code diff}. */
+    private static List<ShopItem> changedEntries(List<ShopItem> entries, List<String> described,
+                                                 List<String> diff) {
+        List<ShopItem> result = new ArrayList<>();
+        for (int i = 0; i < entries.size() && i < described.size(); i++) {
+            if (diff.contains(described.get(i))) result.add(entries.get(i));
+        }
+        return result;
+    }
+
+    /**
+     * Promotes the first changed entry carrying a tracked item (added/repriced entries first,
+     * then removed ones) to top-level {@code item_uuid}/{@code parent_item_uuid}.
+     */
+    private static void promoteFirstTrackedIdentity(Map<String, Object> metadata, List<ShopItem> changed) {
+        for (ShopItem entry : changed) {
+            if (entry.isCoi()) continue;
+            Map<String, Object> evidence = CoiItemIdentity.evidence(entry.getItem());
+            Object itemUuid = evidence.get("item_uuid");
+            if (itemUuid == null) continue;
+            metadata.put("item_uuid", itemUuid);
+            if (evidence.containsKey("parent_item_uuid")) {
+                metadata.put("parent_item_uuid", evidence.get("parent_item_uuid"));
+            }
+            metadata.put("item_shop_item_id", entry.getId().toString());
+            return;
+        }
+    }
+
+    private static String joinIds(List<ShopItem> entries) {
+        StringJoiner ids = new StringJoiner(",");
+        entries.forEach(entry -> ids.add(entry.getId().toString()));
+        return ids.toString();
+    }
+
+    private static Set<String> trackedUuids(List<ShopItem> entries) {
+        Set<String> result = new LinkedHashSet<>();
+        for (ShopItem entry : entries) {
+            if (entry.isCoi()) continue;
+            Object itemUuid = CoiItemIdentity.evidence(entry.getItem()).get("item_uuid");
+            if (itemUuid != null) result.add(itemUuid.toString());
+        }
+        return result;
+    }
+
+    /**
+     * Description of each entry without its (regenerated) entry ID: logical item, CoI physical
+     * identity when tagged, and price.
+     */
+    private static List<String> describe(List<ShopItem> entries) {
+        List<String> result = new ArrayList<>();
+        for (ShopItem entry : entries) {
+            String identity;
+            if (entry.isCoi()) {
+                identity = "coi:" + entry.getCoiItemId();
+            } else {
+                identity = describeStack(entry.getItem());
+            }
+            StringJoiner price = new StringJoiner(",");
+            for (ResourceType type : ResourceType.values()) {
+                double value = entry.getPrices().getOrDefault(type, 0.0);
+                if (value > 0) price.add(type.configKey() + "=" + (long) value);
+            }
+            result.add(identity + "[" + price + "]");
+        }
+        return result;
+    }
+
+    private static String describeStack(ItemStack stack) {
+        Map<String, Object> evidence = CoiItemIdentity.evidence(stack);
+        StringBuilder identity = new StringBuilder()
+                .append(stack.getType().name().toLowerCase(Locale.ROOT)).append('x').append(stack.getAmount());
+        if (evidence.containsKey("item_uuid")) identity.append("{item_uuid=").append(evidence.get("item_uuid"));
+        if (evidence.containsKey("parent_item_uuid")) {
+            identity.append(evidence.containsKey("item_uuid") ? "," : "{")
+                    .append("parent_item_uuid=").append(evidence.get("parent_item_uuid"));
+        }
+        if (evidence.containsKey("item_uuid") || evidence.containsKey("parent_item_uuid")) identity.append('}');
+        return identity.toString();
     }
 
     @SuppressWarnings("unchecked")
