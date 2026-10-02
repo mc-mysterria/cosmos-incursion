@@ -125,7 +125,8 @@ public class EventHistoryStore {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
             return true;
-        } catch (IOException | JsonParseException e) {
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException covers Gson refusing to serialize (e.g. a non-finite value) as well as JsonIOException.
             plugin.log("Error saving event history: " + e.getMessage());
             e.printStackTrace();
             return false;

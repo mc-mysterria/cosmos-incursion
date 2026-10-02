@@ -377,7 +377,12 @@ public class AdminCommand {
         }
 
         ShopItem item = new ShopItem(UUID.randomUUID(), coiId, new EnumMap<>(ResourceType.class));
-        plugin.getZoneShopManager().addItem(item, sender, "admin_command_add_coi");
+        if (!plugin.getZoneShopManager().addItem(item, sender, "admin_command_add_coi")) {
+            sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                .append(Component.text("Failed to save the shop; the item was not added. Check the console.",
+                    NamedTextColor.RED)));
+            return;
+        }
 
         sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
             .append(Component.text("Added COI item ", NamedTextColor.GREEN))

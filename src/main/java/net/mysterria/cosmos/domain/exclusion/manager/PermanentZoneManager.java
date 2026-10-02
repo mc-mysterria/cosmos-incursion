@@ -853,7 +853,9 @@ public class PermanentZoneManager {
         Map<ResourceType, Double> balance = townBalances.get(townId);
         if (balance == null) return DeductResult.NO_BALANCE;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
-            if (!Double.isFinite(entry.getValue()) || entry.getValue() < 0) return DeductResult.INVALID_AMOUNT;
+            if (entry.getValue() == null || !Double.isFinite(entry.getValue()) || entry.getValue() < 0) {
+                return DeductResult.INVALID_AMOUNT;
+            }
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return DeductResult.INSUFFICIENT;
         }
         Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);

@@ -291,36 +291,41 @@ public class EventManager {
             // beacon-ownership check, which credited only whichever town held a beacon at the
             // exact instant the event ended.
             // A distribution failure must not skip cleanup or the terminal lifecycle row below.
+            // Anything else that escapes still runs the cleanup via finally, but emits no terminal row.
             String distributionFailure = null;
-            if (beaconManager.hasBeacons()) {
+            try {
                 try {
-                    rewardDistributor.distribute(activeEvent);
-                } catch (RuntimeException failure) {
-                    distributionFailure = failure.getClass().getName();
-                    plugin.log("Reward distribution failed: " + failure);
-                    failure.printStackTrace();
+                    if (beaconManager.hasBeacons()) {
+                        try {
+                            rewardDistributor.distribute(activeEvent);
+                        } catch (RuntimeException failure) {
+                            distributionFailure = failure.getClass().getName();
+                            plugin.log("Reward distribution failed: " + failure);
+                            failure.printStackTrace();
+                        } finally {
+                            // Reset all beacons
+                            beaconManager.resetAllCaptures();
+                        }
+                    }
+
+                    plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
+                               ", Deaths: " + activeEvent.getTotalDeaths());
+                } finally {
+                    // Clear auto-generated beacons
+                    beaconManager.clearAllBeacons();
+
+                    // Clear all death penalty cooldowns
+                    plugin.getDeathHandler().clearAllCooldowns();
+                    plugin.log("Cleared all death penalty cooldowns");
                 }
 
-                // Reset all beacons
-                beaconManager.resetAllCaptures();
+                // Emit exactly one terminal lifecycle record after every synchronous reward and
+                // cleanup mutation has completed. EventHistoryStore remains the operational source
+                // of truth for holder/cooldown/pending-reward behavior.
+                emitTerminalRecord(distributionFailure);
+            } finally {
+                activeEvent = null;
             }
-
-            plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
-                       ", Deaths: " + activeEvent.getTotalDeaths());
-
-            // Clear auto-generated beacons
-            beaconManager.clearAllBeacons();
-
-            // Clear all death penalty cooldowns
-            plugin.getDeathHandler().clearAllCooldowns();
-            plugin.log("Cleared all death penalty cooldowns");
-
-            // Emit exactly one terminal lifecycle record after every synchronous reward and
-            // cleanup mutation has completed. EventHistoryStore remains the operational source
-            // of truth for holder/cooldown/pending-reward behavior.
-            emitTerminalRecord(distributionFailure);
-
-            activeEvent = null;
         }
 
         // Start cooldown
