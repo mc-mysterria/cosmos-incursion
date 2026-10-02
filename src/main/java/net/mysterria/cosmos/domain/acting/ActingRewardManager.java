@@ -113,7 +113,11 @@ public class ActingRewardManager {
             return false;
         }
 
-        if (previous.reciprocal() || !previous.lastKiller().equals(killerId)) {
+        if (previous.reciprocal()) {
+            return true;
+        }
+
+        if (!previous.lastKiller().equals(killerId)) {
             incursionKillPairs.put(pair, new PairKillState(killerId, now, true));
             return true;
         }
