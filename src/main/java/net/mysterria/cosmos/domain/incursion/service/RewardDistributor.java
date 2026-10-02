@@ -284,8 +284,14 @@ public class RewardDistributor {
                 continue;
             }
 
+            // A failed acting grant is logged and must not skip the command reward or the remaining MVPs.
             if (config.getMvpActingEffort() > 0) {
-                CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
+                try {
+                    CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
+                } catch (RuntimeException failure) {
+                    plugin.log("Failed to grant MVP acting effort to " + player.getName()
+                            + ": " + failure.getClass().getSimpleName());
+                }
             }
             if (config.getMvpCommand() != null && !config.getMvpCommand().isBlank()) {
                 String command = config.getMvpCommand().replace("%player%", player.getName());
@@ -305,14 +311,22 @@ public class RewardDistributor {
      * reapplies a buff to a town member who was offline when their town earned it.
      */
     public void grantPendingMvpReward(Player player) {
+        // The drain is the durable claim: it is persisted before either non-idempotent grant, so a
+        // grant or command failure below can never pay the same reward again on a later join.
         double effort = plugin.getEventHistoryStore().drainPendingMvpEffort(player.getUniqueId());
         if (effort <= 0) return;
 
-        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+        try {
+            CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
 
-        String command = config().getMvpCommand();
-        if (command != null && !command.isBlank()) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+            String command = config().getMvpCommand();
+            if (command != null && !command.isBlank()) {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.replace("%player%", player.getName()));
+            }
+        } catch (RuntimeException failure) {
+            plugin.log("Failed to process queued MVP reward for " + player.getName()
+                    + ": " + failure.getClass().getSimpleName());
+            return;
         }
 
         player.sendMessage(Component.text("[Cosmos Incursion] ", NamedTextColor.GOLD)
