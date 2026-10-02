@@ -21,9 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * resource extraction, beacon capture, and qualifying PvP kills.
  * <p>
  * Callers are responsible for anti-grief gating (griefing kills, Corrupted Monster) before
- * calling the PvP grant methods — this class only enforces the repeat-kill exponential
- * backoff, since the CircleOfImagination source cap (acting-sources.yml) already bounds
- * total farmable amount.
+ * calling the PvP grant methods. This class applies repeat-kill decay and blocks reciprocal
+ * incursion kills, since the CircleOfImagination source cap (acting-sources.yml) does not
+ * distinguish a real fight from two players trading kills.
  */
 public class ActingRewardManager {
 
@@ -32,8 +32,17 @@ public class ActingRewardManager {
     // killer UUID -> victim UUID -> repeat-kill state. Applies exponential backoff to
     // repeated kills of the same victim so farming a single target loses value fast.
     private final Map<UUID, Map<UUID, RepeatKillState>> pvpRepeatKills = new ConcurrentHashMap<>();
+    // One shared state per pair catches A killing B followed by B killing A. Tracking each
+    // direction independently would let two players trade first kills for full rewards.
+    private final Map<PvpPair, PairKillState> incursionKillPairs = new ConcurrentHashMap<>();
 
     private record RepeatKillState(int streak, long lastGrantMillis) {}
+    private record PvpPair(UUID first, UUID second) {
+        private static PvpPair of(UUID left, UUID right) {
+            return left.compareTo(right) <= 0 ? new PvpPair(left, right) : new PvpPair(right, left);
+        }
+    }
+    private record PairKillState(UUID lastKiller, long lastKillMillis, boolean reciprocal) {}
 
     public ActingRewardManager(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -74,11 +83,43 @@ public class ActingRewardManager {
     private void grantPvpActing(Player killer, Player victim, double effort, String source, String tier) {
         if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
 
+        if ("incursion_pvp".equals(source) && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) {
+            UUID operationId = UUID.randomUUID();
+            emitActingGranted(operationId, killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, effort, 0,
+                    source, tier, victim, 0.0, AuditOutcome.DENIED, "reciprocal_kill_trade");
+            return;
+        }
+
         double multiplier = nextRepeatMultiplier(killer.getUniqueId(), victim.getUniqueId());
         double grantedEffort = effort * multiplier;
         if (grantedEffort <= 0) return;
 
         grant(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort, source, tier, victim, multiplier);
+    }
+
+    /**
+     * Records an incursion kill pair and rejects the pair after the first reciprocal kill.
+     * The existing repeat-kill decay handles one-sided farming. This state handles players
+     * alternating kills, which otherwise receives a fresh first-kill reward in each direction.
+     */
+    private boolean isReciprocalIncursionKill(UUID killerId, UUID victimId) {
+        long now = System.currentTimeMillis();
+        long resetMillis = config().getPvpRepeatKillResetSeconds() * 1000L;
+        PvpPair pair = PvpPair.of(killerId, victimId);
+        PairKillState previous = incursionKillPairs.get(pair);
+
+        if (previous == null || now - previous.lastKillMillis() >= resetMillis) {
+            incursionKillPairs.put(pair, new PairKillState(killerId, now, false));
+            return false;
+        }
+
+        if (previous.reciprocal() || !previous.lastKiller().equals(killerId)) {
+            incursionKillPairs.put(pair, new PairKillState(killerId, now, true));
+            return true;
+        }
+
+        incursionKillPairs.put(pair, new PairKillState(killerId, now, false));
+        return false;
     }
 
     /**
