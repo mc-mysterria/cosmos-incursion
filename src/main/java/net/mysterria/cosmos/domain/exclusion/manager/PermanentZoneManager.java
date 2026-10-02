@@ -24,6 +24,11 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -218,7 +223,13 @@ public class PermanentZoneManager {
     }
 
     public void saveBalances() {
-        try (FileWriter fw = new FileWriter(balanceFile)) {
+        writeBalances();
+    }
+
+    /** Writes balances via a temp file and atomic move; returns whether the write succeeded. */
+    private boolean writeBalances() {
+        Path temporary = null;
+        try {
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
                 Map<String, Double> inner = new LinkedHashMap<>();
@@ -227,9 +238,28 @@ public class PermanentZoneManager {
                 }
                 serializable.put(String.valueOf(entry.getKey()), inner);
             }
-            gson.toJson(serializable, fw);
-        } catch (IOException e) {
+            String json = gson.toJson(serializable);
+            Path target = balanceFile.toPath().toAbsolutePath();
+            temporary = Files.createTempFile(target.getParent(), balanceFile.getName(), ".tmp");
+            Files.writeString(temporary, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException covers Gson refusing to serialize (e.g. a NaN/Infinity balance) as well as JsonIOException.
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
+            return false;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
@@ -756,51 +786,111 @@ public class PermanentZoneManager {
 
     // ── Town balance ─────────────────────────────────────────────────────────────
 
+    /**
+     * Credits a town and persists balances. The credit stays in memory even when the write
+     * fails; the next successful save of any town stores it.
+     *
+     * @throws IllegalArgumentException if an amount or resulting balance is not finite; nothing is changed
+     */
     public void depositToTown(int townId, Map<ResourceType, Double> amounts) {
+        if (!isFiniteCredit(snapshotBalance(townId), amounts)) {
+            throw new IllegalArgumentException("Rejected non-finite deposit for town " + townId + ": " + amounts);
+        }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             balance.merge(entry.getKey(), entry.getValue(), Double::sum);
         }
+        writeBalances();
     }
 
     /**
      * Deducts the given amounts from a town's balance.
      * Returns {@code true} if the balance was sufficient and deduction succeeded.
+     * A non-finite or negative amount is refused, and a failed save restores the previous balance.
      */
     public boolean deductFromTown(int townId, Map<ResourceType, Double> amounts) {
         Map<ResourceType, Double> balance = townBalances.get(townId);
         if (balance == null) return false;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            if (entry.getValue() == null || !Double.isFinite(entry.getValue()) || entry.getValue() < 0) return false;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
         }
+        Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);
+        previous.putAll(balance);
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             double remaining = balance.getOrDefault(entry.getKey(), 0.0) - entry.getValue();
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        saveBalances();
-        return true;
+        // Roll back on a false return and on a thrown save alike, so a failed write never keeps the deduction.
+        boolean saved = false;
+        try {
+            saved = writeBalances();
+        } finally {
+            if (!saved) {
+                balance.clear();
+                balance.putAll(previous);
+            }
+        }
+        return saved;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
     public void setTownBalance(int townId, ResourceType type, double amount) {
+        trySetTownBalance(townId, type, amount);
+    }
+
+    /**
+     * Same as {@link #setTownBalance}, reporting the outcome. A non-finite amount is refused
+     * unchanged and returns false. Otherwise the change is applied in memory and the return value
+     * says whether it was persisted; a failed write is kept for the next successful save.
+     */
+    public boolean trySetTownBalance(int townId, ResourceType type, double amount) {
+        if (!Double.isFinite(amount)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         if (amount <= 0) balance.remove(type);
         else balance.put(type, amount);
-        saveBalances();
+        return writeBalances();
     }
 
     /** Adds (or subtracts if negative) a resource amount for a town (admin command). */
     public void adjustTownBalance(int townId, ResourceType type, double delta) {
+        tryAdjustTownBalance(townId, type, delta);
+    }
+
+    /**
+     * Same as {@link #adjustTownBalance}, reporting the outcome. A non-finite delta or resulting
+     * balance is refused unchanged and returns false. Otherwise the change is applied in memory
+     * and the return value says whether it was persisted; a failed write is kept for the next
+     * successful save.
+     */
+    public boolean tryAdjustTownBalance(int townId, ResourceType type, double delta) {
+        double current = snapshotBalance(townId).getOrDefault(type, 0.0);
+        if (!Double.isFinite(delta) || !Double.isFinite(current + delta)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
-        double current = balance.getOrDefault(type, 0.0);
         double result = Math.max(0, current + delta);
         if (result == 0) balance.remove(type);
         else balance.put(type, result);
-        saveBalances();
+        return writeBalances();
+    }
+
+    /** Whether every credited amount, and the balance it produces, is finite (no NaN, no overflow to infinity). */
+    private static boolean isFiniteCredit(Map<ResourceType, Double> balance, Map<ResourceType, Double> amounts) {
+        for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            Double amount = entry.getValue();
+            if (amount == null || !Double.isFinite(amount)) return false;
+            if (!Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + amount)) return false;
+        }
+        return true;
+    }
+
+    private Map<ResourceType, Double> snapshotBalance(int townId) {
+        Map<ResourceType, Double> snapshot = new EnumMap<>(ResourceType.class);
+        snapshot.putAll(townBalances.getOrDefault(townId, Collections.emptyMap()));
+        return snapshot;
     }
 
     public Map<ResourceType, Double> getTownBalance(int townId) {
