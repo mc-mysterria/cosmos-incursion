@@ -66,7 +66,8 @@ All gameplay values live in `config.yml`. Hot-reload via `/cosmos admin reload`.
 | `capture-points`        | `100`   | Progress needed to fully capture a beacon                |
 | `points-per-player`     | `1`     | Capture progress per player per second                   |
 | `decay-rate`            | `0.5`   | Progress decay per second when uncontested                |
-| `capture-acting-effort` | `2.0`   | Acting effort granted to each player present on capture   |
+| `hold-acting-effort` | `0.5`   | Acting effort granted per hold interval while holding a beacon |
+| `hold-acting-interval-seconds` | `60` | Seconds of hold time per `hold-acting-effort` grant |
 
 ## rewards
 

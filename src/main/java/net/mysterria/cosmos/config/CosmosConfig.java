@@ -76,6 +76,7 @@ public class CosmosConfig {
     private double regressionActingRestored = 0.8;
     private double regressionActingPenalty = 0.5;
     private int deathPenaltyCooldownSeconds = 60;  // Cooldown between death penalties
+    private int incursionReentryCooldownMinutes = 15;  // Re-entry ban after dying in an incursion zone
     private String crateCommand = "crate give cosmos %player% 1";
 
     // Combat logging
@@ -87,7 +88,8 @@ public class CosmosConfig {
     private double beaconCapturePoints = 100.0;
     private double pointsPerPlayer = 1.0;
     private double decayRate = 0.5;
-    private double beaconCaptureActingEffort = 2.0;
+    private double beaconHoldActingEffort = 0.5;
+    private int beaconHoldActingIntervalSeconds = 60;
 
     // Acting rewards (CircleOfImagination integration)
     // Exponential backoff for repeat kills of the same victim by the same killer.

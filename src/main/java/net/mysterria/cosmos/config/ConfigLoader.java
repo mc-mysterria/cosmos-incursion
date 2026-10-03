@@ -107,6 +107,7 @@ public class ConfigLoader {
         config.setRegressionActingRestored(fileConfig.getDouble("death.regression-acting-restored", 0.8));
         config.setRegressionActingPenalty(fileConfig.getDouble("death.regression-acting-penalty", 0.5));
         config.setDeathPenaltyCooldownSeconds(fileConfig.getInt("death.death-penalty-cooldown-seconds", 20));
+        config.setIncursionReentryCooldownMinutes(fileConfig.getInt("death.incursion-reentry-cooldown-minutes", 15));
         config.setCrateCommand(fileConfig.getString("death.crate-command", "crate give cosmos %player% 1"));
 
         // Combat logging
@@ -118,10 +119,8 @@ public class ConfigLoader {
         config.setBeaconCapturePoints(fileConfig.getDouble("beacons.capture-points", 100.0));
         config.setPointsPerPlayer(fileConfig.getDouble("beacons.points-per-player", 1.0));
         config.setDecayRate(fileConfig.getDouble("beacons.decay-rate", 0.5));
-        config.setBeaconCaptureActingEffort(getActingEffort(fileConfig,
-                "beacons.capture-acting-effort",
-                2.0,
-                "beacons.capture-acting-reward"));
+        config.setBeaconHoldActingEffort(fileConfig.getDouble("beacons.hold-acting-effort", 0.5));
+        config.setBeaconHoldActingIntervalSeconds(fileConfig.getInt("beacons.hold-acting-interval-seconds", 60));
 
         // Acting rewards (CircleOfImagination integration)
         config.setPvpRepeatKillDecayFactor(fileConfig.getDouble("balancing.acting-rewards.pvp-repeat-kill-decay-factor", 0.5));

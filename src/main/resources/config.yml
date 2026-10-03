@@ -137,6 +137,9 @@ death:
   # Example: 60 = 1 minute cooldown between death penalties
   death-penalty-cooldown-seconds: 20
 
+  # Minutes a player is barred from re-entering incursion zones after dying inside one
+  incursion-reentry-cooldown-minutes: 15
+
   # Command to grant Cosmos Crate (placeholder: %player%)
   crate-command: "emp admin crate give %player% pvp 1"
 
@@ -160,9 +163,11 @@ beacons:
   # Decay rate when uncontested (points per second)
   decay-rate: 0.5
 
-  # CircleOfImagination effort granted (via WORLD_CONTENT source) to each player
-  # present when their town fully captures the beacon.
-  capture-acting-effort: 2.0
+  # CircleOfImagination effort granted (via WORLD_CONTENT source) for time spent holding a
+  # beacon: every player present while their faction owns it (including contested defense)
+  # accrues hold time, and receives hold-acting-effort for each hold-acting-interval-seconds.
+  hold-acting-effort: 0.5
+  hold-acting-interval-seconds: 60
 
 rewards:
   # Legacy/default Acting Speed delta (0.10 = +10% acting speed). Kept as the fallback used when

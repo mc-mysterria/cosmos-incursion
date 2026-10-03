@@ -52,6 +52,9 @@ public class PlayerDeathListener implements Listener {
             return;
         }
 
+        // Bar re-entry to incursion zones after dying inside one
+        playerStateManager.recordIncursionDeath(victim.getUniqueId());
+
         // Get killer (nullable for environmental deaths)
         Player killer = victim.getKiller();
 

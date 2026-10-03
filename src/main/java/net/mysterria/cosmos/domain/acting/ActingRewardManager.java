@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Grants CircleOfImagination acting effort for completing Cosmos Incursion objectives:
- * resource extraction, beacon capture, and qualifying PvP kills.
+ * resource extraction, beacon hold time, and qualifying PvP kills.
  * <p>
  * Callers are responsible for anti-grief gating (griefing kills, Corrupted Monster) before
  * calling the PvP grant methods — this class only enforces the repeat-kill exponential
@@ -28,6 +28,9 @@ public class ActingRewardManager {
     // repeated kills of the same victim so farming a single target loses value fast.
     private final Map<UUID, Map<UUID, RepeatKillState>> pvpRepeatKills = new ConcurrentHashMap<>();
 
+    // player UUID -> beacon hold seconds accumulated toward the next acting grant
+    private final Map<UUID, Integer> holdSeconds = new ConcurrentHashMap<>();
+
     private record RepeatKillState(int streak, long lastGrantMillis) {}
 
     public ActingRewardManager(CosmosIncursion plugin) {
@@ -41,11 +44,21 @@ public class ActingRewardManager {
         CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
     }
 
-    /** Grants acting to each player present when their town fully captures a Spirit Beacon. */
-    public void grantBeaconCaptureActing(Player player) {
-        double effort = config().getBeaconCaptureActingEffort();
+    /**
+     * Records one second of beacon hold time for a player. Once a full interval of hold time has
+     * accumulated, grants the configured effort. Batched because CoI converts effort to whole
+     * acting points, so a tiny per-second grant could round down to nothing.
+     */
+    public void recordBeaconHoldSecond(Player player) {
+        double effort = config().getBeaconHoldActingEffort();
+        int interval = Math.max(1, config().getBeaconHoldActingIntervalSeconds());
         if (effort <= 0) return;
-        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+
+        int held = holdSeconds.merge(player.getUniqueId(), 1, Integer::sum);
+        if (held >= interval) {
+            holdSeconds.put(player.getUniqueId(), held - interval);
+            CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+        }
     }
 
     /**

@@ -13,8 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerStateManager {
 
-    public static final long INCURSION_DEATH_COOLDOWN_MS = 3_600_000L; // 1 hour
-
     private final CosmosIncursion plugin;
     private final CosmosConfig config;
     private final Map<UUID, PlayerZoneState> playerStates;
@@ -33,14 +31,18 @@ public class PlayerStateManager {
     public boolean isOnIncursionDeathCooldown(UUID playerId) {
         Long time = incursionDeathTimes.get(playerId);
         if (time == null) return false;
-        return System.currentTimeMillis() - time < INCURSION_DEATH_COOLDOWN_MS;
+        return System.currentTimeMillis() - time < cooldownMillis();
+    }
+
+    private long cooldownMillis() {
+        return config.getIncursionReentryCooldownMinutes() * 60_000L;
     }
 
     /** Returns remaining cooldown in seconds (0 if not on cooldown). */
     public long getIncursionCooldownRemainingSeconds(UUID playerId) {
         Long time = incursionDeathTimes.get(playerId);
         if (time == null) return 0;
-        long remaining = INCURSION_DEATH_COOLDOWN_MS - (System.currentTimeMillis() - time);
+        long remaining = cooldownMillis() -(System.currentTimeMillis() - time);
         return Math.max(0, remaining / 1000);
     }
 

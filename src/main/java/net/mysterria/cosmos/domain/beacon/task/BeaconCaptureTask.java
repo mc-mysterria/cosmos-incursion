@@ -150,12 +150,11 @@ public class BeaconCaptureTask extends BukkitRunnable {
         // Apply capture progress
         capture.updateProgress(delta, leadingTown, config.getBeaconCapturePoints());
 
-        // Beacon just completed capture this tick - log and reward everyone who helped secure it
+        // Beacon just completed capture this tick - log and credit contribution to everyone who helped secure it
         if (capture.consumeJustCaptured()) {
             plugin.log("Beacon " + capture.getBeacon().name() + " captured by " + leadingTown.name());
             double captureBonus = tierWeight(capture.getBeacon()) * config.getContributionCaptureWeight();
             for (Player player : allPresent) {
-                plugin.getActingRewardManager().grantBeaconCaptureActing(player);
                 plugin.getContributionTracker().credit(player, captureBonus);
             }
         }
@@ -168,6 +167,7 @@ public class BeaconCaptureTask extends BukkitRunnable {
             double perSecond = tierWeight(capture.getBeacon()) * config.getContributionHoldWeight();
             for (Player player : allPresent) {
                 plugin.getContributionTracker().credit(player, perSecond);
+                plugin.getActingRewardManager().recordBeaconHoldSecond(player);
             }
         }
     }
@@ -221,6 +221,7 @@ public class BeaconCaptureTask extends BukkitRunnable {
         double perSecond = tierWeight(capture.getBeacon()) * config.getContributionContestedHoldWeight();
         for (Player defender : defenders) {
             plugin.getContributionTracker().credit(defender, perSecond);
+            plugin.getActingRewardManager().recordBeaconHoldSecond(defender);
         }
     }
 
