@@ -7,6 +7,10 @@ import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.InventoryUtils;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import org.bukkit.entity.Player;
+import org.bukkit.Bukkit;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import java.util.List;
+import java.util.UUID;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -81,6 +85,40 @@ public class CombatLogHandler implements Listener {
 
         // Mark as killed and handle item drops
         citizensToolkit.markNPCKilled(npcId, deathLocation);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onHollowDamage(EntityDamageByEntityEvent event) {
+        UUID ownerId = citizensToolkit.getHollowOwner(event.getEntity());
+        if (ownerId == null || !(event.getDamageSource().getCausingEntity() instanceof Player attacker)) return;
+        if (ownerId.equals(attacker.getUniqueId()) || isOwnerPartyMember(attacker, ownerId)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private boolean isOwnerPartyMember(Player attacker, UUID ownerId) {
+        var dungeons = Bukkit.getPluginManager().getPlugin("MythicDungeons");
+        if (dungeons == null || !dungeons.isEnabled()) return false;
+        try {
+            Class<?> serviceType = Class.forName("net.playavalon.mythicdungeons.api.MythicDungeonsService", true,
+                    dungeons.getClass().getClassLoader());
+            Object service = Bukkit.getServicesManager().load(serviceType);
+            if (service == null) return false;
+            Object party = serviceType.getMethod("getParty", Player.class).invoke(service, attacker);
+            if (party == null) return false;
+            List<?> members = (List<?>) party.getClass().getMethod("getPlayers").invoke(party);
+            for (Object member : members) {
+                if (member instanceof Player player && ownerId.equals(player.getUniqueId())) {
+                    var coi = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
+                    Class<?> parties = Class.forName("dev.ua.ikeepcalm.coi.util.magic.BeyonderPartyUtil", true,
+                            coi.getClass().getClassLoader());
+                    return (boolean) parties.getMethod("friendlyFire", Player.class, Player.class)
+                            .invoke(null, attacker, player);
+                }
+            }
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+        }
+        return false;
     }
 
     /**

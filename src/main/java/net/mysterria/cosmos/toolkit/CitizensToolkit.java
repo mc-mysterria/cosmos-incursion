@@ -276,6 +276,12 @@ public class CitizensToolkit {
     /**
      * Check if player has an active Hollow Body / pending combat-log outcome
      */
+    public UUID getHollowOwner(org.bukkit.entity.Entity entity) {
+        if (registry == null) return null;
+        NPC npc = registry.getNPC(entity);
+        return npc == null ? null : npcIdToPlayerId.get(npc.getId());
+    }
+
     public boolean hasHollowBody(UUID playerId) {
         return hollowBodies.containsKey(playerId);
     }
