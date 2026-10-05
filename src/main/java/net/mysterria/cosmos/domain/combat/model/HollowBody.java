@@ -29,11 +29,17 @@ public class HollowBody {
 
     public HollowBody(UUID playerId, String playerName, int npcId, Location spawnLocation,
                       long durationMillis, ItemStack[] inventory, ItemStack[] armor, ItemStack offhand) {
+        this(playerId, playerName, npcId, spawnLocation, System.currentTimeMillis(), durationMillis,
+                inventory, armor, offhand);
+    }
+
+    public HollowBody(UUID playerId, String playerName, int npcId, Location spawnLocation,
+                      long spawnTime, long durationMillis, ItemStack[] inventory, ItemStack[] armor, ItemStack offhand) {
         this.playerId = playerId;
         this.playerName = playerName;
         this.npcId = npcId;
         this.spawnLocation = spawnLocation.clone();
-        this.spawnTime = System.currentTimeMillis();
+        this.spawnTime = spawnTime;
         this.despawnTime = spawnTime + durationMillis;
         this.inventory = inventory;
         this.armor = armor;

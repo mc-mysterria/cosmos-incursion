@@ -11,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.persistence.PersistentDataType;
 
 /**
  * Handles combat logging mechanics
@@ -87,10 +88,6 @@ public class CombatLogHandler implements Listener {
      * Check if their Hollow Body was killed and apply penalty, otherwise restore transferred items once.
      */
     public void handleReconnect(Player player) {
-        if (!citizensToolkit.isAvailable()) {
-            return;
-        }
-
         HollowBody hollowBody = citizensToolkit.getHollowBody(player.getUniqueId());
         if (hollowBody == null) {
             return;
@@ -110,6 +107,11 @@ public class CombatLogHandler implements Listener {
     }
 
     private void applyReconnectOutcome(Player player, HollowBody hollowBody) {
+        Long transfer = player.getPersistentDataContainer().get(plugin.getKey("hollow_transfer"), PersistentDataType.LONG);
+        if (transfer == null || transfer != hollowBody.getSpawnTime()) {
+            citizensToolkit.removeHollowBody(player.getUniqueId());
+            return;
+        }
         if (hollowBody.isWasKilled()) {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
@@ -122,6 +124,9 @@ public class CombatLogHandler implements Listener {
                 player.teleport(hollowBody.getDeathLocation());
             }
 
+            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
+            player.saveData();
+
             // Kill the player to apply death mechanics and sequence regression
             if (player.isOnline()) {
                 player.setHealth(0);
@@ -130,6 +135,7 @@ public class CombatLogHandler implements Listener {
         } else {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
             restoreTransferredInventory(player, hollowBody);
+            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
             player.saveData();
         }
 

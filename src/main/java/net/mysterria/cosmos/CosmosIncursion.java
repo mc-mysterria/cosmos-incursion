@@ -255,6 +255,10 @@ public final class CosmosIncursion extends JavaPlugin {
             eventManager.finalizeForShutdown();
         }
 
+        if (citizensToolkit != null) {
+            citizensToolkit.despawnAllHollowBodies();
+        }
+
         // Save buff data
         if (buffToolkit != null) {
             buffToolkit.saveBuffData();
