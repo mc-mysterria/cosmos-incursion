@@ -6,12 +6,15 @@ import dev.rollczi.litecommands.annotations.command.Command;
 import dev.rollczi.litecommands.annotations.context.Context;
 import dev.rollczi.litecommands.annotations.execute.Execute;
 import dev.rollczi.litecommands.annotations.permission.Permission;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.toolkit.CoiItemResolver;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.toolkit.item.PaperAngelToolkit;
 import net.mysterria.cosmos.domain.incursion.model.IncursionZone;
 import net.mysterria.cosmos.domain.incursion.service.ZoneManager;
@@ -25,6 +28,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,10 +47,16 @@ public class AdminCommand {
     public void reload(@Context CommandSender sender) {
         try {
             plugin.reloadPlugin();
+            MysterriaAuditEmitter.emitAdmin(plugin, "admin.config_reloaded", AuditOutcome.COMMITTED,
+                    AuditRisk.NORMAL, sender, null, null, null);
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Plugin reloaded successfully!").color(NamedTextColor.GREEN)));
             sender.sendMessage(Component.text("  ").append(Component.text("✓ Configuration refreshed").color(NamedTextColor.GRAY)));
             sender.sendMessage(Component.text("  ").append(Component.text("✓ Config-dependent tasks restarted").color(NamedTextColor.GRAY)));
         } catch (Exception e) {
+            Map<String, Object> failure = new LinkedHashMap<>();
+            failure.put("error", e.getClass().getSimpleName());
+            MysterriaAuditEmitter.emitAdmin(plugin, "admin.config_reloaded", AuditOutcome.FAILED,
+                    AuditRisk.NORMAL, sender, null, "reload_failed", failure);
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Failed to reload: " + e.getMessage()).color(NamedTextColor.RED)));
             e.printStackTrace();
         }
@@ -61,7 +71,7 @@ public class AdminCommand {
             return;
         }
 
-        if (eventManager.startEvent(true)) {
+        if (eventManager.startEvent(true, sender)) {
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Event force-started successfully").color(NamedTextColor.GREEN)));
         } else {
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Cannot start event - event already running").color(NamedTextColor.RED)));
@@ -77,7 +87,7 @@ public class AdminCommand {
             return;
         }
 
-        if (eventManager.forceStop()) {
+        if (eventManager.forceStop(sender)) {
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Event stopped successfully").color(NamedTextColor.GREEN)));
         } else {
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("No event is currently active").color(NamedTextColor.RED)));
@@ -138,6 +148,11 @@ public class AdminCommand {
         // Admin-placed zones default to GREEN tier (safest)
         IncursionZone incursionZone = new IncursionZone(name, location, radius, ZoneTier.GREEN);
         zoneManager.registerZone(incursionZone);
+        // Incursion zones live in memory only (the next incursion replaces them), so there is no save to wait for.
+        Map<String, Object> zoneRow = zoneRow(incursionZone);
+        zoneRow.put("radius", radius);
+        MysterriaAuditEmitter.emitAdmin(plugin, "admin.incursion_zone_added", AuditOutcome.COMMITTED,
+                AuditRisk.NORMAL, sender, null, null, zoneRow);
 
         sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
             .append(Component.text("Zone '" + name + "' [GREEN] created at your location (use /cosmos admin zone tier to change)").color(NamedTextColor.GREEN)));
@@ -158,7 +173,14 @@ public class AdminCommand {
             return;
         }
 
-        zoneManager.unregisterZone(zone.get().getId());
+        IncursionZone removed = zone.get();
+        Map<String, Object> removedRow = zoneRow(removed);
+        removedRow.put("radius", removed.getRadius());
+        removedRow.put("active", removed.isActive());
+        removedRow.put("players_inside", removed.getPlayersInside().size());
+        zoneManager.unregisterZone(removed.getId());
+        MysterriaAuditEmitter.emitAdmin(plugin, "admin.incursion_zone_removed", AuditOutcome.COMMITTED,
+                AuditRisk.HIGH, sender, null, null, removedRow);
         sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Zone '" + name + "' removed").color(NamedTextColor.GREEN)));
     }
 
@@ -210,7 +232,13 @@ public class AdminCommand {
             return;
         }
 
+        ZoneTier oldTier = zone.get().getTier();
         zone.get().setTier(tier);
+        Map<String, Object> tierRow = zoneRow(zone.get());
+        tierRow.put("old_tier", oldTier == null ? null : oldTier.name());
+        tierRow.put("new_tier", tier.name());
+        MysterriaAuditEmitter.emitAdmin(plugin, "admin.incursion_zone_tier_changed", AuditOutcome.COMMITTED,
+                AuditRisk.NORMAL, sender, null, null, tierRow);
         sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD)
             .append(Component.text("Zone '" + name + "' tier set to " + tier.name()).color(NamedTextColor.GREEN)));
     }
@@ -231,7 +259,7 @@ public class AdminCommand {
         }
         TownData town = townOpt.get();
         if (rejectNonFinite(sender, amount, amount)) return;
-        if (!plugin.getPermanentZoneManager().trySetTownBalance(town.id(), type, amount)) {
+        if (!plugin.getPermanentZoneManager().trySetTownBalance(town.id(), type, amount, sender)) {
             sendBalanceSaveFailed(sender);
             return;
         }
@@ -255,7 +283,7 @@ public class AdminCommand {
         TownData town = townOpt.get();
         double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
         if (rejectNonFinite(sender, amount, current + amount)) return;
-        if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, amount)) {
+        if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, amount, sender)) {
             sendBalanceSaveFailed(sender);
             return;
         }
@@ -281,7 +309,7 @@ public class AdminCommand {
         TownData town = townOpt.get();
         double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
         if (rejectNonFinite(sender, amount, current - amount)) return;
-        if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, -amount)) {
+        if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, -amount, sender)) {
             sendBalanceSaveFailed(sender);
             return;
         }
@@ -377,7 +405,7 @@ public class AdminCommand {
         }
 
         ShopItem item = new ShopItem(UUID.randomUUID(), coiId, new EnumMap<>(ResourceType.class));
-        if (!plugin.getZoneShopManager().addItemAndSave(item)) {
+        if (!plugin.getZoneShopManager().addItemAndSave(item, sender, "admin_command_add_coi")) {
             sender.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                 .append(Component.text("Failed to save the shop; the item was not added. Check the console.",
                     NamedTextColor.RED)));
@@ -391,6 +419,34 @@ public class AdminCommand {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private void emitPaperAngelGiven(CommandSender sender, Player target, int requested, int given) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("item", "paper_angel");
+        row.put("target_name", target.getName());
+        row.put("requested", requested);
+        row.put("given", given);
+        row.put("not_given", requested - given);
+        MysterriaAuditEmitter.emitAdmin(plugin, "admin.paper_angel_given",
+                given > 0 ? AuditOutcome.COMMITTED : AuditOutcome.DENIED, AuditRisk.HIGH, sender,
+                target.getUniqueId(), given > 0 ? null : "inventory_full", row);
+    }
+
+    /** Zone facts for the rows; the centre is keyed apart from the actor's own world/x/y/z. */
+    private static Map<String, Object> zoneRow(IncursionZone zone) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("zone_id", zone.getId().toString());
+        row.put("zone_name", zone.getName());
+        row.put("tier", zone.getTier() == null ? null : zone.getTier().name());
+        Location center = zone.getCenter();
+        if (center != null && center.getWorld() != null) {
+            row.put("center_world", center.getWorld().getName());
+            row.put("center_x", center.getBlockX());
+            row.put("center_y", center.getBlockY());
+            row.put("center_z", center.getBlockZ());
+        }
+        return row;
+    }
 
     private ResourceType parseResourceType(CommandSender sender, String input) {
         ResourceType type = switch (input.toLowerCase()) {
@@ -430,11 +486,13 @@ public class AdminCommand {
 
         if (leftover.isEmpty()) {
             // All items fit in inventory
+            emitPaperAngelGiven(sender, target, amount, amount);
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Gave " + amount + " Paper Angel(s) to " + target.getName()).color(NamedTextColor.GREEN)));
             target.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("You received " + amount + " Paper Angel(s)!").color(NamedTextColor.GREEN)));
         } else {
             // Some items didn't fit
             int given = amount - leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+            emitPaperAngelGiven(sender, target, amount, given);
             sender.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("Gave " + given + " Paper Angel(s) to " + target.getName() + " (inventory full)").color(NamedTextColor.YELLOW)));
             target.sendMessage(Component.text("[Cosmos Incursion] ").color(NamedTextColor.GOLD).append(Component.text("You received " + given + " Paper Angel(s)! (inventory full)").color(NamedTextColor.YELLOW)));
         }
