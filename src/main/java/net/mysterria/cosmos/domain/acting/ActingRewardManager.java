@@ -4,9 +4,14 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
+import dev.ua.ikeepcalm.coi.api.model.ActingSourceCategory;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import org.bukkit.entity.Player;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,7 +55,14 @@ public class ActingRewardManager {
     public void grantExtractionActing(Player player, ExclusionZoneTier tier) {
         double effort = config().getExclusionTierConfigs().get(tier).extractionActingEffort();
         if (effort <= 0) return;
-        CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+        int granted;
+        try {
+            granted = CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+        } catch (RuntimeException failure) {
+            emitActingFailed(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort, "extraction", tier.name(), null, 1.0, failure);
+            throw failure;
+        }
+        emitActingResult(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort, granted, "extraction", tier.name(), null, 1.0);
     }
 
     /**
@@ -66,7 +78,14 @@ public class ActingRewardManager {
         int held = holdSeconds.merge(player.getUniqueId(), 1, Integer::sum);
         if (held >= interval) {
             holdSeconds.put(player.getUniqueId(), held - interval);
-            CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+            int granted;
+            try {
+                granted = CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort);
+            } catch (RuntimeException failure) {
+                emitActingFailed(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort, "beacon_hold", null, null, 1.0, failure);
+                throw failure;
+            }
+            emitActingResult(player, CoiToolkit.SOURCE_WORLD_CONTENT, effort, granted, "beacon_hold", null, null, 1.0);
         }
     }
 
@@ -76,7 +95,7 @@ public class ActingRewardManager {
      */
     public void grantIncursionPvpActing(Player killer, Player victim, ZoneTier tier) {
         double effort = config().getTierConfigs().get(tier).pvpActingEffort();
-        grantPvpActing(killer, victim, effort, true);
+        grantPvpActing(killer, victim, effort, true, tier.name());
     }
 
     /**
@@ -85,19 +104,32 @@ public class ActingRewardManager {
      */
     public void grantExclusionPvpActing(Player killer, Player victim, ExclusionZoneTier tier) {
         double effort = config().getExclusionTierConfigs().get(tier).pvpActingEffort();
-        grantPvpActing(killer, victim, effort, false);
+        grantPvpActing(killer, victim, effort, false, tier.name());
     }
 
-    private void grantPvpActing(Player killer, Player victim, double effort, boolean incursionKill) {
+    private void grantPvpActing(Player killer, Player victim, double effort, boolean incursionKill, String tier) {
         if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
 
-        if (incursionKill && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) return;
+        String source = incursionKill ? "incursion_pvp" : "exclusion_pvp";
+        if (incursionKill && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) {
+            UUID operationId = UUID.randomUUID();
+            emitActingGranted(operationId, killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, effort, 0,
+                    source, tier, victim, 0.0, AuditOutcome.DENIED, "reciprocal_kill_trade");
+            return;
+        }
 
         double multiplier = nextRepeatMultiplier(killer.getUniqueId(), victim.getUniqueId());
         double grantedEffort = effort * multiplier;
         if (grantedEffort <= 0) return;
 
-        CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort);
+        int granted;
+        try {
+            granted = CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort);
+        } catch (RuntimeException failure) {
+            emitActingFailed(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort, source, tier, victim, multiplier, failure);
+            throw failure;
+        }
+        emitActingResult(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort, granted, source, tier, victim, multiplier);
     }
 
     /**
@@ -119,6 +151,42 @@ public class ActingRewardManager {
         boolean reciprocal = !previous.lastKiller().equals(killerId);
         incursionKillPairs.put(pair, new PairKillState(killerId, now, reciprocal));
         return reciprocal;
+    }
+
+    /**
+     * Records one {@code incursion.acting_granted} row for a finished COI grant. COI grants 0
+     * points to non-Beyonders and capped sources; that is recorded as DENIED, since nothing
+     * changed. Only reads the grant result and emits; the grant itself stays at the call site.
+     */
+    private void emitActingResult(Player player, ActingSourceCategory category, double effort, int granted,
+                                  String source, String tier, Player victim, double multiplier) {
+        emitActingGranted(UUID.randomUUID(), player, category, effort, granted, source, tier, victim, multiplier,
+                granted > 0 ? AuditOutcome.COMMITTED : AuditOutcome.DENIED,
+                granted > 0 ? source : "no_acting_granted");
+    }
+
+    private void emitActingFailed(Player player, ActingSourceCategory category, double effort, String source,
+                                  String tier, Player victim, double multiplier, RuntimeException failure) {
+        emitActingGranted(UUID.randomUUID(), player, category, effort, 0, source, tier, victim, multiplier,
+                AuditOutcome.FAILED, failure.getClass().getName());
+    }
+
+    private void emitActingGranted(UUID operationId, Player player, ActingSourceCategory category,
+                                   double effort, int granted, String source, String tier, Player victim,
+                                   double multiplier, AuditOutcome outcome, String reason) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("source", source);
+        metadata.put("source_category", category.name());
+        if (tier != null) metadata.put("tier", tier);
+        metadata.put("acting_effort", effort);
+        metadata.put("acting_granted", granted);
+        metadata.put("repeat_multiplier", multiplier);
+        if (victim != null) metadata.put("victim_name", victim.getName());
+        MysterriaAuditEmitter.putPlayerLocation(metadata, player);
+        MysterriaAuditEmitter.emit(plugin, "incursion.acting_granted", outcome,
+                outcome == AuditOutcome.FAILED ? AuditRisk.NORMAL : AuditRisk.LOW,
+                operationId, "acting." + operationId, player.getUniqueId(), player.getUniqueId(),
+                victim == null ? null : victim.getUniqueId(), reason, metadata);
     }
 
     /**

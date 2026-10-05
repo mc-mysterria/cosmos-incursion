@@ -6,6 +6,10 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
 import net.mysterria.cosmos.toolkit.AtomicFiles;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
+import org.bukkit.command.CommandSender;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
@@ -58,6 +62,39 @@ public class ZoneShopManager {
         return saveOrRestore(before);
     }
 
+    /**
+     * Same as {@link #replaceItemsAndSave(List)} on behalf of an admin, also recording one
+     * {@code admin.zone_shop_edited} row with the before/after catalogue.
+     */
+    public boolean replaceItemsAndSave(List<ShopItem> newItems, CommandSender actor, String operation) {
+        List<ShopItem> before = List.copyOf(items);
+        setItems(newItems);
+        return saveOrRestoreAndAudit(before, actor, operation);
+    }
+
+    /** Same as {@link #addItemAndSave(ShopItem)} on behalf of an admin, also recording {@code admin.zone_shop_edited}. */
+    public boolean addItemAndSave(ShopItem item, CommandSender actor, String operation) {
+        List<ShopItem> before = List.copyOf(items);
+        addItem(item);
+        return saveOrRestoreAndAudit(before, actor, operation);
+    }
+
+    private boolean saveOrRestoreAndAudit(List<ShopItem> beforeItems, CommandSender actor, String operation) {
+        // afterItems is the attempted catalogue; on failure the row records it while memory reverts.
+        List<ShopItem> afterItems = List.copyOf(items);
+        boolean saved = saveOrRestore(beforeItems);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("operation", operation);
+        putCatalogueDiff(metadata, beforeItems, afterItems);
+        MysterriaAuditEmitter.putActor(metadata, actor);
+        UUID correlationId = UUID.randomUUID();
+        MysterriaAuditEmitter.emit(plugin, "admin.zone_shop_edited",
+                saved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, AuditRisk.HIGH,
+                correlationId, "zone-shop.edit." + correlationId, MysterriaAuditEmitter.actorId(actor),
+                null, null, saved ? operation : "shop_persistence_failed", metadata);
+        return saved;
+    }
+
     private boolean saveOrRestore(List<ShopItem> beforeItems) {
         if (writeItems()) return true;
         setItems(beforeItems);
@@ -91,6 +128,59 @@ public class ZoneShopManager {
             plugin.log("Failed to save zone shop: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Adds the before/after catalogue, the added/removed entries and the shop entry IDs. The GUI
+     * regenerates entry IDs on every save, so the added/removed diff is keyed by the entry
+     * description (CoI item id, or material and amount) and price, not by entry ID. Item meta is
+     * not read, so CoI physical item UUIDs are not recorded.
+     */
+    private static void putCatalogueDiff(Map<String, Object> metadata, List<ShopItem> beforeItems,
+                                         List<ShopItem> afterItems) {
+        List<String> before = describe(beforeItems);
+        List<String> after = describe(afterItems);
+        List<String> added = new ArrayList<>(after);
+        before.forEach(added::remove);
+        List<String> removed = new ArrayList<>(before);
+        after.forEach(removed::remove);
+        metadata.put("item_count_before", before.size());
+        metadata.put("item_count_after", after.size());
+        metadata.put("items_before", String.join("; ", before));
+        metadata.put("items_after", String.join("; ", after));
+        metadata.put("items_added", String.join("; ", added));
+        metadata.put("items_removed", String.join("; ", removed));
+        metadata.put("shop_item_ids_before", joinIds(beforeItems));
+        metadata.put("shop_item_ids_after", joinIds(afterItems));
+    }
+
+    private static String joinIds(List<ShopItem> entries) {
+        StringJoiner ids = new StringJoiner(",");
+        entries.forEach(entry -> ids.add(entry.getId().toString()));
+        return ids.toString();
+    }
+
+    /**
+     * Description of each entry without its (regenerated) entry ID: CoI item id, or material and
+     * amount read without copying the stack, and price.
+     */
+    private static List<String> describe(List<ShopItem> entries) {
+        List<String> result = new ArrayList<>();
+        for (ShopItem entry : entries) {
+            String identity;
+            if (entry.isCoi()) {
+                identity = "coi:" + entry.getCoiItemId();
+            } else {
+                identity = entry.describeItem();
+            }
+            StringJoiner price = new StringJoiner(",");
+            for (ResourceType type : ResourceType.values()) {
+                double value = entry.getPrices().getOrDefault(type, 0.0);
+                if (value > 0) price.add(type.configKey() + "=" + (long) value);
+            }
+            result.add(identity + "[" + price + "]");
+        }
+        return result;
     }
 
     @SuppressWarnings("unchecked")

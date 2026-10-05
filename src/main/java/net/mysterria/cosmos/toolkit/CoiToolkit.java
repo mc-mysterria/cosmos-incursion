@@ -47,6 +47,17 @@ public class CoiToolkit {
      * @return true if player regressed to lower sequence (drops char), false if only lost acting (no char drop)
      */
     public static boolean lowerByOneSequence(Player player) {
+        return lowerByOneSequence(player, null);
+    }
+
+    /**
+     * Same penalty as {@link #lowerByOneSequence(Player)}. When {@code detail} is not null it also
+     * receives the values this method already holds, for the audit row: pathway, sequence, acting
+     * before, the acting penalty, the acting needed, the acting restored after a regression and a
+     * {@code result} of {@code acting_lost}, {@code sequence_regressed} or {@code regression_failed}.
+     * Nothing is read from CoI for the map; no CoI call was added or reordered.
+     */
+    public static boolean lowerByOneSequence(Player player, Map<String, Object> detail) {
         if (coiApi.isBeyonder(player)) {
             Optional<String> primaryLowestPathway = getPrimaryPathway(player);
             int lowestSequence = coiApi.getLowestSequence(player);
@@ -67,10 +78,22 @@ public class CoiToolkit {
                 // Calculate acting penalty amount
                 int penaltyAmount = (int) (neededActing * penaltyPercentage);
 
+                if (detail != null) {
+                    detail.put("pathway", pathway);
+                    detail.put("sequence_before", lowestSequence);
+                    detail.put("acting_before", currentActing);
+                    detail.put("needed_acting", neededActing);
+                    detail.put("acting_penalty", penaltyAmount);
+                }
+
                 // Check if player has enough acting to lose
                 if (currentActing >= penaltyAmount) {
                     // Player has enough acting - just remove penalty, no regression
                     coiApi.addActing(player, pathway, -penaltyAmount);
+                    if (detail != null) {
+                        detail.put("result", "acting_lost");
+                        detail.put("acting_after_calculated", currentActing - penaltyAmount);
+                    }
                     return false; // No regression - don't drop char
                 } else {
                     // Player doesn't have enough acting - full sequence regression
@@ -82,7 +105,13 @@ public class CoiToolkit {
                         int newNeededActing = newBeyonderData.getPathway(pathway).neededActing();
                         int restoredActing = (int) (newNeededActing * restoredPercentage);
                         coiApi.addActing(player, pathway, restoredActing);
+                        if (detail != null) {
+                            detail.put("sequence_after", lowestSequence + 1);
+                            detail.put("needed_acting_after", newNeededActing);
+                            detail.put("acting_restored", restoredActing);
+                        }
                     }
+                    if (detail != null) detail.put("result", created ? "sequence_regressed" : "regression_failed");
 
                     return created; // Regression happened - should drop char
                 }

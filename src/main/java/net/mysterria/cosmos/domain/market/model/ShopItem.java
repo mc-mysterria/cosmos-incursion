@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,6 +40,12 @@ public class ShopItem {
     public UUID getId() { return id; }
 
     public boolean isCoi() { return coiItemId != null; }
+
+    /** Type and amount of a vanilla item without copying it, e.g. {@code diamondx4}; null for COI items. */
+    @Nullable
+    public String describeItem() {
+        return item == null ? null : item.getType().name().toLowerCase(Locale.ROOT) + "x" + item.getAmount();
+    }
 
     @Nullable
     public String getCoiItemId() { return coiItemId; }

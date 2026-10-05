@@ -6,6 +6,8 @@ import dev.rollczi.litecommands.annotations.command.Command;
 import dev.rollczi.litecommands.annotations.context.Context;
 import dev.rollczi.litecommands.annotations.execute.Execute;
 import dev.rollczi.litecommands.annotations.permission.Permission;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
@@ -13,6 +15,7 @@ import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -20,6 +23,7 @@ import org.bukkit.entity.Player;
 import net.mysterria.cosmos.toolkit.towns.TownData;
 import net.mysterria.cosmos.toolkit.towns.TownsToolkit;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,7 +71,8 @@ public class ExclusionCommand {
             return;
         }
         PermanentZone zone = new PermanentZone(name, new java.util.ArrayList<>());
-        mgr.addZone(zone);
+        boolean saved = mgr.tryAddZone(zone);
+        emitZoneChange(sender, "admin.exclusion_zone_added", AuditRisk.NORMAL, saved, zoneRow(zone));
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Permanent zone '" + name + "' created. Add vertices with /cosmos exclusion vertex add " + name + ".", NamedTextColor.GREEN)));
     }
@@ -89,8 +94,14 @@ public class ExclusionCommand {
         }
         PermanentZone zone = zoneOpt.get();
         zone.addVertex(player.getLocation());
-        mgr.saveZones();
+        boolean saved = mgr.trySaveZones();
         int count = zone.getVertices().size();
+        Map<String, Object> vertexRow = zoneRow(zone);
+        vertexRow.put("vertex_index", count);
+        putVertex(vertexRow, player.getLocation());
+        // Once the polygon is valid the code below spawns the zone's PoIs and extraction points.
+        vertexRow.put("spawn_triggered", count >= 3);
+        emitZoneChange(sender, "admin.exclusion_vertex_added", AuditRisk.NORMAL, saved, vertexRow);
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Vertex #" + count + " added to '" + name + "'. ", NamedTextColor.GREEN))
                 .append(Component.text("(" + (int) player.getX() + ", " + (int) player.getZ() + ")", NamedTextColor.GRAY)));
@@ -119,8 +130,13 @@ public class ExclusionCommand {
                     .append(Component.text("Index out of range (1-" + size + ").", NamedTextColor.RED)));
             return;
         }
+        Location removedVertex = zone.getVertices().get(index - 1);
         zone.removeVertex(index - 1); // 1-based → 0-based
-        mgr.saveZones();
+        boolean saved = mgr.trySaveZones();
+        Map<String, Object> vertexRow = zoneRow(zone);
+        vertexRow.put("vertex_index", index);
+        putVertex(vertexRow, removedVertex);
+        emitZoneChange(sender, "admin.exclusion_vertex_removed", AuditRisk.NORMAL, saved, vertexRow);
         plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Vertex #" + index + " removed from '" + name + "'.", NamedTextColor.GREEN)));
@@ -158,7 +174,9 @@ public class ExclusionCommand {
                     .append(Component.text("Zone '" + name + "' not found.", NamedTextColor.RED)));
             return;
         }
-        mgr.removeZone(zone.get().getId());
+        Map<String, Object> removedRow = zoneRow(zone.get());
+        boolean saved = mgr.tryRemoveZone(zone.get().getId());
+        emitZoneChange(sender, "admin.exclusion_zone_removed", AuditRisk.HIGH, saved, removedRow);
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Permanent zone '" + name + "' removed.", NamedTextColor.GREEN)));
     }
@@ -247,8 +265,13 @@ public class ExclusionCommand {
             return;
         }
         PermanentZone zone = zoneOpt.get();
+        ExclusionZoneTier oldTier = zone.getTier();
         zone.setTier(tier);
-        mgr.saveZones();
+        boolean saved = mgr.trySaveZones();
+        Map<String, Object> tierRow = zoneRow(zone);
+        tierRow.put("old_tier", oldTier == null ? null : oldTier.name());
+        tierRow.put("new_tier", tier.name());
+        emitZoneChange(sender, "admin.exclusion_tier_changed", AuditRisk.NORMAL, saved, tierRow);
         plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Zone '" + name + "' tier set to ", NamedTextColor.GREEN))
@@ -259,10 +282,45 @@ public class ExclusionCommand {
     @Execute(name = "exclusion reload")
     @Permission("cosmos.admin")
     public void exclusionReload(@Context CommandSender sender) {
+        int zonesBefore = plugin.getPermanentZoneManager().getAllZones().size();
         plugin.getPermanentZoneManager().loadZones();
+        // loadZones() reports no result, so this row can only observe the zone counts around the call.
+        Map<String, Object> reloadRow = new LinkedHashMap<>();
+        reloadRow.put("zones_before", zonesBefore);
+        reloadRow.put("zones_after", plugin.getPermanentZoneManager().getAllZones().size());
+        MysterriaAuditEmitter.emitAdmin(plugin, "admin.exclusion_reloaded", AuditOutcome.OBSERVED,
+                AuditRisk.NORMAL, sender, null, null, reloadRow);
         plugin.refreshPermanentZoneMarkers();
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
                 .append(Component.text("Permanent zones reloaded from file.", NamedTextColor.GREEN)));
+    }
+
+    /** Zone-file mutations: COMMITTED when the file was written, FAILED when only memory changed. */
+    private void emitZoneChange(CommandSender sender, String event, AuditRisk risk, boolean saved,
+                                Map<String, Object> row) {
+        row.put("applied_in_memory", true);
+        row.put("persisted", saved);
+        MysterriaAuditEmitter.emitAdmin(plugin, event,
+                saved ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, risk, sender, null,
+                saved ? null : "zones_persistence_failed", row);
+    }
+
+    private static Map<String, Object> zoneRow(PermanentZone zone) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("zone_id", zone.getId().toString());
+        row.put("zone_name", zone.getName());
+        row.put("tier", zone.getTier() == null ? null : zone.getTier().name());
+        row.put("vertex_count", zone.getVertices().size());
+        return row;
+    }
+
+    /** Vertex position, keyed apart from the actor's own world/x/y/z. */
+    private static void putVertex(Map<String, Object> row, Location vertex) {
+        if (vertex == null || vertex.getWorld() == null) return;
+        row.put("vertex_world", vertex.getWorld().getName());
+        row.put("vertex_x", vertex.getBlockX());
+        row.put("vertex_y", vertex.getBlockY());
+        row.put("vertex_z", vertex.getBlockZ());
     }
 
     private NamedTextColor tierColor(ExclusionZoneTier tier) {
