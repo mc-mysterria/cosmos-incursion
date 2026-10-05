@@ -59,6 +59,10 @@ public class DeathHandler {
         savedInventories.put(uuid, items);
     }
 
+    public boolean hasSavedItems(UUID playerId) {
+        return savedInventories.containsKey(playerId);
+    }
+
     public void restoreSavedItems(Player player) {
         ItemStack[] items = savedInventories.remove(player.getUniqueId());
         if (items != null) {

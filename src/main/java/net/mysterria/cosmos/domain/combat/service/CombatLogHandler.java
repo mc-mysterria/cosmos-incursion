@@ -37,6 +37,10 @@ public class CombatLogHandler implements Listener {
      * @return true if Hollow Body was spawned, false otherwise
      */
     public boolean handleDisconnect(Player player) {
+        if (player.isDead() || plugin.getDeathHandler().hasSavedItems(player.getUniqueId())) {
+            return false;
+        }
+
         // Only spawn NPC if player is in a zone
         if (!playerStateManager.isInZone(player)) {
             return false;
