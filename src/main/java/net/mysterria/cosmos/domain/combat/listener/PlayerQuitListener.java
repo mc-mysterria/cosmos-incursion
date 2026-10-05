@@ -8,6 +8,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.BuffToolkit;
 import org.bukkit.Location;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -57,11 +58,12 @@ public class PlayerQuitListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
 
-        // Handle potential combat logging
-        combatLogHandler.handleDisconnect(player);
-
-        // Drop permanent zone resource buffer at disconnect location
-        dropPermanentZoneBuffer(player);
+        if (Bukkit.isStopping()) {
+            plugin.getPermanentZoneManager().saveCarriedResources(player);
+        } else {
+            combatLogHandler.handleDisconnect(player);
+            dropPermanentZoneBuffer(player);
+        }
 
         // Clean up buff tracking
         buffToolkit.handlePlayerQuit(player);

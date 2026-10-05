@@ -596,6 +596,29 @@ public class PermanentZoneManager {
         return buffers.computeIfAbsent(playerId, PlayerResourceBuffer::new);
     }
 
+    public void saveCarriedResources(Player player) {
+        var key = plugin.getKey("carried_resources");
+        PlayerResourceBuffer buffer = buffers.get(player.getUniqueId());
+        if (buffer == null || buffer.isEmpty()) {
+            player.getPersistentDataContainer().remove(key);
+        } else {
+            player.getPersistentDataContainer().set(key, PersistentDataType.STRING, gson.toJson(buffer.snapshot()));
+        }
+        player.saveData();
+    }
+
+    public void restoreCarriedResources(Player player) {
+        var key = plugin.getKey("carried_resources");
+        String saved = player.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+        if (saved == null) return;
+        Type type = new TypeToken<Map<ResourceType, Double>>() {}.getType();
+        Map<ResourceType, Double> carried = gson.fromJson(saved, type);
+        PlayerResourceBuffer buffer = getBuffer(player.getUniqueId());
+        if (carried != null) carried.forEach(buffer::add);
+        player.getPersistentDataContainer().remove(key);
+        player.saveData();
+    }
+
     public void clearBuffer(UUID playerId) {
         buffers.remove(playerId);
         extractionChannels.remove(playerId);
