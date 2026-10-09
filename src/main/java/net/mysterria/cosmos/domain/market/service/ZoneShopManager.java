@@ -5,15 +5,11 @@ import com.google.gson.reflect.TypeToken;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
+import net.mysterria.cosmos.toolkit.AtomicFiles;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class ZoneShopManager {
@@ -44,21 +40,43 @@ public class ZoneShopManager {
 
     // ── Persistence ─────────────────────────────────────────────────────────────
 
-    public void save() {
-        writeItems();
+    /** Returns whether the write succeeded. */
+    public boolean save() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ShopItem si : items) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("id", si.getId().toString());
+
+            if (si.isCoi()) {
+                entry.put("coiItemId", si.getCoiItemId());
+            } else {
+                entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
+            }
+
+            Map<String, Double> priceMap = new LinkedHashMap<>();
+            for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
+                priceMap.put(p.getKey().name(), p.getValue());
+            }
+            entry.put("prices", priceMap);
+            list.add(entry);
+        }
+        try {
+            AtomicFiles.write(shopFile, gson.toJson(list));
+            return true;
+        } catch (IOException | RuntimeException e) {
+            plugin.log("Failed to save zone shop: " + e.getMessage());
+            return false;
+        }
     }
 
-    /**
-     * Replaces the catalogue and saves it; returns whether the write succeeded. A failed or
-     * throwing save restores the previous catalogue in memory.
-     */
+    /** Replaces the catalogue and saves it. A failed save restores the previous catalogue. */
     public boolean replaceItemsAndSave(List<ShopItem> newItems) {
         List<ShopItem> before = List.copyOf(items);
         setItems(newItems);
         return saveOrRestore(before);
     }
 
-    /** Appends one item and saves; a failed or throwing save removes it again. */
+    /** Appends one item and saves it. A failed save removes it again. */
     public boolean addItemAndSave(ShopItem item) {
         List<ShopItem> before = List.copyOf(items);
         addItem(item);
@@ -66,61 +84,9 @@ public class ZoneShopManager {
     }
 
     private boolean saveOrRestore(List<ShopItem> beforeItems) {
-        boolean saved = false;
-        try {
-            saved = writeItems();
-        } finally {
-            if (!saved) setItems(beforeItems);
-        }
-        return saved;
-    }
-
-    /** Writes the catalogue to disk; returns whether the write succeeded. */
-    private boolean writeItems() {
-        // Write to a temp file and move it over the target so a failed write never truncates the catalogue.
-        Path temporary = null;
-        try {
-            List<Map<String, Object>> list = new ArrayList<>();
-            for (ShopItem si : items) {
-                Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("id", si.getId().toString());
-
-                if (si.isCoi()) {
-                    entry.put("coiItemId", si.getCoiItemId());
-                } else {
-                    entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
-                }
-
-                Map<String, Double> priceMap = new LinkedHashMap<>();
-                for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
-                    priceMap.put(p.getKey().name(), p.getValue());
-                }
-                entry.put("prices", priceMap);
-                list.add(entry);
-            }
-            String json = gson.toJson(list);
-            Path target = shopFile.toPath().toAbsolutePath();
-            temporary = Files.createTempFile(target.getParent(), shopFile.getName(), ".tmp");
-            Files.writeString(temporary, json, StandardCharsets.UTF_8);
-            try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-            return true;
-        } catch (IOException | RuntimeException e) {
-            // RuntimeException covers item serialization and Gson rejections (e.g. a NaN price) as well as JsonIOException.
-            plugin.log("Failed to save zone shop: " + e.getMessage());
-            return false;
-        } finally {
-            if (temporary != null) {
-                try {
-                    Files.deleteIfExists(temporary);
-                } catch (IOException ignored) {
-                }
-            }
-        }
+        if (save()) return true;
+        setItems(beforeItems);
+        return false;
     }
 
     @SuppressWarnings("unchecked")

@@ -91,9 +91,7 @@ public class ActingRewardManager {
     private void grantPvpActing(Player killer, Player victim, double effort, boolean incursionKill) {
         if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
 
-        if (incursionKill && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) {
-            return;
-        }
+        if (incursionKill && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) return;
 
         double multiplier = nextRepeatMultiplier(killer.getUniqueId(), victim.getUniqueId());
         double grantedEffort = effort * multiplier;
@@ -103,9 +101,8 @@ public class ActingRewardManager {
     }
 
     /**
-     * Records an incursion kill pair and rejects the pair after the first reciprocal kill.
-     * The existing repeat-kill decay handles one-sided farming. This state handles players
-     * alternating kills, which otherwise receives a fresh first-kill reward in each direction.
+     * True for the first kill back inside the repeat-kill window, and for every kill of the pair
+     * after it until that window ends (denied kills do not extend it).
      */
     private boolean isReciprocalIncursionKill(UUID killerId, UUID victimId) {
         long now = System.currentTimeMillis();
@@ -117,18 +114,11 @@ public class ActingRewardManager {
             incursionKillPairs.put(pair, new PairKillState(killerId, now, false));
             return false;
         }
+        if (previous.reciprocal()) return true;
 
-        if (previous.reciprocal()) {
-            return true;
-        }
-
-        if (!previous.lastKiller().equals(killerId)) {
-            incursionKillPairs.put(pair, new PairKillState(killerId, now, true));
-            return true;
-        }
-
-        incursionKillPairs.put(pair, new PairKillState(killerId, now, false));
-        return false;
+        boolean reciprocal = !previous.lastKiller().equals(killerId);
+        incursionKillPairs.put(pair, new PairKillState(killerId, now, reciprocal));
+        return reciprocal;
     }
 
     /**

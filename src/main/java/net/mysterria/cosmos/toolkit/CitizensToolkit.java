@@ -288,8 +288,7 @@ public class CitizensToolkit {
             if (!hollowBody.isItemsDropped()) {
                 dropInventory(hollowBody, hollowBody.getSpawnLocation());
                 if (!hollowBody.isItemsDropped()) {
-                    // The spawn world is not loaded, so nothing can be dropped yet. Keep the pending state
-                    // and retry on the next sweep (or restore on reconnect) instead of voiding the items.
+                    // Spawn world not loaded: keep the pending state and retry on the next sweep
                     continue;
                 }
             }

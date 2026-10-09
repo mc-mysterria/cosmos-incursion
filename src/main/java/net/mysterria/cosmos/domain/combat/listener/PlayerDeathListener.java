@@ -64,13 +64,11 @@ public class PlayerDeathListener implements Listener {
             killTracker.recordKill(killer, victim);
         }
 
-        // Count the death (and the kill, when a player is credited) for the Incursion's completion summary
+        // Count for the completion summary
         IncursionEvent activeEvent = plugin.getEventManager().getActiveEvent();
         if (activeEvent != null) {
             activeEvent.incrementDeaths();
-            if (killer != null && !killer.equals(victim)) {
-                activeEvent.incrementKills();
-            }
+            if (killer != null && !killer.equals(victim)) activeEvent.incrementKills();
         }
 
         // Resolve zone tier to determine which items to drop

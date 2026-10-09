@@ -284,7 +284,7 @@ public class RewardDistributor {
                 continue;
             }
 
-            // A failed acting grant is logged and must not skip the command reward or the remaining MVPs.
+            // A failed grant must not skip the command reward or the remaining MVPs
             if (config.getMvpActingEffort() > 0) {
                 try {
                     CoiToolkit.grantActingEffort(player, CoiToolkit.SOURCE_WORLD_CONTENT, config.getMvpActingEffort());
@@ -311,8 +311,7 @@ public class RewardDistributor {
      * reapplies a buff to a town member who was offline when their town earned it.
      */
     public void grantPendingMvpReward(Player player) {
-        // The drain is the durable claim: it is persisted before either non-idempotent grant, so a
-        // grant or command failure below can never pay the same reward again on a later join.
+        // The drain is saved before paying, so a failure below cannot pay the reward twice
         double effort = plugin.getEventHistoryStore().drainPendingMvpEffort(player.getUniqueId());
         if (effort <= 0) return;
 

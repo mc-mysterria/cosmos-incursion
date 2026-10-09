@@ -245,32 +245,30 @@ public class EventManager {
             // (with Nation amplification), and MVP rewards. Replaces the old single-winner
             // beacon-ownership check, which credited only whichever town held a beacon at the
             // exact instant the event ended.
-            // A distribution failure must not skip the cleanup below.
-            try {
-                if (beaconManager.hasBeacons()) {
-                    try {
-                        rewardDistributor.distribute(activeEvent);
-                    } catch (RuntimeException failure) {
-                        plugin.log("Reward distribution failed: " + failure);
-                        failure.printStackTrace();
-                    } finally {
-                        // Reset all beacons
-                        beaconManager.resetAllCaptures();
-                    }
+            if (beaconManager.hasBeacons()) {
+                try {
+                    rewardDistributor.distribute(activeEvent);
+                } catch (RuntimeException failure) {
+                    // Log it and carry on, so the cleanup below still runs
+                    plugin.log("Reward distribution failed: " + failure);
+                    failure.printStackTrace();
                 }
 
-                plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
-                           ", Deaths: " + activeEvent.getTotalDeaths());
-            } finally {
-                // Clear auto-generated beacons
-                beaconManager.clearAllBeacons();
-
-                // Clear all death penalty cooldowns
-                plugin.getDeathHandler().clearAllCooldowns();
-                plugin.log("Cleared all death penalty cooldowns");
-
-                activeEvent = null;
+                // Reset all beacons
+                beaconManager.resetAllCaptures();
             }
+
+            plugin.log("Event ended. Stats - Kills: " + activeEvent.getTotalKills() +
+                       ", Deaths: " + activeEvent.getTotalDeaths());
+
+            // Clear auto-generated beacons
+            beaconManager.clearAllBeacons();
+
+            // Clear all death penalty cooldowns
+            plugin.getDeathHandler().clearAllCooldowns();
+            plugin.log("Cleared all death penalty cooldowns");
+
+            activeEvent = null;
         }
 
         // Start cooldown
@@ -490,8 +488,7 @@ public class EventManager {
      * Force stop the event immediately
      */
     public boolean forceStop() {
-        // ENDING is already finishing; transitioning to it again would be a no-op.
-        if (currentState != EventState.STARTING && currentState != EventState.ACTIVE) {
+        if (currentState == EventState.IDLE || currentState == EventState.ENDING) {
             return false;
         }
 

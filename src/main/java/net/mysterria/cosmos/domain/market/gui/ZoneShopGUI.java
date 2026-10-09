@@ -279,9 +279,9 @@ public class ZoneShopGUI {
             return;
         }
 
-        // The deduction is committed: anything that no longer fits is dropped at the player instead of lost.
+        // The town was charged, so whatever no longer fits is dropped at the player
         for (ItemStack stack : toGive) {
-            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack.clone());
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
             for (ItemStack leftover : leftovers.values()) {
                 player.getWorld().dropItemNaturally(player.getLocation(), leftover);
             }

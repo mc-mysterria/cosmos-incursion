@@ -13,6 +13,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.AtomicFiles;
 import net.mysterria.cosmos.toolkit.item.ResourceItemToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -24,11 +25,6 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.io.*;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -226,9 +222,8 @@ public class PermanentZoneManager {
         writeBalances();
     }
 
-    /** Writes balances via a temp file and atomic move; returns whether the write succeeded. */
+    /** Returns whether the write succeeded. */
     private boolean writeBalances() {
-        Path temporary = null;
         try {
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
@@ -238,28 +233,12 @@ public class PermanentZoneManager {
                 }
                 serializable.put(String.valueOf(entry.getKey()), inner);
             }
-            String json = gson.toJson(serializable);
-            Path target = balanceFile.toPath().toAbsolutePath();
-            temporary = Files.createTempFile(target.getParent(), balanceFile.getName(), ".tmp");
-            Files.writeString(temporary, json, StandardCharsets.UTF_8);
-            try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-            }
+            AtomicFiles.write(balanceFile, gson.toJson(serializable));
             return true;
         } catch (IOException | RuntimeException e) {
-            // RuntimeException covers Gson refusing to serialize (e.g. a NaN/Infinity balance) as well as JsonIOException.
+            // RuntimeException: Gson refuses to write NaN and Infinity
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
             return false;
-        } finally {
-            if (temporary != null) {
-                try {
-                    Files.deleteIfExists(temporary);
-                } catch (IOException ignored) {
-                }
-            }
         }
     }
 
@@ -787,13 +766,12 @@ public class PermanentZoneManager {
     // ── Town balance ─────────────────────────────────────────────────────────────
 
     /**
-     * Credits a town and persists balances. The credit stays in memory even when the write
-     * fails; the next successful save of any town stores it.
+     * Credits a town and saves. A failed save keeps the credit in memory for the next successful save.
      *
      * @throws IllegalArgumentException if an amount or resulting balance is not finite; nothing is changed
      */
     public void depositToTown(int townId, Map<ResourceType, Double> amounts) {
-        if (!isFiniteCredit(snapshotBalance(townId), amounts)) {
+        if (!isFiniteCredit(getTownBalance(townId), amounts)) {
             throw new IllegalArgumentException("Rejected non-finite deposit for town " + townId + ": " + amounts);
         }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
@@ -823,17 +801,10 @@ public class PermanentZoneManager {
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        // Roll back on a false return and on a thrown save alike, so a failed write never keeps the deduction.
-        boolean saved = false;
-        try {
-            saved = writeBalances();
-        } finally {
-            if (!saved) {
-                balance.clear();
-                balance.putAll(previous);
-            }
-        }
-        return saved;
+        if (writeBalances()) return true;
+        balance.clear();
+        balance.putAll(previous);
+        return false;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
@@ -842,9 +813,8 @@ public class PermanentZoneManager {
     }
 
     /**
-     * Same as {@link #setTownBalance}, reporting the outcome. A non-finite amount is refused
-     * unchanged and returns false. Otherwise the change is applied in memory and the return value
-     * says whether it was persisted; a failed write is kept for the next successful save.
+     * Same as {@link #setTownBalance}. Returns false for a non-finite amount (nothing changed) or a
+     * failed save (the change stays in memory for the next successful save).
      */
     public boolean trySetTownBalance(int townId, ResourceType type, double amount) {
         if (!Double.isFinite(amount)) return false;
@@ -861,14 +831,12 @@ public class PermanentZoneManager {
     }
 
     /**
-     * Same as {@link #adjustTownBalance}, reporting the outcome. A non-finite delta or resulting
-     * balance is refused unchanged and returns false. Otherwise the change is applied in memory
-     * and the return value says whether it was persisted; a failed write is kept for the next
-     * successful save.
+     * Same as {@link #adjustTownBalance}. Returns false for a non-finite delta or resulting balance
+     * (nothing changed) or a failed save (the change stays in memory for the next successful save).
      */
     public boolean tryAdjustTownBalance(int townId, ResourceType type, double delta) {
-        double current = snapshotBalance(townId).getOrDefault(type, 0.0);
-        if (!Double.isFinite(delta) || !Double.isFinite(current + delta)) return false;
+        double current = getTownBalance(townId).getOrDefault(type, 0.0);
+        if (!Double.isFinite(current + delta)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         double result = Math.max(0, current + delta);
@@ -877,20 +845,12 @@ public class PermanentZoneManager {
         return writeBalances();
     }
 
-    /** Whether every credited amount, and the balance it produces, is finite (no NaN, no overflow to infinity). */
+    /** Whether every credit leaves a finite balance (no NaN, no overflow to infinity). */
     private static boolean isFiniteCredit(Map<ResourceType, Double> balance, Map<ResourceType, Double> amounts) {
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
-            Double amount = entry.getValue();
-            if (amount == null || !Double.isFinite(amount)) return false;
-            if (!Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + amount)) return false;
+            if (!Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + entry.getValue())) return false;
         }
         return true;
-    }
-
-    private Map<ResourceType, Double> snapshotBalance(int townId) {
-        Map<ResourceType, Double> snapshot = new EnumMap<>(ResourceType.class);
-        snapshot.putAll(townBalances.getOrDefault(townId, Collections.emptyMap()));
-        return snapshot;
     }
 
     public Map<ResourceType, Double> getTownBalance(int townId) {

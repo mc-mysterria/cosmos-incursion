@@ -230,9 +230,8 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        if (rejectNonFinite(sender, amount, amount)) return;
         if (!plugin.getPermanentZoneManager().trySetTownBalance(town.id(), type, amount)) {
-            sendBalanceSaveFailed(sender);
+            sendBalanceFailed(sender);
             return;
         }
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
@@ -253,10 +252,8 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
-        if (rejectNonFinite(sender, amount, current + amount)) return;
         if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, amount)) {
-            sendBalanceSaveFailed(sender);
+            sendBalanceFailed(sender);
             return;
         }
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
@@ -279,10 +276,8 @@ public class AdminCommand {
             return;
         }
         TownData town = townOpt.get();
-        double current = plugin.getPermanentZoneManager().getTownBalance(town.id()).getOrDefault(type, 0.0);
-        if (rejectNonFinite(sender, amount, current - amount)) return;
         if (!plugin.getPermanentZoneManager().tryAdjustTownBalance(town.id(), type, -amount)) {
-            sendBalanceSaveFailed(sender);
+            sendBalanceFailed(sender);
             return;
         }
         Map<ResourceType, Double> balance = plugin.getPermanentZoneManager().getTownBalance(town.id());
@@ -315,22 +310,10 @@ public class AdminCommand {
         }
     }
 
-    /**
-     * Reports a non-finite amount or resulting balance (NaN, Infinity, or overflow). The manager
-     * refuses these without changing the balance; checking here lets a false return mean a failed save.
-     */
-    private boolean rejectNonFinite(CommandSender sender, double amount, double result) {
-        if (Double.isFinite(amount) && Double.isFinite(result)) return false;
+    private void sendBalanceFailed(CommandSender sender) {
         sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
-            .append(Component.text("Amount must be a finite number and the resulting balance must not overflow. "
-                + "Balance unchanged.", NamedTextColor.RED)));
-        return true;
-    }
-
-    private void sendBalanceSaveFailed(CommandSender sender) {
-        sender.sendMessage(Component.text("[Cosmos] ", NamedTextColor.GOLD)
-            .append(Component.text("Balance changed in memory but saving to disk failed; the next successful "
-                + "save will persist it. Check the console.", NamedTextColor.RED)));
+            .append(Component.text("Could not update the balance. The amount must be a finite number. "
+                + "If the save failed, the change is only in memory; check the console.", NamedTextColor.RED)));
     }
 
     // ── Shop admin commands ──────────────────────────────────────────────────────
