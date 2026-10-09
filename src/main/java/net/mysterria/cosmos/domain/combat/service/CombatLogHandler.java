@@ -6,16 +6,17 @@ import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.InventoryUtils;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
-import org.bukkit.entity.Player;
 import org.bukkit.Bukkit;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import java.util.List;
-import java.util.UUID;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.persistence.PersistentDataType;
+
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Handles combat logging mechanics
@@ -90,15 +91,16 @@ public class CombatLogHandler implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onHollowDamage(EntityDamageByEntityEvent event) {
         UUID ownerId = citizensToolkit.getHollowOwner(event.getEntity());
-        if (ownerId == null || !(event.getDamageSource().getCausingEntity() instanceof Player attacker)) return;
-        if (ownerId.equals(attacker.getUniqueId()) || isOwnerPartyMember(attacker, ownerId)) {
+        if (ownerId != null && event.getDamageSource().getCausingEntity() instanceof Player attacker
+                && isOwnerPartyMember(attacker, ownerId)) {
             event.setCancelled(true);
         }
     }
 
     private boolean isOwnerPartyMember(Player attacker, UUID ownerId) {
         var dungeons = Bukkit.getPluginManager().getPlugin("MythicDungeons");
-        if (dungeons == null || !dungeons.isEnabled()) return false;
+        var coi = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
+        if (dungeons == null || !dungeons.isEnabled() || coi == null) return false;
         try {
             Class<?> serviceType = Class.forName("net.playavalon.mythicdungeons.api.MythicDungeonsService", true,
                     dungeons.getClass().getClassLoader());
@@ -109,7 +111,6 @@ public class CombatLogHandler implements Listener {
             List<?> members = (List<?>) party.getClass().getMethod("getPlayers").invoke(party);
             for (Object member : members) {
                 if (member instanceof Player player && ownerId.equals(player.getUniqueId())) {
-                    var coi = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
                     Class<?> parties = Class.forName("dev.ua.ikeepcalm.coi.util.magic.BeyonderPartyUtil", true,
                             coi.getClass().getClassLoader());
                     return (boolean) parties.getMethod("friendlyFire", Player.class, Player.class)
@@ -155,15 +156,13 @@ public class CombatLogHandler implements Listener {
 
             // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
             InventoryUtils.clearPlayerInventory(player);
+            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
             player.saveData();
 
             // Teleport player to death location
             if (hollowBody.getDeathLocation() != null) {
                 player.teleport(hollowBody.getDeathLocation());
             }
-
-            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
-            player.saveData();
 
             // Kill the player to apply death mechanics and sequence regression
             if (player.isOnline()) {

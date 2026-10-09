@@ -8,21 +8,23 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.persistence.PersistentDataType;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
-import org.bukkit.Material;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,18 +63,17 @@ public class CitizensToolkit {
 
         try {
             // Use the default registry instead of creating a named one
-            // Pending inventories are persisted separately from Citizens NPCs.
+            // Temporary NPCs like Hollow Bodies don't need a separate registry with persistence
             this.registry = CitizensAPI.getNPCRegistry();
             if (this.registry == null) {
                 plugin.log("Citizens registry is null - API not ready");
                 return false;
             }
-            List<NPC> staleNpcs = new java.util.ArrayList<>();
+            List<NPC> staleNpcs = new ArrayList<>();
             for (NPC npc : registry) {
                 if (!npc.data().get("cosmos_hollow_owner", "").isEmpty()) staleNpcs.add(npc);
             }
             staleNpcs.forEach(NPC::destroy);
-            hollowBodies.values().forEach(HollowBody::markNpcRemoved);
             plugin.log("Citizens integration enabled - Hollow Body NPCs active");
             return true;
         } catch (IllegalStateException e) {
@@ -241,9 +242,13 @@ public class CitizensToolkit {
         ItemStack[] inventory = hollowBody.getInventory();
         ItemStack[] armor = hollowBody.getArmor();
         ItemStack offhand = hollowBody.getOffhand();
+
+        // Persist the drop before spawning items so a restart cannot drop them again
         saveRecovery(hollowBody, true);
         hollowBody.clearStoredItems();
-        int droppedItems = dropItemArray(world, location, inventory);
+
+        int droppedItems = 0;
+        droppedItems += dropItemArray(world, location, inventory);
         droppedItems += dropItemArray(world, location, armor);
         if (offhand != null && offhand.getType() != Material.AIR) {
             world.dropItemNaturally(location, offhand);
@@ -276,17 +281,24 @@ public class CitizensToolkit {
     /**
      * Check if player has an active Hollow Body / pending combat-log outcome
      */
-    public UUID getHollowOwner(org.bukkit.entity.Entity entity) {
+    public boolean hasHollowBody(UUID playerId) {
+        return hollowBodies.containsKey(playerId);
+    }
+
+    /**
+     * Get the owner of a Hollow Body NPC entity, or null if the entity is not one
+     */
+    public UUID getHollowOwner(Entity entity) {
         if (registry == null) return null;
         NPC npc = registry.getNPC(entity);
         return npc == null ? null : npcIdToPlayerId.get(npc.getId());
     }
 
-    public boolean hasHollowBody(UUID playerId) {
-        return hollowBodies.containsKey(playerId);
-    }
-
-    /** Despawn expired NPCs while retaining durable reconnect outcomes until claimed. */
+    /**
+     * Despawn expired Hollow Body NPC entities but keep outcome state until the player rejoins.
+     * Prevents dupe when a killed hollow times out before reconnect, and item loss when an
+     * unkilled hollow times out after inventory was transferred off the player.
+     */
     public void cleanupExpired() {
         if (registry == null) {
             return;
@@ -297,6 +309,9 @@ public class CitizensToolkit {
                 removeNPC(hollowBody.getNpcId());
                 npcIdToPlayerId.remove(hollowBody.getNpcId());
                 hollowBody.markNpcRemoved();
+                plugin.log("Hollow Body NPC for " + hollowBody.getPlayerName()
+                        + " despawned (timeout) - pending reconnect state kept (killed="
+                        + hollowBody.isWasKilled() + ")");
             }
         }
     }
