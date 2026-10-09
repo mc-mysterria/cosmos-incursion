@@ -78,6 +78,12 @@ public class ExtractionTask extends BukkitRunnable {
     }
 
     private void completeExtraction(Player player) {
+        // Left their town mid-channel: keep the buffer rather than clear it into nowhere
+        if (TownsToolkit.getPlayerTown(player).isEmpty()) {
+            permanentZoneManager.cancelExtractionChannel(player.getUniqueId());
+            player.sendActionBar(Component.text("Join a town to extract - your resources are kept until you do.", NamedTextColor.RED));
+            return;
+        }
         PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
         PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
         Map<ResourceType, Double> extracted = buffer.snapshot();
