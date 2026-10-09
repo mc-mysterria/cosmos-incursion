@@ -6,6 +6,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.combat.service.KillTracker;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
+import net.mysterria.cosmos.domain.incursion.model.IncursionEvent;
 import net.mysterria.cosmos.domain.incursion.model.PlayerZoneState;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
@@ -61,6 +62,15 @@ public class PlayerDeathListener implements Listener {
         // Record kill for griefing detection (only if there is a killer)
         if (killer != null && !killer.equals(victim)) {
             killTracker.recordKill(killer, victim);
+        }
+
+        // Count the death (and the kill, when a player is credited) for the Incursion's completion summary
+        IncursionEvent activeEvent = plugin.getEventManager().getActiveEvent();
+        if (activeEvent != null) {
+            activeEvent.incrementDeaths();
+            if (killer != null && !killer.equals(victim)) {
+                activeEvent.incrementKills();
+            }
         }
 
         // Resolve zone tier to determine which items to drop
