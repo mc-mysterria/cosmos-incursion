@@ -17,13 +17,17 @@ public final class AtomicFiles {
     }
 
     public static void write(File file, String content) throws IOException {
-        Path target = file.toPath();
-        Path temporary = target.resolveSibling(file.getName() + ".tmp");
-        Files.writeString(temporary, content, StandardCharsets.UTF_8);
+        Path target = file.toPath().toAbsolutePath();
+        Path temporary = Files.createTempFile(target.getParent(), file.getName(), ".tmp");
         try {
-            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(temporary, content, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 }

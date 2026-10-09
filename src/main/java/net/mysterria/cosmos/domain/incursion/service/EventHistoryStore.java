@@ -2,6 +2,7 @@ package net.mysterria.cosmos.domain.incursion.service;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.incursion.model.EventResult;
 import net.mysterria.cosmos.domain.incursion.model.TownScore;
@@ -34,6 +35,7 @@ public class EventHistoryStore {
     private final CosmosIncursion plugin;
     private final Gson gson;
     private final File historyFile;
+    private final Object persistenceLock = new Object();
 
     private final List<EventResult> history = new CopyOnWriteArrayList<>();
     private volatile int holderTownId = 0;
@@ -83,14 +85,20 @@ public class EventHistoryStore {
                         (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : "") +
                         (pendingMvpEffort.isEmpty() ? "" : ", " + pendingMvpEffort.size() + " pending offline MVP reward(s)"));
             }
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             plugin.log("Error loading event history: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
+    public void save() {
+        synchronized (persistenceLock) {
+            saveLocked();
+        }
+    }
+
     /** Returns whether the write succeeded. */
-    public synchronized boolean save() {
+    private boolean saveLocked() {
         try {
             Map<String, Double> pendingMvpEffortByString = new LinkedHashMap<>();
             pendingMvpEffort.forEach((uuid, effort) -> pendingMvpEffortByString.put(uuid.toString(), effort));
@@ -107,12 +115,14 @@ public class EventHistoryStore {
     }
 
     /** Queues an MVP reward for a player who was offline at distribution time. A failed save drops it again. */
-    public synchronized void queuePendingMvpEffort(UUID playerId, double effort) {
-        Double previous = pendingMvpEffort.get(playerId);
-        pendingMvpEffort.merge(playerId, effort, Double::sum);
-        if (save()) return;
-        if (previous == null) pendingMvpEffort.remove(playerId);
-        else pendingMvpEffort.put(playerId, previous);
+    public void queuePendingMvpEffort(UUID playerId, double effort) {
+        synchronized (persistenceLock) {
+            Double previous = pendingMvpEffort.get(playerId);
+            pendingMvpEffort.merge(playerId, effort, Double::sum);
+            if (saveLocked()) return;
+            if (previous == null) pendingMvpEffort.remove(playerId);
+            else pendingMvpEffort.put(playerId, previous);
+        }
     }
 
     /**
@@ -120,21 +130,25 @@ public class EventHistoryStore {
      * The removal is saved first so a restart cannot pay it twice; if the save fails the reward
      * stays pending and 0 is returned.
      */
-    public synchronized double drainPendingMvpEffort(UUID playerId) {
-        Double effort = pendingMvpEffort.remove(playerId);
-        if (effort == null) return 0.0;
-        if (save()) return effort;
-        pendingMvpEffort.put(playerId, effort);
-        return 0.0;
+    public double drainPendingMvpEffort(UUID playerId) {
+        synchronized (persistenceLock) {
+            Double effort = pendingMvpEffort.remove(playerId);
+            if (effort == null) return 0.0;
+            if (saveLocked()) return effort;
+            pendingMvpEffort.put(playerId, effort);
+            return 0.0;
+        }
     }
 
     /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */
-    public synchronized void recordResult(EventResult result) {
-        history.add(result);
-        while (history.size() > MAX_HISTORY) {
-            history.remove(0);
+    public void recordResult(EventResult result) {
+        synchronized (persistenceLock) {
+            history.add(result);
+            while (history.size() > MAX_HISTORY) {
+                history.remove(0);
+            }
+            saveLocked();
         }
-        save();
     }
 
     public int getHolderTownId() {

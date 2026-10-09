@@ -771,7 +771,7 @@ public class PermanentZoneManager {
      * @throws IllegalArgumentException if an amount or resulting balance is not finite; nothing is changed
      */
     public void depositToTown(int townId, Map<ResourceType, Double> amounts) {
-        if (!isFiniteCredit(getTownBalance(townId), amounts)) {
+        if (!isFiniteCredit(snapshotBalance(townId), amounts)) {
             throw new IllegalArgumentException("Rejected non-finite deposit for town " + townId + ": " + amounts);
         }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
@@ -835,7 +835,7 @@ public class PermanentZoneManager {
      * (nothing changed) or a failed save (the change stays in memory for the next successful save).
      */
     public boolean tryAdjustTownBalance(int townId, ResourceType type, double delta) {
-        double current = getTownBalance(townId).getOrDefault(type, 0.0);
+        double current = snapshotBalance(townId).getOrDefault(type, 0.0);
         if (!Double.isFinite(current + delta)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
@@ -848,9 +848,16 @@ public class PermanentZoneManager {
     /** Whether every credit leaves a finite balance (no NaN, no overflow to infinity). */
     private static boolean isFiniteCredit(Map<ResourceType, Double> balance, Map<ResourceType, Double> amounts) {
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
-            if (!Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + entry.getValue())) return false;
+            Double amount = entry.getValue();
+            if (amount == null || !Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + amount)) return false;
         }
         return true;
+    }
+
+    private Map<ResourceType, Double> snapshotBalance(int townId) {
+        Map<ResourceType, Double> snapshot = new EnumMap<>(ResourceType.class);
+        snapshot.putAll(townBalances.getOrDefault(townId, Collections.emptyMap()));
+        return snapshot;
     }
 
     public Map<ResourceType, Double> getTownBalance(int townId) {

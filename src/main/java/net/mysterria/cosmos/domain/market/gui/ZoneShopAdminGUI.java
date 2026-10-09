@@ -299,7 +299,7 @@ public class ZoneShopAdminGUI {
                 return;
             }
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("Shop saved — " + newItems.size() + " item(s).", NamedTextColor.GREEN)));
+                .append(Component.text("Shop saved: " + newItems.size() + " item(s).", NamedTextColor.GREEN)));
             player.closeInventory();
         });
     }

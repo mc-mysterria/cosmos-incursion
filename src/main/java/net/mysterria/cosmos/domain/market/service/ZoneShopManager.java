@@ -40,33 +40,8 @@ public class ZoneShopManager {
 
     // ── Persistence ─────────────────────────────────────────────────────────────
 
-    /** Returns whether the write succeeded. */
-    public boolean save() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (ShopItem si : items) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("id", si.getId().toString());
-
-            if (si.isCoi()) {
-                entry.put("coiItemId", si.getCoiItemId());
-            } else {
-                entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
-            }
-
-            Map<String, Double> priceMap = new LinkedHashMap<>();
-            for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
-                priceMap.put(p.getKey().name(), p.getValue());
-            }
-            entry.put("prices", priceMap);
-            list.add(entry);
-        }
-        try {
-            AtomicFiles.write(shopFile, gson.toJson(list));
-            return true;
-        } catch (IOException | RuntimeException e) {
-            plugin.log("Failed to save zone shop: " + e.getMessage());
-            return false;
-        }
+    public void save() {
+        writeItems();
     }
 
     /** Replaces the catalogue and saves it. A failed save restores the previous catalogue. */
@@ -84,9 +59,38 @@ public class ZoneShopManager {
     }
 
     private boolean saveOrRestore(List<ShopItem> beforeItems) {
-        if (save()) return true;
+        if (writeItems()) return true;
         setItems(beforeItems);
         return false;
+    }
+
+    /** Returns whether the write succeeded. */
+    private boolean writeItems() {
+        try {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (ShopItem si : items) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", si.getId().toString());
+
+                if (si.isCoi()) {
+                    entry.put("coiItemId", si.getCoiItemId());
+                } else {
+                    entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
+                }
+
+                Map<String, Double> priceMap = new LinkedHashMap<>();
+                for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
+                    priceMap.put(p.getKey().name(), p.getValue());
+                }
+                entry.put("prices", priceMap);
+                list.add(entry);
+            }
+            AtomicFiles.write(shopFile, gson.toJson(list));
+            return true;
+        } catch (IOException | RuntimeException e) {
+            plugin.log("Failed to save zone shop: " + e.getMessage());
+            return false;
+        }
     }
 
     @SuppressWarnings("unchecked")
