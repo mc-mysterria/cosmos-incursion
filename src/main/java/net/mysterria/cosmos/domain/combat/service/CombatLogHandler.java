@@ -92,7 +92,7 @@ public class CombatLogHandler implements Listener {
     public void onHollowDamage(EntityDamageByEntityEvent event) {
         UUID ownerId = citizensToolkit.getHollowOwner(event.getEntity());
         if (ownerId != null && event.getDamageSource().getCausingEntity() instanceof Player attacker
-                && isOwnerPartyMember(attacker, ownerId)) {
+                && (ownerId.equals(attacker.getUniqueId()) || isOwnerPartyMember(attacker, ownerId))) {
             event.setCancelled(true);
         }
     }
@@ -156,7 +156,6 @@ public class CombatLogHandler implements Listener {
 
             // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
             InventoryUtils.clearPlayerInventory(player);
-            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
             player.saveData();
 
             // Teleport player to death location
@@ -172,9 +171,11 @@ public class CombatLogHandler implements Listener {
         } else {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
             restoreTransferredInventory(player, hollowBody);
-            player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
-            player.saveData();
         }
+
+        // Drop the marker only after the outcome is applied, so a crash before this repeats it
+        player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
+        player.saveData();
 
         // Remove the Hollow Body / pending outcome (items already dropped or restored)
         citizensToolkit.removeHollowBody(player.getUniqueId());

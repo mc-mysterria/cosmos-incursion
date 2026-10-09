@@ -38,6 +38,8 @@ public class CitizensToolkit {
 
     private final CosmosIncursion plugin;
     private final CosmosConfig config;
+    /** Grace period after NPC despawn before pending reconnect state is evicted. */
+    private static final long PENDING_EVICT_GRACE_MILLIS = 6L * 60L * 60L * 1000L;
     private final File recoveryFolder;
 
     private final Map<UUID, HollowBody> hollowBodies;
@@ -239,21 +241,18 @@ public class CitizensToolkit {
         }
 
         org.bukkit.World world = location.getWorld();
-        ItemStack[] inventory = hollowBody.getInventory();
-        ItemStack[] armor = hollowBody.getArmor();
-        ItemStack offhand = hollowBody.getOffhand();
-
-        // Persist the drop before spawning items so a restart cannot drop them again
-        saveRecovery(hollowBody, true);
-        hollowBody.clearStoredItems();
-
         int droppedItems = 0;
-        droppedItems += dropItemArray(world, location, inventory);
-        droppedItems += dropItemArray(world, location, armor);
-        if (offhand != null && offhand.getType() != Material.AIR) {
-            world.dropItemNaturally(location, offhand);
+
+        droppedItems += dropItemArray(world, location, hollowBody.getInventory());
+        droppedItems += dropItemArray(world, location, hollowBody.getArmor());
+        if (hollowBody.getOffhand() != null && hollowBody.getOffhand().getType() != Material.AIR) {
+            world.dropItemNaturally(location, hollowBody.getOffhand());
             droppedItems++;
         }
+
+        // Keep the stored items on disk until they are dropped, so a failure here is retried on restart
+        hollowBody.clearStoredItems();
+        saveRecovery(hollowBody);
         plugin.log("Dropped " + droppedItems + " items from " + hollowBody.getPlayerName() + "'s Hollow Body");
     }
 
@@ -304,6 +303,9 @@ public class CitizensToolkit {
             return;
         }
 
+        long now = System.currentTimeMillis();
+        List<UUID> toEvict = new ArrayList<>();
+
         for (HollowBody hollowBody : hollowBodies.values()) {
             if (hollowBody.shouldDespawn()) {
                 removeNPC(hollowBody.getNpcId());
@@ -313,6 +315,31 @@ public class CitizensToolkit {
                         + " despawned (timeout) - pending reconnect state kept (killed="
                         + hollowBody.isWasKilled() + ")");
             }
+
+            // Evict pending reconnect state after grace TTL so never-returning players
+            // do not retain item snapshots for the whole server session.
+            if (hollowBody.isNpcRemoved()
+                    && now >= hollowBody.getDespawnTime() + PENDING_EVICT_GRACE_MILLIS) {
+                toEvict.add(hollowBody.getPlayerId());
+            }
+        }
+
+        for (UUID playerId : toEvict) {
+            HollowBody hollowBody = hollowBodies.get(playerId);
+            if (hollowBody == null) {
+                continue;
+            }
+            if (!hollowBody.isItemsDropped()) {
+                dropInventory(hollowBody, hollowBody.getSpawnLocation());
+                if (!hollowBody.isItemsDropped()) {
+                    plugin.log("WARNING: voiding undroppable hollow items for "
+                            + hollowBody.getPlayerName() + " during grace eviction");
+                    hollowBody.clearStoredItems();
+                }
+            }
+            removeHollowBody(playerId);
+            plugin.log("Evicted pending hollow state for " + hollowBody.getPlayerName()
+                    + " after grace TTL (killed=" + hollowBody.isWasKilled() + ")");
         }
     }
 
@@ -345,21 +372,17 @@ public class CitizensToolkit {
     }
 
     private void saveRecovery(HollowBody body) {
-        saveRecovery(body, body.isItemsDropped());
-    }
-
-    private void saveRecovery(HollowBody body, boolean itemsDropped) {
         YamlConfiguration data = new YamlConfiguration();
         data.set("player-name", body.getPlayerName());
         data.set("npc-id", body.getNpcId());
         data.set("spawn-location", body.getSpawnLocation());
         data.set("spawn-time", body.getSpawnTime());
         data.set("despawn-time", body.getDespawnTime());
-        data.set("inventory", itemsDropped || body.getInventory() == null ? null : Arrays.asList(body.getInventory()));
-        data.set("armor", itemsDropped || body.getArmor() == null ? null : Arrays.asList(body.getArmor()));
-        data.set("offhand", itemsDropped ? null : body.getOffhand());
+        data.set("inventory", body.getInventory() == null ? null : Arrays.asList(body.getInventory()));
+        data.set("armor", body.getArmor() == null ? null : Arrays.asList(body.getArmor()));
+        data.set("offhand", body.getOffhand());
         data.set("killed", body.isWasKilled());
-        data.set("items-dropped", itemsDropped);
+        data.set("items-dropped", body.isItemsDropped());
         data.set("death-location", body.getDeathLocation());
         File target = new File(recoveryFolder, body.getPlayerId() + ".yml");
         File temporary = new File(recoveryFolder, body.getPlayerId() + ".tmp");
@@ -396,7 +419,7 @@ public class CitizensToolkit {
                     dropInventory(body, body.getDeathLocation());
                 }
             } catch (Exception e) {
-                throw new IllegalStateException("Cannot load hollow recovery " + file.getName(), e);
+                plugin.log("Skipping unreadable hollow recovery " + file.getName() + ": " + e.getMessage());
             }
         }
     }
