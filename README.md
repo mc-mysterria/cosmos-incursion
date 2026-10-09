@@ -1,5 +1,7 @@
 # CosmosIncursion
 
+Frozen: old-season fixes only; features live in mysterria-map.
+
 A Minecraft Paper 1.21+ plugin for the Mysterria server. Adds timed PvP incursion events with tiered risk/reward zones, spirit beacon capture, and permanent extraction zones.
 
 ## Features

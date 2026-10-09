@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Frozen: old-season fixes only; features live in mysterria-map.
+
 Guidance for Claude Code when working in this repository.
 
 ## Project Overview

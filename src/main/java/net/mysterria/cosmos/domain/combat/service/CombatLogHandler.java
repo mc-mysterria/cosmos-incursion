@@ -10,7 +10,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.inventory.PlayerInventory;
+
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Handles combat logging mechanics
@@ -19,6 +25,12 @@ import org.bukkit.inventory.PlayerInventory;
  */
 public class CombatLogHandler implements Listener {
 
+    // KICK_COMMAND is KICKED's deprecated alias on 26.3 and the only name on 26.1.2
+    private static final Set<PlayerKickEvent.Cause> SPARED_KICKS = EnumSet.of(
+            PlayerKickEvent.Cause.PLUGIN, PlayerKickEvent.Cause.KICK_COMMAND, PlayerKickEvent.Cause.BANNED,
+            PlayerKickEvent.Cause.IP_BANNED, PlayerKickEvent.Cause.WHITELIST, PlayerKickEvent.Cause.RESTART_COMMAND);
+
+    private final Set<UUID> sparedKicks = new HashSet<>();
     private final CosmosIncursion plugin;
     private final PlayerStateManager playerStateManager;
     private final CitizensToolkit citizensToolkit;
@@ -37,6 +49,12 @@ public class CombatLogHandler implements Listener {
      * @return true if Hollow Body was spawned, false otherwise
      */
     public boolean handleDisconnect(Player player) {
+        // A hollow's items live only in memory, so a stop or a staff kick must not create one
+        boolean sparedKick = sparedKicks.remove(player.getUniqueId());
+        if (sparedKick || plugin.getServer().isStopping()) {
+            return false;
+        }
+
         // Only spawn NPC if player is in a zone
         if (!playerStateManager.isInZone(player)) {
             return false;
@@ -57,6 +75,13 @@ public class CombatLogHandler implements Listener {
         }
 
         return false;
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onKick(PlayerKickEvent event) {
+        if (SPARED_KICKS.contains(event.getCause())) {
+            sparedKicks.add(event.getPlayer().getUniqueId());
+        }
     }
 
     /**

@@ -762,6 +762,7 @@ public class PermanentZoneManager {
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             balance.merge(entry.getKey(), entry.getValue(), Double::sum);
         }
+        saveBalances();
     }
 
     /**

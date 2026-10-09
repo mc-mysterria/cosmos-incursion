@@ -1,5 +1,5 @@
 name: CosmosIncursion
-version: '1.0.0'
+version: '1.1.1'
 main: net.mysterria.cosmos.CosmosIncursion
 api-version: '1.21'
 authors: [ ikeepcalm ]

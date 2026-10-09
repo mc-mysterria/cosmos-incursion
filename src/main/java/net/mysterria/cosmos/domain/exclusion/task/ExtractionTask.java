@@ -139,6 +139,10 @@ public class ExtractionTask extends BukkitRunnable {
         for (ExtractionPoint ep : eps) {
             if (!ep.isActive()) continue;
             if (ep.isPlayerInRange(player.getLocation())) {
+                if (TownsToolkit.getPlayerTown(player).isEmpty()) {
+                    player.sendActionBar(Component.text("Join a town to extract - your resources are kept until you do.", NamedTextColor.RED));
+                    break;
+                }
                 permanentZoneManager.startExtractionChannel(player.getUniqueId(), ep);
                 player.sendActionBar(Component.text("Extracting... hold position! ", NamedTextColor.GREEN)
                     .append(Component.text("[0%]", NamedTextColor.YELLOW)));
