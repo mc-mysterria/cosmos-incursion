@@ -221,6 +221,18 @@ public class CitizensToolkit {
     }
 
     /**
+     * Retry a drop that did not finish. Returns true once no stored items are left to deliver.
+     */
+    public boolean ensureItemsDropped(HollowBody hollowBody) {
+        try {
+            dropInventory(hollowBody, hollowBody.getDeathLocation());
+        } catch (RuntimeException e) {
+            plugin.log("Retrying hollow drop failed for " + hollowBody.getPlayerName() + ": " + e.getMessage());
+        }
+        return hollowBody.isItemsDropped();
+    }
+
+    /**
      * Drop a Hollow Body's stored inventory at a location, then clear the snapshot.
      */
     private void dropInventory(HollowBody hollowBody, org.bukkit.Location location) {

@@ -152,6 +152,10 @@ public class CombatLogHandler implements Listener {
             return;
         }
         if (hollowBody.isWasKilled()) {
+            if (!citizensToolkit.ensureItemsDropped(hollowBody)) {
+                plugin.log("Player " + player.getName() + " reconnected - Hollow Body items still not dropped, keeping recovery for the next login");
+                return;
+            }
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
             // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
