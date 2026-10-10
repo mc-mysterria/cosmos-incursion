@@ -403,7 +403,7 @@ public class CitizensToolkit {
         data.set("killed", body.isWasKilled());
         data.set("items-dropped", body.isItemsDropped());
         data.set("death-location", body.getDeathLocation());
-        data.set("zone-tier", body.getZoneTier().name());
+        data.set("zone-tier", body.getZoneTier() == null ? null : body.getZoneTier().name());
         File target = new File(recoveryFolder, body.getPlayerId() + ".yml");
         File temporary = new File(recoveryFolder, body.getPlayerId() + ".tmp");
         try {
@@ -431,7 +431,8 @@ public class CitizensToolkit {
                 HollowBody body = new HollowBody(playerId, data.getString("player-name"), data.getInt("npc-id"),
                         data.getLocation("spawn-location"), spawnTime, data.getLong("despawn-time") - spawnTime,
                         readItems(data, "inventory"), readItems(data, "armor"), data.getItemStack("offhand"));
-                body.setZoneTier(ZoneTier.valueOf(data.getString("zone-tier", ZoneTier.DEATH.name())));
+                String tier = data.getString("zone-tier");
+                body.setZoneTier(tier == null ? null : ZoneTier.valueOf(tier));
                 if (data.getBoolean("killed")) body.markKilled(data.getLocation("death-location"));
                 if (data.getBoolean("items-dropped")) body.clearStoredItems();
                 body.markNpcRemoved();

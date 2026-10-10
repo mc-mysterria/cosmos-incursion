@@ -170,11 +170,11 @@ public class CombatLogHandler implements Listener {
 
             // Kill the player to apply death mechanics and sequence regression
             if (player.isOnline()) {
-                // The death listener only acts on tracked players, so after a restart the penalty is applied here
-                if (hollowBody.getZoneTier() == ZoneTier.DEATH && !playerStateManager.isInZone(player)) {
+                // The saved tier decides the penalty; the death listener must not apply its own for this death
+                if (hollowBody.getZoneTier() == ZoneTier.DEATH) {
                     plugin.getDeathHandler().applyDeathPenalty(player, null, player.getLocation());
                 }
-                player.setHealth(0);
+                plugin.getDeathHandler().killWithoutPenalty(player);
                 plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
             }
         } else {

@@ -29,7 +29,7 @@ public class HollowBody {
     private boolean npcRemoved;
     private Location deathLocation;
 
-    /** Zone tier at disconnect, kept so the death penalty still applies after a restart. */
+    /** Zone tier at disconnect, kept so the death penalty still applies after a restart. Null when a legacy recovery file has none. */
     @Setter
     private ZoneTier zoneTier = ZoneTier.DEATH;
 

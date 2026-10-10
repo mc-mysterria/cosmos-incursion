@@ -13,6 +13,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,6 +33,7 @@ public class DeathHandler {
 
     private final ConcurrentHashMap<UUID, Long> lastDeathPenaltyTime = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ItemStack[]> savedInventories = new ConcurrentHashMap<>();
+    private final Set<UUID> recoveryDeaths = ConcurrentHashMap.newKeySet();
 
     public DeathHandler(CosmosIncursion plugin, PlayerStateManager playerStateManager, KillTracker killTracker) {
         this.plugin = plugin;
@@ -95,7 +97,7 @@ public class DeathHandler {
      */
     public void handleZoneDeath(Player victim, Player killer, Location deathLocation, ZoneTier tier) {
         // Only process if victim is actually in a zone
-        if (!playerStateManager.isInZone(victim)) {
+        if (!playerStateManager.isInZone(victim) || recoveryDeaths.contains(victim.getUniqueId())) {
             return;
         }
 
@@ -116,6 +118,16 @@ public class DeathHandler {
         }
 
         applyDeathPenalty(victim, killer, deathLocation);
+    }
+
+    /** Kills a player whose hollow body died, without the zone death penalty (recovery applied it already). */
+    public void killWithoutPenalty(Player player) {
+        recoveryDeaths.add(player.getUniqueId());
+        try {
+            player.setHealth(0);
+        } finally {
+            recoveryDeaths.remove(player.getUniqueId());
+        }
     }
 
     /**
