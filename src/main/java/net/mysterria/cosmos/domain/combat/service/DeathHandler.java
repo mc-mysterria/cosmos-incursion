@@ -115,6 +115,14 @@ public class DeathHandler {
             return;
         }
 
+        applyDeathPenalty(victim, killer, deathLocation);
+    }
+
+    /**
+     * Apply the DEATH zone penalty (acting loss or sequence regression) without needing zone tracking.
+     * Hollow body recovery uses it because the player is no longer tracked in a zone.
+     */
+    public void applyDeathPenalty(Player victim, Player killer, Location deathLocation) {
         // Check if player is a beyonder
         if (!CoiToolkit.isBeyonder(victim)) {
             plugin.log("Victim is not a beyonder, skipping death penalties");

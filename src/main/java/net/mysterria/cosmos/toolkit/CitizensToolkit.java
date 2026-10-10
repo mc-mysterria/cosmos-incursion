@@ -7,6 +7,7 @@ import net.citizensnpcs.trait.SkinTrait;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -140,6 +141,12 @@ public class CitizensToolkit {
                     offhand
             );
 
+            // Remember the zone tier so the death penalty still applies after a restart
+            var zoneState = plugin.getPlayerStateManager().getState(player);
+            if (zoneState != null && zoneState.getIncursionZone() != null) {
+                hollowBody.setZoneTier(zoneState.getIncursionZone().getTier());
+            }
+
             // Write the inventory authority before saving an empty player inventory.
             try {
                 saveRecovery(hollowBody);
@@ -240,9 +247,9 @@ public class CitizensToolkit {
             plugin.log("Skipping hollow inventory drop for " + hollowBody.getPlayerName() + " - already dropped");
             return;
         }
-        if (location == null || location.getWorld() == null) {
+        if (location == null || !location.isWorldLoaded()) {
             Location fallback = hollowBody.getSpawnLocation();
-            if (fallback == null || fallback.getWorld() == null) {
+            if (fallback == null || !fallback.isWorldLoaded()) {
                 plugin.log("Cannot drop inventory for " + hollowBody.getPlayerName()
                         + " - invalid death location and no spawn fallback");
                 return;
@@ -396,6 +403,7 @@ public class CitizensToolkit {
         data.set("killed", body.isWasKilled());
         data.set("items-dropped", body.isItemsDropped());
         data.set("death-location", body.getDeathLocation());
+        data.set("zone-tier", body.getZoneTier().name());
         File target = new File(recoveryFolder, body.getPlayerId() + ".yml");
         File temporary = new File(recoveryFolder, body.getPlayerId() + ".tmp");
         try {
@@ -423,6 +431,7 @@ public class CitizensToolkit {
                 HollowBody body = new HollowBody(playerId, data.getString("player-name"), data.getInt("npc-id"),
                         data.getLocation("spawn-location"), spawnTime, data.getLong("despawn-time") - spawnTime,
                         readItems(data, "inventory"), readItems(data, "armor"), data.getItemStack("offhand"));
+                body.setZoneTier(ZoneTier.valueOf(data.getString("zone-tier", ZoneTier.DEATH.name())));
                 if (data.getBoolean("killed")) body.markKilled(data.getLocation("death-location"));
                 if (data.getBoolean("items-dropped")) body.clearStoredItems();
                 body.markNpcRemoved();

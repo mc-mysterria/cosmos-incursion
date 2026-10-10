@@ -1,6 +1,8 @@
 package net.mysterria.cosmos.domain.combat.model;
 
 import lombok.Getter;
+import lombok.Setter;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
 import org.bukkit.inventory.ItemStack;
 
@@ -26,6 +28,10 @@ public class HollowBody {
     private boolean itemsDropped;
     private boolean npcRemoved;
     private Location deathLocation;
+
+    /** Zone tier at disconnect, kept so the death penalty still applies after a restart. */
+    @Setter
+    private ZoneTier zoneTier = ZoneTier.DEATH;
 
     public HollowBody(UUID playerId, String playerName, int npcId, Location spawnLocation,
                       long durationMillis, ItemStack[] inventory, ItemStack[] armor, ItemStack offhand) {

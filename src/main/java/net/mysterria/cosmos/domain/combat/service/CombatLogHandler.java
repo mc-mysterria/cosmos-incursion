@@ -5,6 +5,7 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.InventoryUtils;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -169,6 +170,10 @@ public class CombatLogHandler implements Listener {
 
             // Kill the player to apply death mechanics and sequence regression
             if (player.isOnline()) {
+                // The death listener only acts on tracked players, so after a restart the penalty is applied here
+                if (hollowBody.getZoneTier() == ZoneTier.DEATH && !playerStateManager.isInZone(player)) {
+                    plugin.getDeathHandler().applyDeathPenalty(player, null, player.getLocation());
+                }
                 player.setHealth(0);
                 plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
             }
