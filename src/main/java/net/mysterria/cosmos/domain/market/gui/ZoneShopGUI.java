@@ -279,8 +279,12 @@ public class ZoneShopGUI {
             return;
         }
 
+        // The town was charged, so whatever no longer fits is dropped at the player
         for (ItemStack stack : toGive) {
-            player.getInventory().addItem(stack);
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
+            for (ItemStack leftover : leftovers.values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+            }
         }
 
         ItemStack primary = si.getItem();

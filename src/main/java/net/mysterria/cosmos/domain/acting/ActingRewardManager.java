@@ -16,9 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * resource extraction, beacon hold time, and qualifying PvP kills.
  * <p>
  * Callers are responsible for anti-grief gating (griefing kills, Corrupted Monster) before
- * calling the PvP grant methods — this class only enforces the repeat-kill exponential
- * backoff, since the CircleOfImagination source cap (acting-sources.yml) already bounds
- * total farmable amount.
+ * calling the PvP grant methods. This class applies repeat-kill decay and blocks reciprocal
+ * incursion kills, since the CircleOfImagination source cap (acting-sources.yml) does not
+ * distinguish a real fight from two players trading kills.
  */
 public class ActingRewardManager {
 
@@ -27,11 +27,20 @@ public class ActingRewardManager {
     // killer UUID -> victim UUID -> repeat-kill state. Applies exponential backoff to
     // repeated kills of the same victim so farming a single target loses value fast.
     private final Map<UUID, Map<UUID, RepeatKillState>> pvpRepeatKills = new ConcurrentHashMap<>();
+    // One shared state per pair catches A killing B followed by B killing A. Tracking each
+    // direction independently would let two players trade first kills for full rewards.
+    private final Map<PvpPair, PairKillState> incursionKillPairs = new ConcurrentHashMap<>();
 
     // player UUID -> beacon hold seconds accumulated toward the next acting grant
     private final Map<UUID, Integer> holdSeconds = new ConcurrentHashMap<>();
 
     private record RepeatKillState(int streak, long lastGrantMillis) {}
+    private record PvpPair(UUID first, UUID second) {
+        private static PvpPair of(UUID left, UUID right) {
+            return left.compareTo(right) <= 0 ? new PvpPair(left, right) : new PvpPair(right, left);
+        }
+    }
+    private record PairKillState(UUID lastKiller, long lastKillMillis, boolean reciprocal) {}
 
     public ActingRewardManager(CosmosIncursion plugin) {
         this.plugin = plugin;
@@ -67,7 +76,7 @@ public class ActingRewardManager {
      */
     public void grantIncursionPvpActing(Player killer, Player victim, ZoneTier tier) {
         double effort = config().getTierConfigs().get(tier).pvpActingEffort();
-        grantPvpActing(killer, victim, effort);
+        grantPvpActing(killer, victim, effort, true);
     }
 
     /**
@@ -76,17 +85,40 @@ public class ActingRewardManager {
      */
     public void grantExclusionPvpActing(Player killer, Player victim, ExclusionZoneTier tier) {
         double effort = config().getExclusionTierConfigs().get(tier).pvpActingEffort();
-        grantPvpActing(killer, victim, effort);
+        grantPvpActing(killer, victim, effort, false);
     }
 
-    private void grantPvpActing(Player killer, Player victim, double effort) {
+    private void grantPvpActing(Player killer, Player victim, double effort, boolean incursionKill) {
         if (effort <= 0 || killer == null || victim == null || killer.equals(victim)) return;
+
+        if (incursionKill && isReciprocalIncursionKill(killer.getUniqueId(), victim.getUniqueId())) return;
 
         double multiplier = nextRepeatMultiplier(killer.getUniqueId(), victim.getUniqueId());
         double grantedEffort = effort * multiplier;
         if (grantedEffort <= 0) return;
 
         CoiToolkit.grantActingEffort(killer, CoiToolkit.SOURCE_PLAYER_INTERACTION, grantedEffort);
+    }
+
+    /**
+     * True for the first kill back inside the repeat-kill window, and for every kill of the pair
+     * after it until that window ends (denied kills do not extend it).
+     */
+    private boolean isReciprocalIncursionKill(UUID killerId, UUID victimId) {
+        long now = System.currentTimeMillis();
+        long resetMillis = config().getPvpRepeatKillResetSeconds() * 1000L;
+        PvpPair pair = PvpPair.of(killerId, victimId);
+        PairKillState previous = incursionKillPairs.get(pair);
+
+        if (previous == null || now - previous.lastKillMillis() >= resetMillis) {
+            incursionKillPairs.put(pair, new PairKillState(killerId, now, false));
+            return false;
+        }
+        if (previous.reciprocal()) return true;
+
+        boolean reciprocal = !previous.lastKiller().equals(killerId);
+        incursionKillPairs.put(pair, new PairKillState(killerId, now, reciprocal));
+        return reciprocal;
     }
 
     /**

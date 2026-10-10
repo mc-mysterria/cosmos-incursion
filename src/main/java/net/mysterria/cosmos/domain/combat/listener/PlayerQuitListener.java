@@ -4,16 +4,12 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.beacon.service.BeaconUIManager;
 import net.mysterria.cosmos.domain.combat.service.CombatLogHandler;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
-import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
-import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.BuffToolkit;
-import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.ItemStack;
 
 /**
  * Listens for player disconnects to:
@@ -39,18 +35,8 @@ public class PlayerQuitListener implements Listener {
     private void dropPermanentZoneBuffer(Player player) {
         PermanentZone pZone = plugin.getPermanentZoneManager().getPlayerZone(player.getUniqueId());
         if (pZone == null) return;
-        PlayerResourceBuffer buffer = plugin.getPermanentZoneManager().getBuffer(player.getUniqueId());
-        if (buffer.isEmpty()) return;
-        Location loc = player.getLocation();
-        for (ResourceType type : ResourceType.values()) {
-            double amount = buffer.get(type);
-            if (amount < 1.0) continue;
-            int count = Math.min((int) amount, 64);
-            if (loc.getWorld() != null) {
-                loc.getWorld().dropItemNaturally(loc, new ItemStack(type.getDefaultMaterial(), count));
-            }
-        }
-        plugin.getPermanentZoneManager().clearBuffer(player.getUniqueId());
+        // Same spill as the spectator-mode path: exact amounts as reclaimable items
+        plugin.getPermanentZoneManager().dropBufferAsItems(player, player.getLocation());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

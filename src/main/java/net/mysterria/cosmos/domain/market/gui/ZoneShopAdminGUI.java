@@ -291,10 +291,15 @@ public class ZoneShopAdminGUI {
                         newItems.add(new ShopItem(UUID.randomUUID(), e.getValue(), prices));
                     }
                 });
-            shopManager.setItems(newItems);
-            shopManager.save();
+            if (!shopManager.replaceItemsAndSave(newItems)) {
+                player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
+                    .append(Component.text("Failed to save the shop; the previous catalogue was kept. "
+                        + "Check the console.", NamedTextColor.RED)));
+                player.closeInventory();
+                return;
+            }
             player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
-                .append(Component.text("Shop saved — " + newItems.size() + " item(s).", NamedTextColor.GREEN)));
+                .append(Component.text("Shop saved: " + newItems.size() + " item(s).", NamedTextColor.GREEN)));
             player.closeInventory();
         });
     }
