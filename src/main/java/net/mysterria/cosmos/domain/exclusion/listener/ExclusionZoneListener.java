@@ -226,14 +226,21 @@ public class ExclusionZoneListener implements Listener {
         if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) return;
 
         ResourceType type = permanentZoneManager.getResourceDropType(stack);
-        // Identical spilled tokens can merge into one stack, so credit every token in it
+        // Identical spilled tokens can merge into one stack, so credit every token being picked up
         double amount = permanentZoneManager.getResourceDropAmount(stack) * stack.getAmount();
         if (type == null || amount <= 0) return;
 
-        // Cancel the vanilla pickup (so it never occupies an inventory slot) and despawn the
-        // ground entity ourselves — otherwise it would just sit there to be picked up again.
+        // Cancel the vanilla pickup (so it never occupies an inventory slot). Paper has set the
+        // stack to what fits, so only that part is credited; any tokens that did not fit stay on
+        // the ground, otherwise despawn the entity ourselves so it can't be picked up again.
         event.setCancelled(true);
-        event.getItem().remove();
+        if (event.getRemaining() > 0) {
+            ItemStack rest = stack.clone();
+            rest.setAmount(event.getRemaining());
+            event.getItem().setItemStack(rest);
+        } else {
+            event.getItem().remove();
+        }
 
         permanentZoneManager.getBuffer(player.getUniqueId()).add(type, amount);
         player.sendActionBar(Component.text("Reclaimed ", NamedTextColor.GREEN)
