@@ -5,12 +5,19 @@ import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.InventoryUtils;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.persistence.PersistentDataType;
+
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Handles combat logging mechanics
@@ -37,6 +44,10 @@ public class CombatLogHandler implements Listener {
      * @return true if Hollow Body was spawned, false otherwise
      */
     public boolean handleDisconnect(Player player) {
+        if (player.isDead() || plugin.getDeathHandler().hasSavedItems(player.getUniqueId())) {
+            return false;
+        }
+
         // Only spawn NPC if player is in a zone
         if (!playerStateManager.isInZone(player)) {
             return false;
@@ -78,15 +89,45 @@ public class CombatLogHandler implements Listener {
         citizensToolkit.markNPCKilled(npcId, deathLocation);
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onHollowDamage(EntityDamageByEntityEvent event) {
+        UUID ownerId = citizensToolkit.getHollowOwner(event.getEntity());
+        if (ownerId != null && event.getDamageSource().getCausingEntity() instanceof Player attacker
+                && (ownerId.equals(attacker.getUniqueId()) || isOwnerPartyMember(attacker, ownerId))) {
+            event.setCancelled(true);
+        }
+    }
+
+    private boolean isOwnerPartyMember(Player attacker, UUID ownerId) {
+        var dungeons = Bukkit.getPluginManager().getPlugin("MythicDungeons");
+        var coi = Bukkit.getPluginManager().getPlugin("CircleOfImagination");
+        if (dungeons == null || !dungeons.isEnabled() || coi == null) return false;
+        try {
+            Class<?> serviceType = Class.forName("net.playavalon.mythicdungeons.api.MythicDungeonsService", true,
+                    dungeons.getClass().getClassLoader());
+            Object service = Bukkit.getServicesManager().load(serviceType);
+            if (service == null) return false;
+            Object party = serviceType.getMethod("getParty", Player.class).invoke(service, attacker);
+            if (party == null) return false;
+            List<?> members = (List<?>) party.getClass().getMethod("getPlayers").invoke(party);
+            for (Object member : members) {
+                if (member instanceof Player player && ownerId.equals(player.getUniqueId())) {
+                    Class<?> parties = Class.forName("dev.ua.ikeepcalm.coi.util.magic.BeyonderPartyUtil", true,
+                            coi.getClass().getClassLoader());
+                    return (boolean) parties.getMethod("friendlyFire", Player.class, Player.class)
+                            .invoke(null, attacker, player);
+                }
+            }
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+        }
+        return false;
+    }
+
     /**
      * Handle player reconnecting
      * Check if their Hollow Body was killed and apply penalty, otherwise restore transferred items once.
      */
     public void handleReconnect(Player player) {
-        if (!citizensToolkit.isAvailable()) {
-            return;
-        }
-
         HollowBody hollowBody = citizensToolkit.getHollowBody(player.getUniqueId());
         if (hollowBody == null) {
             return;
@@ -106,7 +147,16 @@ public class CombatLogHandler implements Listener {
     }
 
     private void applyReconnectOutcome(Player player, HollowBody hollowBody) {
+        Long transfer = player.getPersistentDataContainer().get(plugin.getKey("hollow_transfer"), PersistentDataType.LONG);
+        if (transfer == null || transfer != hollowBody.getSpawnTime()) {
+            citizensToolkit.removeHollowBody(player.getUniqueId());
+            return;
+        }
         if (hollowBody.isWasKilled()) {
+            if (!citizensToolkit.ensureItemsDropped(hollowBody)) {
+                plugin.log("Player " + player.getName() + " reconnected - Hollow Body items still not dropped, keeping recovery for the next login");
+                return;
+            }
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body was killed, applying full penalty");
 
             // Inventory was transferred at disconnect and dropped on hollow death — keep player empty
@@ -120,14 +170,21 @@ public class CombatLogHandler implements Listener {
 
             // Kill the player to apply death mechanics and sequence regression
             if (player.isOnline()) {
-                player.setHealth(0);
+                // The saved tier decides the penalty; the death listener must not apply its own for this death
+                if (hollowBody.getZoneTier() == ZoneTier.DEATH) {
+                    plugin.getDeathHandler().applyDeathPenalty(player, null, player.getLocation());
+                }
+                plugin.getDeathHandler().killWithoutPenalty(player);
                 plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
             }
         } else {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
             restoreTransferredInventory(player, hollowBody);
-            player.saveData();
         }
+
+        // Drop the marker only after the outcome is applied, so a crash before this repeats it
+        player.getPersistentDataContainer().remove(plugin.getKey("hollow_transfer"));
+        player.saveData();
 
         // Remove the Hollow Body / pending outcome (items already dropped or restored)
         citizensToolkit.removeHollowBody(player.getUniqueId());

@@ -57,11 +57,12 @@ public class PlayerQuitListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
 
-        // Handle potential combat logging
-        combatLogHandler.handleDisconnect(player);
-
-        // Drop permanent zone resource buffer at disconnect location
-        dropPermanentZoneBuffer(player);
+        if (plugin.getServer().isStopping()) {
+            plugin.getPermanentZoneManager().saveCarriedResources(player);
+        } else {
+            combatLogHandler.handleDisconnect(player);
+            dropPermanentZoneBuffer(player);
+        }
 
         // Clean up buff tracking
         buffToolkit.handlePlayerQuit(player);

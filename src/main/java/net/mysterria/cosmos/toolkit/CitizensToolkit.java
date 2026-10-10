@@ -7,14 +7,25 @@ import net.citizensnpcs.trait.SkinTrait;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.persistence.PersistentDataType;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +41,7 @@ public class CitizensToolkit {
     private final CosmosConfig config;
     /** Grace period after NPC despawn before pending reconnect state is evicted. */
     private static final long PENDING_EVICT_GRACE_MILLIS = 6L * 60L * 60L * 1000L;
+    private final File recoveryFolder;
 
     private final Map<UUID, HollowBody> hollowBodies;
     private final Map<Integer, UUID> npcIdToPlayerId;
@@ -40,6 +52,8 @@ public class CitizensToolkit {
         this.config = plugin.getConfigLoader().getConfig();
         this.hollowBodies = new HashMap<>();
         this.npcIdToPlayerId = new HashMap<>();
+        this.recoveryFolder = new File(plugin.getDataFolder(), "hollow-recovery");
+        loadRecovery();
     }
 
     /**
@@ -58,6 +72,11 @@ public class CitizensToolkit {
                 plugin.log("Citizens registry is null - API not ready");
                 return false;
             }
+            List<NPC> staleNpcs = new ArrayList<>();
+            for (NPC npc : registry) {
+                if (!npc.data().get("cosmos_hollow_owner", "").isEmpty()) staleNpcs.add(npc);
+            }
+            staleNpcs.forEach(NPC::destroy);
             plugin.log("Citizens integration enabled - Hollow Body NPCs active");
             return true;
         } catch (IllegalStateException e) {
@@ -74,6 +93,7 @@ public class CitizensToolkit {
      * Transfers inventory to the hollow (player is cleared + saved) so killing the NPC cannot dupe items.
      */
     public HollowBody createHollowBody(Player player, Location location) {
+        if (hasHollowBody(player.getUniqueId())) return null;
         if (registry == null) {
             plugin.log("Cannot create Hollow Body - Citizens not initialized");
             return null;
@@ -94,6 +114,7 @@ public class CitizensToolkit {
 
             // Make NPC vulnerable (can be killed)
             npc.setProtected(false);
+            npc.data().setPersistent("cosmos_hollow_owner", player.getUniqueId().toString());
 
             // Copy player appearance
             npc.data().setPersistent(NPC.Metadata.NAMEPLATE_VISIBLE, true);
@@ -120,13 +141,25 @@ public class CitizensToolkit {
                     offhand
             );
 
-            // Transfer: clear player so only the hollow holds these items, then persist to disk
-            InventoryUtils.clearPlayerInventory(player);
-            player.saveData();
+            // Remember the zone tier so the death penalty still applies after a restart
+            var zoneState = plugin.getPlayerStateManager().getState(player);
+            if (zoneState != null && zoneState.getIncursionZone() != null) {
+                hollowBody.setZoneTier(zoneState.getIncursionZone().getTier());
+            }
 
-            // Store mappings
+            // Write the inventory authority before saving an empty player inventory.
+            try {
+                saveRecovery(hollowBody);
+            } catch (IllegalStateException e) {
+                npc.destroy();
+                throw e;
+            }
             hollowBodies.put(player.getUniqueId(), hollowBody);
             npcIdToPlayerId.put(npc.getId(), player.getUniqueId());
+            player.getPersistentDataContainer().set(plugin.getKey("hollow_transfer"),
+                    PersistentDataType.LONG, hollowBody.getSpawnTime());
+            InventoryUtils.clearPlayerInventory(player);
+            player.saveData();
 
             plugin.log("Created Hollow Body NPC for " + player.getName() + " (ID: " + npc.getId() + ") - inventory transferred");
             return hollowBody;
@@ -141,8 +174,14 @@ public class CitizensToolkit {
      * Remove a Hollow Body NPC and forget reconnect state (caller must restore/drop first if needed)
      */
     public void removeHollowBody(UUID playerId) {
-        HollowBody hollowBody = hollowBodies.remove(playerId);
+        HollowBody hollowBody = hollowBodies.get(playerId);
         if (hollowBody != null) {
+            try {
+                Files.deleteIfExists(new File(recoveryFolder, playerId + ".yml").toPath());
+            } catch (IOException e) {
+                throw new IllegalStateException("Cannot consume hollow recovery for " + playerId, e);
+            }
+            hollowBodies.remove(playerId);
             if (!hollowBody.isNpcRemoved()) {
                 removeNPC(hollowBody.getNpcId());
             }
@@ -178,6 +217,7 @@ public class CitizensToolkit {
             HollowBody hollowBody = hollowBodies.get(playerId);
             if (hollowBody != null) {
                 hollowBody.markKilled(deathLocation);
+                saveRecovery(hollowBody);
 
                 // Drop the player's inventory at death location (once)
                 dropInventory(hollowBody, deathLocation);
@@ -188,6 +228,18 @@ public class CitizensToolkit {
     }
 
     /**
+     * Retry a drop that did not finish. Returns true once no stored items are left to deliver.
+     */
+    public boolean ensureItemsDropped(HollowBody hollowBody) {
+        try {
+            dropInventory(hollowBody, hollowBody.getDeathLocation());
+        } catch (RuntimeException e) {
+            plugin.log("Retrying hollow drop failed for " + hollowBody.getPlayerName() + ": " + e.getMessage());
+        }
+        return hollowBody.isItemsDropped();
+    }
+
+    /**
      * Drop a Hollow Body's stored inventory at a location, then clear the snapshot.
      */
     private void dropInventory(HollowBody hollowBody, org.bukkit.Location location) {
@@ -195,9 +247,9 @@ public class CitizensToolkit {
             plugin.log("Skipping hollow inventory drop for " + hollowBody.getPlayerName() + " - already dropped");
             return;
         }
-        if (location == null || location.getWorld() == null) {
+        if (location == null || !location.isWorldLoaded()) {
             Location fallback = hollowBody.getSpawnLocation();
-            if (fallback == null || fallback.getWorld() == null) {
+            if (fallback == null || !fallback.isWorldLoaded()) {
                 plugin.log("Cannot drop inventory for " + hollowBody.getPlayerName()
                         + " - invalid death location and no spawn fallback");
                 return;
@@ -217,7 +269,9 @@ public class CitizensToolkit {
             droppedItems++;
         }
 
+        // Keep the stored items on disk until they are dropped, so a failure here is retried on restart
         hollowBody.clearStoredItems();
+        saveRecovery(hollowBody);
         plugin.log("Dropped " + droppedItems + " items from " + hollowBody.getPlayerName() + "'s Hollow Body");
     }
 
@@ -247,6 +301,15 @@ public class CitizensToolkit {
      */
     public boolean hasHollowBody(UUID playerId) {
         return hollowBodies.containsKey(playerId);
+    }
+
+    /**
+     * Get the owner of a Hollow Body NPC entity, or null if the entity is not one
+     */
+    public UUID getHollowOwner(Entity entity) {
+        if (registry == null) return null;
+        NPC npc = registry.getNPC(entity);
+        return npc == null ? null : npcIdToPlayerId.get(npc.getId());
     }
 
     /**
@@ -293,8 +356,7 @@ public class CitizensToolkit {
                     hollowBody.clearStoredItems();
                 }
             }
-            hollowBodies.remove(playerId);
-            npcIdToPlayerId.remove(hollowBody.getNpcId());
+            removeHollowBody(playerId);
             plugin.log("Evicted pending hollow state for " + hollowBody.getPlayerName()
                     + " after grace TTL (killed=" + hollowBody.isWasKilled() + ")");
         }
@@ -326,6 +388,67 @@ public class CitizensToolkit {
      */
     public boolean isAvailable() {
         return registry != null;
+    }
+
+    private void saveRecovery(HollowBody body) {
+        YamlConfiguration data = new YamlConfiguration();
+        data.set("player-name", body.getPlayerName());
+        data.set("npc-id", body.getNpcId());
+        data.set("spawn-location", body.getSpawnLocation());
+        data.set("spawn-time", body.getSpawnTime());
+        data.set("despawn-time", body.getDespawnTime());
+        data.set("inventory", body.getInventory() == null ? null : Arrays.asList(body.getInventory()));
+        data.set("armor", body.getArmor() == null ? null : Arrays.asList(body.getArmor()));
+        data.set("offhand", body.getOffhand());
+        data.set("killed", body.isWasKilled());
+        data.set("items-dropped", body.isItemsDropped());
+        data.set("death-location", body.getDeathLocation());
+        data.set("zone-tier", body.getZoneTier() == null ? null : body.getZoneTier().name());
+        File target = new File(recoveryFolder, body.getPlayerId() + ".yml");
+        File temporary = new File(recoveryFolder, body.getPlayerId() + ".tmp");
+        try {
+            Files.createDirectories(recoveryFolder.toPath());
+            data.save(temporary);
+            try (FileChannel channel = FileChannel.open(temporary.toPath(), StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
+            Files.move(temporary.toPath(), target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot save hollow recovery for " + body.getPlayerId(), e);
+        }
+    }
+
+    private void loadRecovery() {
+        File[] files = recoveryFolder.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (files == null) return;
+        for (File file : files) {
+            try {
+                YamlConfiguration data = new YamlConfiguration();
+                data.load(file);
+                UUID playerId = UUID.fromString(file.getName().replace(".yml", ""));
+                long spawnTime = data.getLong("spawn-time");
+                HollowBody body = new HollowBody(playerId, data.getString("player-name"), data.getInt("npc-id"),
+                        data.getLocation("spawn-location"), spawnTime, data.getLong("despawn-time") - spawnTime,
+                        readItems(data, "inventory"), readItems(data, "armor"), data.getItemStack("offhand"));
+                String tier = data.getString("zone-tier");
+                body.setZoneTier(tier == null ? null : ZoneTier.valueOf(tier));
+                if (data.getBoolean("killed")) body.markKilled(data.getLocation("death-location"));
+                if (data.getBoolean("items-dropped")) body.clearStoredItems();
+                body.markNpcRemoved();
+                hollowBodies.put(playerId, body);
+                if (body.isWasKilled() && !body.isItemsDropped()) {
+                    dropInventory(body, body.getDeathLocation());
+                }
+            } catch (Exception e) {
+                plugin.log("Skipping unreadable hollow recovery " + file.getName() + ": " + e.getMessage());
+            }
+        }
+    }
+
+    private static ItemStack[] readItems(YamlConfiguration data, String key) {
+        List<?> items = data.getList(key);
+        return items == null ? null : items.toArray(new ItemStack[0]);
     }
 
     private static ItemStack[] deepClone(ItemStack[] source) {
