@@ -152,7 +152,7 @@ public class ExtractionTask extends BukkitRunnable {
         Optional<TownData> townOpt = TownsToolkit.getPlayerTown(player);
         if (townOpt.isEmpty()) return;
         try {
-            permanentZoneManager.depositToTown(townOpt.get().id(), amounts);
+            permanentZoneManager.depositToTown(townOpt.get().id(), amounts, player, "extraction");
         } catch (IllegalArgumentException rejected) {
             // Non-finite amount or overflow: nothing was deposited, finish the extraction anyway
             plugin.log("Extraction deposit refused for " + player.getName() + ": " + rejected.getMessage());

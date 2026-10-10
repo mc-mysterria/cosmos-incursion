@@ -114,11 +114,15 @@ public class EventHistoryStore {
         }
     }
 
-    /** Queues an MVP reward for a player who was offline at distribution time. A failed save keeps it in memory for the next save. */
-    public void queuePendingMvpEffort(UUID playerId, double effort) {
+    /**
+     * Queues an MVP reward for a player who was offline at distribution time. A failed save keeps it in memory for the next save.
+     *
+     * @return whether the queued reward was persisted
+     */
+    public boolean queuePendingMvpEffort(UUID playerId, double effort) {
         synchronized (persistenceLock) {
             pendingMvpEffort.merge(playerId, effort, Double::sum);
-            saveLocked();
+            return saveLocked();
         }
     }
 
@@ -137,14 +141,18 @@ public class EventHistoryStore {
         }
     }
 
-    /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */
-    public void recordResult(EventResult result) {
+    /**
+     * Appends a result, evicting the oldest entry once the cap is exceeded, then saves.
+     *
+     * @return whether the save succeeded
+     */
+    public boolean recordResult(EventResult result) {
         synchronized (persistenceLock) {
             history.add(result);
             while (history.size() > MAX_HISTORY) {
                 history.remove(0);
             }
-            saveLocked();
+            return saveLocked();
         }
     }
 

@@ -291,7 +291,7 @@ public class ZoneShopAdminGUI {
                         newItems.add(new ShopItem(UUID.randomUUID(), e.getValue(), prices));
                     }
                 });
-            if (!shopManager.replaceItemsAndSave(newItems)) {
+            if (!shopManager.replaceItemsAndSave(newItems, player, "admin_gui_save")) {
                 player.sendMessage(Component.text("[Shop] ", NamedTextColor.GOLD)
                     .append(Component.text("Failed to save the shop; the previous catalogue was kept. "
                         + "Check the console.", NamedTextColor.RED)));

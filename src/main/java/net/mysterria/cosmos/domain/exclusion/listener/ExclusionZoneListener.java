@@ -5,9 +5,12 @@ import dev.ua.ikeepcalm.coi.api.event.MadnessGainEvent;
 import dev.ua.ikeepcalm.coi.api.event.MagicDamageEvent;
 import dev.ua.ikeepcalm.coi.api.event.MythicalFormEvent;
 import dev.ua.ikeepcalm.coi.api.model.AbilityData;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
+import net.mysterria.cosmos.domain.combat.service.DeathAudit;
 import net.mysterria.cosmos.domain.exclusion.manager.PermanentZoneManager;
 import net.mysterria.cosmos.domain.exclusion.model.ExtractionChannelState;
 import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
@@ -15,6 +18,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PlayerResourceBuffer;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Sound;
@@ -30,6 +34,9 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,12 +148,37 @@ public class ExclusionZoneListener implements Listener {
             for (Map.Entry<ResourceType, Double> entry : loot.entrySet()) {
                 killerBuffer.add(entry.getKey(), entry.getValue());
             }
+            emitResourcesTransferred(victim, killer, loot);
             notifyKiller(killer, victim.getName(), loot);
             victim.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                     .append(Component.text(killer.getName(), NamedTextColor.RED))
                     .append(Component.text(" took your resources.", NamedTextColor.DARK_RED)));
 
             permanentZoneManager.clearBuffer(victim.getUniqueId());
+        }
+    }
+
+    /**
+     * Records the victim's carried resources handed to the killer, from the snapshot the transfer
+     * loop already holds. Emitted once the killer's buffer has been credited.
+     */
+    private void emitResourcesTransferred(Player victim, Player killer, Map<ResourceType, Double> loot) {
+        try {
+            Map<String, Object> resources = new LinkedHashMap<>();
+            for (Map.Entry<ResourceType, Double> entry : loot.entrySet()) {
+                if (entry.getValue() > 0) resources.put(entry.getKey().name(), entry.getValue());
+            }
+
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("victim_name", victim.getName());
+            metadata.put("killer_name", killer.getName());
+            MysterriaAuditEmitter.putPlayerLocation(metadata, victim);
+            metadata.put("resources", resources);
+
+            DeathAudit.emit(plugin, "exclusion.resources_transferred", AuditOutcome.COMMITTED, AuditRisk.NORMAL,
+                    null, victim.getUniqueId(), killer.getUniqueId(), "killed_by_player", metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
         }
     }
 
@@ -197,16 +229,73 @@ public class ExclusionZoneListener implements Listener {
         if (event.getNewGameMode() != GameMode.SPECTATOR) return;
 
         Player player = event.getPlayer();
-        if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) return;
+        PermanentZone zone = permanentZoneManager.getPlayerZone(player.getUniqueId());
+        if (zone == null) return;
 
         PlayerResourceBuffer buffer = permanentZoneManager.getBuffer(player.getUniqueId());
         if (buffer.isEmpty()) return;
 
+        // Amounts carried, copied before the spill clears the buffer (for the audit row only)
+        Map<ResourceType, Double> carried = buffer.snapshot();
+        Location spillLocation = player.getLocation();
+
         permanentZoneManager.cancelExtractionChannel(player.getUniqueId());
-        permanentZoneManager.dropBufferAsItems(player, player.getLocation());
+        try {
+            permanentZoneManager.dropBufferAsItems(player, spillLocation);
+        } catch (RuntimeException failure) {
+            emitResourcesSpilled(player, zone, spillLocation, carried, event, failure);
+            throw failure;
+        }
+        emitResourcesSpilled(player, zone, spillLocation, carried, event, null);
 
         player.sendMessage(Component.text("[Cosmos] ", NamedTextColor.DARK_RED)
                 .append(Component.text("Your carried resources spilled onto the ground!", NamedTextColor.RED)));
+    }
+
+    /**
+     * Records the carried resources spilled onto the ground when a player enters spectator mode.
+     * Built from the buffer copy, zone, location and event the handler already holds; {@code thrown}
+     * is the exception the spill threw (some ground items may exist and the buffer was not cleared).
+     * The row is written at the spill: a later handler that cancels the mode change does not undo it.
+     */
+    private void emitResourcesSpilled(Player player, PermanentZone zone, Location location,
+                                      Map<ResourceType, Double> carried, PlayerGameModeChangeEvent event,
+                                      RuntimeException thrown) {
+        try {
+            boolean spawned = thrown == null && location.getWorld() != null;
+            Map<String, Object> resources = new LinkedHashMap<>();
+            List<Map<String, Object>> dropped = new ArrayList<>();
+            for (Map.Entry<ResourceType, Double> entry : carried.entrySet()) {
+                if (entry.getValue() <= 0) continue;
+                resources.put(entry.getKey().name(), entry.getValue());
+                if (spawned) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("resource", entry.getKey().name());
+                    item.put("amount", entry.getValue());
+                    dropped.add(item);
+                }
+            }
+
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("player_name", player.getName());
+            metadata.put("zone_id", zone.getId().toString());
+            metadata.put("zone_name", zone.getName());
+            MysterriaAuditEmitter.putLocation(metadata, location);
+            metadata.put("trigger", "spectator_mode");
+            metadata.put("previous_game_mode", player.getGameMode().name());
+            metadata.put("game_mode_cause", event.getCause().name());
+            metadata.put("resources", resources);
+            metadata.put("dropped_item_count", dropped.size());
+            metadata.put("dropped", dropped);
+            if (thrown != null) metadata.put("error", thrown.getClass().getSimpleName());
+
+            DeathAudit.emit(plugin, "exclusion.resources_spilled",
+                    spawned ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, AuditRisk.NORMAL,
+                    null, player.getUniqueId(), null,
+                    thrown != null ? "spill_threw" : spawned ? "spectator_mode" : "no_world", metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import me.angeschossen.lands.api.LandsIntegration;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.command.AdminCommand;
+import net.mysterria.cosmos.command.AdminCommandAuditListener;
 import net.mysterria.cosmos.command.ExclusionCommand;
 import net.mysterria.cosmos.command.GeneralCommand;
 import net.mysterria.cosmos.config.ConfigLoader;
@@ -50,6 +51,7 @@ import net.mysterria.cosmos.toolkit.BuffToolkit;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.DiscordToolkit;
 import net.mysterria.cosmos.toolkit.EffectsToolkit;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.toolkit.map.MapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.BlueMapIntegration;
 import net.mysterria.cosmos.toolkit.map.impl.NoOpMapIntegration;
@@ -116,6 +118,7 @@ public final class CosmosIncursion extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+        MysterriaAuditEmitter.initialize(this);
 
         log("Enabling Cosmos Incursion...");
 
@@ -249,32 +252,36 @@ public final class CosmosIncursion extends JavaPlugin {
     public void onDisable() {
         log("Disabling Cosmos Incursion...");
 
-        // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
-        // the in-memory event, beacon standings, and town rewards are discarded.
-        if (eventManager != null) {
-            eventManager.finalizeForShutdown();
-        }
+        try {
+            // Complete the event before Bukkit cancels the EventCheckTask. Otherwise
+            // the in-memory event, beacon standings, and town rewards are discarded.
+            if (eventManager != null) {
+                eventManager.finalizeForShutdown();
+            }
 
-        // Save buff data
-        if (buffToolkit != null) {
-            buffToolkit.saveBuffData();
-        }
+            // Save buff data
+            if (buffToolkit != null) {
+                buffToolkit.saveBuffData();
+            }
 
-        // Save event history (win records, holder streak)
-        if (eventHistoryStore != null) {
-            eventHistoryStore.save();
-        }
+            // Save event history (win records, holder streak)
+            if (eventHistoryStore != null) {
+                eventHistoryStore.save();
+            }
 
-        // Save permanent zone data and clean up display entities
-        if (permanentZoneManager != null) {
-            permanentZoneManager.cleanup();
-            permanentZoneManager.saveZones();
-            permanentZoneManager.saveBalances();
-        }
+            // Save permanent zone data and clean up display entities
+            if (permanentZoneManager != null) {
+                permanentZoneManager.cleanup();
+                permanentZoneManager.saveZones();
+                permanentZoneManager.saveBalances();
+            }
 
-        // Unregister commands
-        if (liteCommands != null) {
-            liteCommands.unregister();
+            // Unregister commands
+            if (liteCommands != null) {
+                liteCommands.unregister();
+            }
+        } finally {
+            MysterriaAuditEmitter.close();
         }
 
         log("Cosmos Incursion disabled!");
@@ -306,6 +313,7 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new IncursionZoneListener(playerStateManager), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneCompassListener(this), this);
         getServer().getPluginManager().registerEvents(incursionZoneHorseListener, this);
+        getServer().getPluginManager().registerEvents(new AdminCommandAuditListener(this), this);
 
         // Soft-depend zone protection listeners — only register if the respective plugin is active
         if (huskTownsAPI != null) {
