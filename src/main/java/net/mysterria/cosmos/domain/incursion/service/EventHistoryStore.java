@@ -114,14 +114,11 @@ public class EventHistoryStore {
         }
     }
 
-    /** Queues an MVP reward for a player who was offline at distribution time. A failed save drops it again. */
+    /** Queues an MVP reward for a player who was offline at distribution time. A failed save keeps it in memory for the next save. */
     public void queuePendingMvpEffort(UUID playerId, double effort) {
         synchronized (persistenceLock) {
-            Double previous = pendingMvpEffort.get(playerId);
             pendingMvpEffort.merge(playerId, effort, Double::sum);
-            if (saveLocked()) return;
-            if (previous == null) pendingMvpEffort.remove(playerId);
-            else pendingMvpEffort.put(playerId, previous);
+            saveLocked();
         }
     }
 

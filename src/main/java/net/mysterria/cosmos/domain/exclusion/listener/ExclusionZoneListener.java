@@ -226,7 +226,8 @@ public class ExclusionZoneListener implements Listener {
         if (permanentZoneManager.getPlayerZone(player.getUniqueId()) == null) return;
 
         ResourceType type = permanentZoneManager.getResourceDropType(stack);
-        double amount = permanentZoneManager.getResourceDropAmount(stack);
+        // Identical spilled tokens can merge into one stack, so credit every token in it
+        double amount = permanentZoneManager.getResourceDropAmount(stack) * stack.getAmount();
         if (type == null || amount <= 0) return;
 
         // Cancel the vanilla pickup (so it never occupies an inventory slot) and despawn the
