@@ -20,6 +20,7 @@ import net.mysterria.cosmos.domain.combat.listener.PlayerRespawnListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerDeathListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerJoinListener;
 import net.mysterria.cosmos.domain.combat.listener.PlayerQuitListener;
+import net.mysterria.cosmos.domain.combat.listener.ZoneBoundaryCombatListener;
 import net.mysterria.cosmos.domain.exclusion.listener.ExclusionZoneCompassListener;
 import net.mysterria.cosmos.domain.incursion.listener.GSitZoneListener;
 import net.mysterria.cosmos.domain.incursion.listener.IncursionZoneHorseListener;
@@ -304,6 +305,7 @@ public final class CosmosIncursion extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new PaperAngelListener(this), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneListener(this, permanentZoneManager), this);
         getServer().getPluginManager().registerEvents(new IncursionZoneListener(playerStateManager), this);
+        getServer().getPluginManager().registerEvents(new ZoneBoundaryCombatListener(this), this);
         getServer().getPluginManager().registerEvents(new ExclusionZoneCompassListener(this), this);
         getServer().getPluginManager().registerEvents(incursionZoneHorseListener, this);
 
