@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.config.CosmosConfig;
+import net.mysterria.cosmos.domain.combat.listener.ZoneBoundaryCombatListener;
 import net.mysterria.cosmos.toolkit.CoiToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -69,6 +70,15 @@ public class RewardHandler {
      * - Griefing kills (high-tier killing significantly lower-tier)
      */
     public boolean shouldGrantReward(Player killer, Player victim) {
+        // Kill-farming from outside the zone, or from inside it while barred by the re-entry cooldown
+        if (ZoneBoundaryCombatListener.crossesBoundary(plugin, killer, victim)) {
+            return false;
+        }
+        if (plugin.getZoneManager().getZoneAt(victim.getLocation()) != null
+                && plugin.getPlayerStateManager().isOnIncursionDeathCooldown(killer.getUniqueId())) {
+            return false;
+        }
+
         // Block rewards if killer is marked as Corrupted Monster
         if (killTracker.isCorruptedMonster(killer)) {
             return false;

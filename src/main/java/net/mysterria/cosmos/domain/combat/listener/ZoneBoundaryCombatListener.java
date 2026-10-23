@@ -68,6 +68,10 @@ public class ZoneBoundaryCombatListener implements Listener {
     }
 
     private boolean crossesBoundary(Player attacker, Player victim) {
+        return crossesBoundary(plugin, attacker, victim);
+    }
+
+    public static boolean crossesBoundary(CosmosIncursion plugin, Player attacker, Player victim) {
         if (attacker == null || attacker.equals(victim)) return false;
         // Location-based so Hollow Body NPCs (no tracked zone state) are judged the same way.
         IncursionZone attackerIncursion = plugin.getZoneManager().getZoneAt(attacker.getLocation());
