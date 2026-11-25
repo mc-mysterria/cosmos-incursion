@@ -283,6 +283,13 @@ public class IncursionZoneHorseListener implements Listener {
         return false;
     }
 
+    /** Removes zone saddles from a player who is outside every zone, leaving any active horse alone. */
+    public void removeStraySaddles(Player player) {
+        if (playerHorses.containsKey(player.getUniqueId())) return;
+        if (!hasCosmosSaddle(player)) return;
+        forceRemoveSaddle(player);
+    }
+
     private void forceRemoveSaddle(Player player) {
         saddleHolders.remove(player.getUniqueId());
         ItemStack[] contents = player.getInventory().getContents();

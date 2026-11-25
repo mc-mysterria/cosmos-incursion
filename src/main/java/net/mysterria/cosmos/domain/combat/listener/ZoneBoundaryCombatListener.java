@@ -78,6 +78,15 @@ public class ZoneBoundaryCombatListener implements Listener {
         IncursionZone victimIncursion = plugin.getZoneManager().getZoneAt(victim.getLocation());
         PermanentZone attackerPermanent = plugin.getPermanentZoneManager().getZoneAt(attacker.getLocation());
         PermanentZone victimPermanent = plugin.getPermanentZoneManager().getZoneAt(victim.getLocation());
+        // A player on a death cooldown for a zone is pushed out each tick, but stands inside it for a
+        // moment first. They must not be able to hit (or be hit by) the players inside meanwhile.
+        if (onDeathCooldownIn(plugin, attacker, attackerPermanent) || onDeathCooldownIn(plugin, victim, victimPermanent)) {
+            return true;
+        }
         return !Objects.equals(attackerIncursion, victimIncursion) || !Objects.equals(attackerPermanent, victimPermanent);
+    }
+
+    private static boolean onDeathCooldownIn(CosmosIncursion plugin, Player player, PermanentZone zone) {
+        return zone != null && plugin.getPermanentZoneManager().isOnZoneDeathCooldown(player.getUniqueId(), zone.getId());
     }
 }

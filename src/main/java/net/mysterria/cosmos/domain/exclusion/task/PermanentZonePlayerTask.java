@@ -109,6 +109,12 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                 if (permanentZoneManager.clearMapHidden(player.getUniqueId())) {
                     plugin.getMapIntegration().showPlayerOnMap(player);
                 }
+                // Zone items normally go on exit, but some leave without an exit: a Demoness
+                // mirror-self swap hands the player a body that still carries them, and the
+                // holder sets are empty after a restart. Sweep them once a second outside zones.
+                if (tickCount % 20 == 0 && plugin.getZoneManager().getZoneAt(player.getLocation()) == null) {
+                    removeStrayZoneItems(player);
+                }
             }
 
             // Check nearby horses to see if they are Zone Mounts outside of any zone
@@ -290,6 +296,15 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
                 player.getInventory().setItem(i, null);
             }
         }
+    }
+
+    private void removeStrayZoneItems(Player player) {
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            if (isCosmosCompass(contents[i])) player.getInventory().setItem(i, null);
+        }
+        compassHolders.remove(player.getUniqueId());
+        horseListener.removeStraySaddles(player);
     }
 
     private void updateCompass(Player player, PermanentZone zone) {
@@ -577,8 +592,12 @@ public class PermanentZonePlayerTask extends BukkitRunnable {
         double dist = Math.sqrt(dx * dx + dz * dz);
         if (dist < 0.1) { dx = 1; dz = 0; } else { dx /= dist; dz /= dist; }
 
-        // Walk outward from centroid in 1-block steps until outside the polygon
-        for (double step = dist + 1; step <= dist + 200; step += 1.0) {
+        // Walk outward from centroid in 1-block steps until outside the polygon. A point farther from
+        // the centroid than every vertex is always outside, so walk at least that far: a fixed 200
+        // blocks left big zones without an exit from near the centre, and the fallback below put the
+        // player back on the centroid every tick until the cooldown ran out.
+        double maxStep = Math.max(dist + 200, zone.getApproximateRadius() + 16);
+        for (double step = dist + 1; step <= maxStep; step += 1.0) {
             double tx = centroid.getX() + dx * step;
             double tz = centroid.getZ() + dz * step;
             if (!zone.contains(new Location(loc.getWorld(), tx, 64, tz))) {
