@@ -35,6 +35,7 @@ public class PlayerQuitListener implements Listener {
     private void dropPermanentZoneBuffer(Player player) {
         PermanentZone pZone = plugin.getPermanentZoneManager().getPlayerZone(player.getUniqueId());
         if (pZone == null) return;
+        // Same spill as the spectator-mode path: exact amounts as reclaimable items
         plugin.getPermanentZoneManager().dropBufferAsItems(player, player.getLocation());
     }
 

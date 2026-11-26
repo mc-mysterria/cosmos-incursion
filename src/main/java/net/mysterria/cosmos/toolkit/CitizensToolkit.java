@@ -191,9 +191,9 @@ public class CitizensToolkit {
             plugin.log("Skipping hollow inventory drop for " + hollowBody.getPlayerName() + " - already dropped");
             return;
         }
-        if (location == null || location.getWorld() == null) {
+        if (location == null || !location.isWorldLoaded()) {
             Location fallback = hollowBody.getSpawnLocation();
-            if (fallback == null || fallback.getWorld() == null) {
+            if (fallback == null || !fallback.isWorldLoaded()) {
                 plugin.log("Cannot drop inventory for " + hollowBody.getPlayerName()
                         + " - invalid death location and no spawn fallback");
                 return;

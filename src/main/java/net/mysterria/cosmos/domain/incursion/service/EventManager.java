@@ -246,7 +246,13 @@ public class EventManager {
             // beacon-ownership check, which credited only whichever town held a beacon at the
             // exact instant the event ended.
             if (beaconManager.hasBeacons()) {
-                rewardDistributor.distribute(activeEvent);
+                try {
+                    rewardDistributor.distribute(activeEvent);
+                } catch (RuntimeException failure) {
+                    // Log it and carry on, so the cleanup below still runs
+                    plugin.log("Reward distribution failed: " + failure);
+                    failure.printStackTrace();
+                }
 
                 // Reset all beacons
                 beaconManager.resetAllCaptures();
@@ -482,7 +488,7 @@ public class EventManager {
      * Force stop the event immediately
      */
     public boolean forceStop() {
-        if (currentState == EventState.IDLE) {
+        if (currentState == EventState.IDLE || currentState == EventState.ENDING) {
             return false;
         }
 

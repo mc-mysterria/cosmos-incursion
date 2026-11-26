@@ -5,6 +5,7 @@ import com.google.gson.reflect.TypeToken;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
 import net.mysterria.cosmos.domain.market.model.ShopItem;
+import net.mysterria.cosmos.toolkit.AtomicFiles;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
@@ -40,28 +41,55 @@ public class ZoneShopManager {
     // ── Persistence ─────────────────────────────────────────────────────────────
 
     public void save() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (ShopItem si : items) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("id", si.getId().toString());
+        writeItems();
+    }
 
-            if (si.isCoi()) {
-                entry.put("coiItemId", si.getCoiItemId());
-            } else {
-                entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
-            }
+    /** Replaces the catalogue and saves it. A failed save restores the previous catalogue. */
+    public boolean replaceItemsAndSave(List<ShopItem> newItems) {
+        List<ShopItem> before = List.copyOf(items);
+        setItems(newItems);
+        return saveOrRestore(before);
+    }
 
-            Map<String, Double> priceMap = new LinkedHashMap<>();
-            for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
-                priceMap.put(p.getKey().name(), p.getValue());
+    /** Appends one item and saves it. A failed save removes it again. */
+    public boolean addItemAndSave(ShopItem item) {
+        List<ShopItem> before = List.copyOf(items);
+        addItem(item);
+        return saveOrRestore(before);
+    }
+
+    private boolean saveOrRestore(List<ShopItem> beforeItems) {
+        if (writeItems()) return true;
+        setItems(beforeItems);
+        return false;
+    }
+
+    /** Returns whether the write succeeded. */
+    private boolean writeItems() {
+        try {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (ShopItem si : items) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", si.getId().toString());
+
+                if (si.isCoi()) {
+                    entry.put("coiItemId", si.getCoiItemId());
+                } else {
+                    entry.put("item", Base64.getEncoder().encodeToString(si.getItem().serializeAsBytes()));
+                }
+
+                Map<String, Double> priceMap = new LinkedHashMap<>();
+                for (Map.Entry<ResourceType, Double> p : si.getPrices().entrySet()) {
+                    priceMap.put(p.getKey().name(), p.getValue());
+                }
+                entry.put("prices", priceMap);
+                list.add(entry);
             }
-            entry.put("prices", priceMap);
-            list.add(entry);
-        }
-        try (FileWriter fw = new FileWriter(shopFile)) {
-            gson.toJson(list, fw);
-        } catch (IOException e) {
+            AtomicFiles.write(shopFile, gson.toJson(list));
+            return true;
+        } catch (IOException | RuntimeException e) {
             plugin.log("Failed to save zone shop: " + e.getMessage());
+            return false;
         }
     }
 

@@ -2,13 +2,14 @@ package net.mysterria.cosmos.domain.incursion.service;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.incursion.model.EventResult;
 import net.mysterria.cosmos.domain.incursion.model.TownScore;
+import net.mysterria.cosmos.toolkit.AtomicFiles;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,6 +35,7 @@ public class EventHistoryStore {
     private final CosmosIncursion plugin;
     private final Gson gson;
     private final File historyFile;
+    private final Object persistenceLock = new Object();
 
     private final List<EventResult> history = new CopyOnWriteArrayList<>();
     private volatile int holderTownId = 0;
@@ -83,48 +85,67 @@ public class EventHistoryStore {
                         (holderTownId != 0 ? " (current holder: " + holderTownName + ", streak " + holderStreak + ")" : "") +
                         (pendingMvpEffort.isEmpty() ? "" : ", " + pendingMvpEffort.size() + " pending offline MVP reward(s)"));
             }
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             plugin.log("Error loading event history: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public void save() {
-        try (FileWriter writer = new FileWriter(historyFile)) {
+        synchronized (persistenceLock) {
+            saveLocked();
+        }
+    }
+
+    /** Returns whether the write succeeded. */
+    private boolean saveLocked() {
+        try {
             Map<String, Double> pendingMvpEffortByString = new LinkedHashMap<>();
             pendingMvpEffort.forEach((uuid, effort) -> pendingMvpEffortByString.put(uuid.toString(), effort));
 
             PersistedState state = new PersistedState(new ArrayList<>(history), holderTownId, holderTownName,
                     holderStreak, pendingMvpEffortByString, cooldownEndTime);
-            gson.toJson(state, writer);
-        } catch (IOException e) {
+            AtomicFiles.write(historyFile, gson.toJson(state));
+            return true;
+        } catch (IOException | RuntimeException e) {
             plugin.log("Error saving event history: " + e.getMessage());
             e.printStackTrace();
+            return false;
         }
     }
 
-    /** Queues an MVP reward for a player who was offline at distribution time. */
+    /** Queues an MVP reward for a player who was offline at distribution time. A failed save keeps it in memory for the next save. */
     public void queuePendingMvpEffort(UUID playerId, double effort) {
-        pendingMvpEffort.merge(playerId, effort, Double::sum);
-        save();
+        synchronized (persistenceLock) {
+            pendingMvpEffort.merge(playerId, effort, Double::sum);
+            saveLocked();
+        }
     }
 
-    /** Removes and returns any pending MVP effort for a player (0 if none), for granting on join. */
+    /**
+     * Removes and returns any pending MVP effort for a player (0 if none), for granting on join.
+     * The removal is saved first so a restart cannot pay it twice; if the save fails the reward
+     * stays pending and 0 is returned.
+     */
     public double drainPendingMvpEffort(UUID playerId) {
-        Double effort = pendingMvpEffort.remove(playerId);
-        if (effort != null) {
-            save();
+        synchronized (persistenceLock) {
+            Double effort = pendingMvpEffort.remove(playerId);
+            if (effort == null) return 0.0;
+            if (saveLocked()) return effort;
+            pendingMvpEffort.put(playerId, effort);
+            return 0.0;
         }
-        return effort != null ? effort : 0.0;
     }
 
     /** Appends a result, evicting the oldest entry once the cap is exceeded, then saves. */
     public void recordResult(EventResult result) {
-        history.add(result);
-        while (history.size() > MAX_HISTORY) {
-            history.remove(0);
+        synchronized (persistenceLock) {
+            history.add(result);
+            while (history.size() > MAX_HISTORY) {
+                history.remove(0);
+            }
+            saveLocked();
         }
-        save();
     }
 
     public int getHolderTownId() {
