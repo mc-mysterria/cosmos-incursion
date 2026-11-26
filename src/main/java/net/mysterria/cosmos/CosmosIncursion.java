@@ -202,6 +202,9 @@ public final class CosmosIncursion extends JavaPlugin {
         permanentZoneManager = new PermanentZoneManager(this);
         permanentZoneManager.loadZones();
         permanentZoneManager.loadBalances();
+        for (var player : Bukkit.getOnlinePlayers()) {
+            permanentZoneManager.restoreCarriedResources(player);
+        }
         permanentZoneManager.cleanupOrphanedDisplayEntities();
 
         for (PermanentZone zone : permanentZoneManager.getAllZones()) {
@@ -256,6 +259,10 @@ public final class CosmosIncursion extends JavaPlugin {
             eventManager.finalizeForShutdown();
         }
 
+        if (citizensToolkit != null) {
+            citizensToolkit.despawnAllHollowBodies();
+        }
+
         // Save buff data
         if (buffToolkit != null) {
             buffToolkit.saveBuffData();
@@ -268,6 +275,9 @@ public final class CosmosIncursion extends JavaPlugin {
 
         // Save permanent zone data and clean up display entities
         if (permanentZoneManager != null) {
+            for (var player : Bukkit.getOnlinePlayers()) {
+                permanentZoneManager.saveCarriedResources(player);
+            }
             permanentZoneManager.cleanup();
             permanentZoneManager.saveZones();
             permanentZoneManager.saveBalances();
