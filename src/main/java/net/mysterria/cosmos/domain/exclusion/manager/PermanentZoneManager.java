@@ -13,6 +13,7 @@ import net.mysterria.cosmos.domain.exclusion.model.PermanentZone;
 import net.mysterria.cosmos.domain.exclusion.model.PointOfInterest;
 import net.mysterria.cosmos.domain.exclusion.model.source.ExclusionZoneTier;
 import net.mysterria.cosmos.domain.exclusion.model.source.ResourceType;
+import net.mysterria.cosmos.toolkit.AtomicFiles;
 import net.mysterria.cosmos.toolkit.item.ResourceItemToolkit;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -218,7 +219,12 @@ public class PermanentZoneManager {
     }
 
     public void saveBalances() {
-        try (FileWriter fw = new FileWriter(balanceFile)) {
+        writeBalances();
+    }
+
+    /** Returns whether the write succeeded. */
+    private boolean writeBalances() {
+        try {
             Map<String, Map<String, Double>> serializable = new LinkedHashMap<>();
             for (Map.Entry<Integer, Map<ResourceType, Double>> entry : townBalances.entrySet()) {
                 Map<String, Double> inner = new LinkedHashMap<>();
@@ -227,9 +233,12 @@ public class PermanentZoneManager {
                 }
                 serializable.put(String.valueOf(entry.getKey()), inner);
             }
-            gson.toJson(serializable, fw);
-        } catch (IOException e) {
+            AtomicFiles.write(balanceFile, gson.toJson(serializable));
+            return true;
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException: Gson refuses to write NaN and Infinity
             plugin.log("Failed to save permanent zone balances: " + e.getMessage());
+            return false;
         }
     }
 
@@ -596,6 +605,34 @@ public class PermanentZoneManager {
         return buffers.computeIfAbsent(playerId, PlayerResourceBuffer::new);
     }
 
+    public void saveCarriedResources(Player player) {
+        var key = plugin.getKey("carried_resources");
+        PlayerResourceBuffer buffer = buffers.get(player.getUniqueId());
+        if (buffer == null || buffer.isEmpty()) {
+            player.getPersistentDataContainer().remove(key);
+        } else {
+            player.getPersistentDataContainer().set(key, PersistentDataType.STRING, gson.toJson(buffer.snapshot()));
+        }
+        player.saveData();
+    }
+
+    public void restoreCarriedResources(Player player) {
+        var key = plugin.getKey("carried_resources");
+        String saved = player.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+        if (saved == null) return;
+        Type type = new TypeToken<Map<ResourceType, Double>>() {}.getType();
+        Map<ResourceType, Double> carried = null;
+        try {
+            carried = gson.fromJson(saved, type);
+        } catch (JsonParseException e) {
+            plugin.log("Discarding unreadable carried resources for " + player.getName());
+        }
+        PlayerResourceBuffer buffer = getBuffer(player.getUniqueId());
+        if (carried != null) carried.forEach(buffer::add);
+        player.getPersistentDataContainer().remove(key);
+        player.saveData();
+    }
+
     public void clearBuffer(UUID playerId) {
         buffers.remove(playerId);
         extractionChannels.remove(playerId);
@@ -756,7 +793,15 @@ public class PermanentZoneManager {
 
     // ── Town balance ─────────────────────────────────────────────────────────────
 
+    /**
+     * Credits a town and saves. A failed save keeps the credit in memory for the next successful save.
+     *
+     * @throws IllegalArgumentException if an amount or resulting balance is not finite; nothing is changed
+     */
     public void depositToTown(int townId, Map<ResourceType, Double> amounts) {
+        if (!isFiniteCredit(snapshotBalance(townId), amounts)) {
+            throw new IllegalArgumentException("Rejected non-finite deposit for town " + townId + ": " + amounts);
+        }
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
@@ -768,40 +813,79 @@ public class PermanentZoneManager {
     /**
      * Deducts the given amounts from a town's balance.
      * Returns {@code true} if the balance was sufficient and deduction succeeded.
+     * A non-finite or negative amount is refused, and a failed save restores the previous balance.
      */
     public boolean deductFromTown(int townId, Map<ResourceType, Double> amounts) {
         Map<ResourceType, Double> balance = townBalances.get(townId);
         if (balance == null) return false;
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            if (entry.getValue() == null || !Double.isFinite(entry.getValue()) || entry.getValue() < 0) return false;
             if (balance.getOrDefault(entry.getKey(), 0.0) < entry.getValue()) return false;
         }
+        Map<ResourceType, Double> previous = new EnumMap<>(ResourceType.class);
+        previous.putAll(balance);
         for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
             double remaining = balance.getOrDefault(entry.getKey(), 0.0) - entry.getValue();
             if (remaining <= 0) balance.remove(entry.getKey());
             else balance.put(entry.getKey(), remaining);
         }
-        saveBalances();
-        return true;
+        if (writeBalances()) return true;
+        balance.clear();
+        balance.putAll(previous);
+        return false;
     }
 
     /** Sets the exact amount of one resource type for a town (admin command). */
     public void setTownBalance(int townId, ResourceType type, double amount) {
+        trySetTownBalance(townId, type, amount);
+    }
+
+    /**
+     * Same as {@link #setTownBalance}. Returns false for a non-finite amount (nothing changed) or a
+     * failed save (the change stays in memory for the next successful save).
+     */
+    public boolean trySetTownBalance(int townId, ResourceType type, double amount) {
+        if (!Double.isFinite(amount)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
         if (amount <= 0) balance.remove(type);
         else balance.put(type, amount);
-        saveBalances();
+        return writeBalances();
     }
 
     /** Adds (or subtracts if negative) a resource amount for a town (admin command). */
     public void adjustTownBalance(int townId, ResourceType type, double delta) {
+        tryAdjustTownBalance(townId, type, delta);
+    }
+
+    /**
+     * Same as {@link #adjustTownBalance}. Returns false for a non-finite delta or resulting balance
+     * (nothing changed) or a failed save (the change stays in memory for the next successful save).
+     */
+    public boolean tryAdjustTownBalance(int townId, ResourceType type, double delta) {
+        double current = snapshotBalance(townId).getOrDefault(type, 0.0);
+        if (!Double.isFinite(current + delta)) return false;
         Map<ResourceType, Double> balance = townBalances.computeIfAbsent(townId,
                 k -> new EnumMap<>(ResourceType.class));
-        double current = balance.getOrDefault(type, 0.0);
         double result = Math.max(0, current + delta);
         if (result == 0) balance.remove(type);
         else balance.put(type, result);
-        saveBalances();
+        return writeBalances();
+    }
+
+    /** Whether every credit leaves a finite balance (no NaN, no overflow to infinity). */
+    private static boolean isFiniteCredit(Map<ResourceType, Double> balance, Map<ResourceType, Double> amounts) {
+        for (Map.Entry<ResourceType, Double> entry : amounts.entrySet()) {
+            Double amount = entry.getValue();
+            if (amount == null || !Double.isFinite(balance.getOrDefault(entry.getKey(), 0.0) + amount)) return false;
+        }
+        return true;
+    }
+
+    private Map<ResourceType, Double> snapshotBalance(int townId) {
+        Map<ResourceType, Double> snapshot = new EnumMap<>(ResourceType.class);
+        snapshot.putAll(townBalances.getOrDefault(townId, Collections.emptyMap()));
+        return snapshot;
     }
 
     public Map<ResourceType, Double> getTownBalance(int townId) {

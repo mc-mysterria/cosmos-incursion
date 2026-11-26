@@ -33,6 +33,8 @@ public class PlayerJoinListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
+        plugin.getPermanentZoneManager().restoreCarriedResources(player);
+
         // Check if player has a Hollow Body that was killed
         combatLogHandler.handleReconnect(player);
 
