@@ -1,11 +1,14 @@
 package net.mysterria.cosmos.domain.combat.service;
 
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.citizensnpcs.api.event.NPCDeathEvent;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
 import net.mysterria.cosmos.toolkit.CitizensToolkit;
 import net.mysterria.cosmos.toolkit.InventoryUtils;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
+import net.mysterria.cosmos.toolkit.MysterriaAuditEmitter;
 import net.mysterria.cosmos.domain.incursion.service.PlayerStateManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -24,6 +27,9 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Handles combat logging mechanics
@@ -111,7 +117,7 @@ public class CombatLogHandler implements Listener {
         org.bukkit.Location deathLocation = event.getNPC().getStoredLocation();
 
         // Mark as killed and handle item drops
-        citizensToolkit.markNPCKilled(npcId, deathLocation);
+        citizensToolkit.markNPCKilled(npcId, deathLocation, event.getEvent());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -194,14 +200,16 @@ public class CombatLogHandler implements Listener {
             }
 
             // Kill the player to apply death mechanics and sequence regression
-            if (player.isOnline()) {
+            boolean killed = player.isOnline();
+            if (killed) {
                 // The saved tier decides the penalty; the death listener must not apply its own for this death
                 if (hollowBody.getZoneTier() == ZoneTier.DEATH) {
-                    plugin.getDeathHandler().applyDeathPenalty(player, null, player.getLocation());
+                    plugin.getDeathHandler().applyDeathPenalty(player, null, player.getLocation(), ZoneTier.DEATH);
                 }
                 plugin.getDeathHandler().killWithoutPenalty(player);
                 plugin.log("Player " + player.getName() + " killed due to Hollow Body death");
             }
+            emitOwnerKilled(player, hollowBody, killed);
         } else {
             plugin.log("Player " + player.getName() + " reconnected - Hollow Body survived, restoring inventory");
             restoreTransferredInventory(player, hollowBody);
@@ -213,6 +221,28 @@ public class CombatLogHandler implements Listener {
 
         // Remove the Hollow Body / pending outcome (items already dropped or restored)
         citizensToolkit.removeHollowBody(player.getUniqueId());
+    }
+
+    /**
+     * Records the penalty applied to a combat logger whose Hollow Body was killed: inventory emptied
+     * and the player killed on reconnect. COMMITTED when the kill was issued, FAILED when the player
+     * had gone offline before it. Built from the player and the hollow body already in hand.
+     */
+    private void emitOwnerKilled(Player player, HollowBody hollowBody, boolean killed) {
+        try {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("player_name", player.getName());
+            metadata.put("npc_id", hollowBody.getNpcId());
+            MysterriaAuditEmitter.putLocation(metadata, hollowBody.getDeathLocation());
+            metadata.put("inventory_cleared", true);
+            metadata.put("teleported_to_body", hollowBody.getDeathLocation() != null);
+
+            DeathAudit.emit(plugin, "incursion.hollow_body_owner_killed",
+                    killed ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, AuditRisk.HIGH,
+                    null, player.getUniqueId(), null, killed ? null : "player_offline", metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
     }
 
     private static void restoreTransferredInventory(Player player, HollowBody hollowBody) {

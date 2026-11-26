@@ -1,11 +1,14 @@
 package net.mysterria.cosmos.toolkit;
 
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditOutcome;
+import dev.ua.ikeepcalm.mysterria.audit.client.api.AuditRisk;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.api.npc.NPCRegistry;
 import net.citizensnpcs.trait.SkinTrait;
 import net.mysterria.cosmos.CosmosIncursion;
 import net.mysterria.cosmos.domain.combat.model.HollowBody;
+import net.mysterria.cosmos.domain.combat.service.DeathAudit;
 import net.mysterria.cosmos.config.CosmosConfig;
 import net.mysterria.cosmos.domain.incursion.model.source.ZoneTier;
 import org.bukkit.Location;
@@ -13,7 +16,9 @@ import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.persistence.PersistentDataType;
@@ -27,6 +32,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -210,17 +216,28 @@ public class CitizensToolkit {
      * Mark an NPC as killed and drop its inventory once
      */
     public void markNPCKilled(int npcId, org.bukkit.Location deathLocation) {
+        markNPCKilled(npcId, deathLocation, null);
+    }
+
+    /**
+     * Same as {@link #markNPCKilled(int, Location)}. {@code deathEvent} is the NPC's death event
+     * (null when not available); it only feeds the killer facts of the audit row.
+     */
+    public void markNPCKilled(int npcId, org.bukkit.Location deathLocation, EntityDeathEvent deathEvent) {
         UUID playerId = npcIdToPlayerId.get(npcId);
         if (playerId != null) {
             HollowBody hollowBody = hollowBodies.get(playerId);
             if (hollowBody != null) {
+                boolean alreadyDropped = hollowBody.isItemsDropped();
                 hollowBody.markKilled(deathLocation);
                 saveRecovery(hollowBody);
 
                 // Drop the player's inventory at death location (once)
-                dropInventory(hollowBody, deathLocation);
+                List<Map<String, Object>> droppedStacks = new ArrayList<>();
+                dropInventory(hollowBody, deathLocation, droppedStacks);
 
                 plugin.log("Hollow Body NPC " + npcId + " was killed (player: " + playerId + ") - items dropped");
+                emitHollowBodyKilled(hollowBody, deathEvent, alreadyDropped, droppedStacks);
             }
         }
     }
@@ -238,9 +255,55 @@ public class CitizensToolkit {
     }
 
     /**
+     * Records the death of a combat-log body: owner, NPC, where it died, who or what killed it, and
+     * the stacks dropped (material and amount, read from the stacks the drop loop holds). COMMITTED
+     * once the stored items are dropped, FAILED while they are still held because no valid drop
+     * location existed. Built from the hollow body and the death event already in hand.
+     */
+    private void emitHollowBodyKilled(HollowBody hollowBody, EntityDeathEvent deathEvent, boolean alreadyDropped,
+                                      List<Map<String, Object>> droppedStacks) {
+        try {
+            int droppedAmount = 0;
+            for (Map<String, Object> stack : droppedStacks) droppedAmount += (Integer) stack.get("amount");
+
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("player_name", hollowBody.getPlayerName());
+            metadata.put("npc_id", hollowBody.getNpcId());
+            MysterriaAuditEmitter.putLocation(metadata, hollowBody.getDeathLocation());
+            UUID ownerId = null;
+            UUID attackerId = null;
+            if (deathEvent != null) {
+                LivingEntity body = deathEvent.getEntity();
+                DeathAudit.KillerFacts facts = DeathAudit.putKillerFacts(metadata, body, deathEvent.getDamageSource(), body.getKiller());
+                ownerId = facts.ownerId();
+                attackerId = facts.attackerId();
+            }
+            metadata.put("items_already_dropped", alreadyDropped);
+            metadata.put("items_dropped", hollowBody.isItemsDropped());
+            metadata.put("dropped_stack_count", droppedStacks.size());
+            metadata.put("dropped_item_count", droppedAmount);
+            metadata.put("dropped", droppedStacks);
+
+            boolean dropped = hollowBody.isItemsDropped();
+            DeathAudit.emit(plugin, "incursion.hollow_body_killed",
+                    dropped ? AuditOutcome.COMMITTED : AuditOutcome.FAILED, AuditRisk.NORMAL,
+                    ownerId, hollowBody.getPlayerId(), attackerId, dropped ? null : "items_not_dropped", metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
+        }
+    }
+
+    /**
      * Drop a Hollow Body's stored inventory at a location, then clear the snapshot.
      */
     private void dropInventory(HollowBody hollowBody, org.bukkit.Location location) {
+        dropInventory(hollowBody, location, null);
+    }
+
+    /**
+     * Same drop; {@code droppedStacks}, when not null, receives material and amount of each dropped stack.
+     */
+    private void dropInventory(HollowBody hollowBody, org.bukkit.Location location, List<Map<String, Object>> droppedStacks) {
         if (hollowBody.isItemsDropped()) {
             plugin.log("Skipping hollow inventory drop for " + hollowBody.getPlayerName() + " - already dropped");
             return;
@@ -260,10 +323,11 @@ public class CitizensToolkit {
         org.bukkit.World world = location.getWorld();
         int droppedItems = 0;
 
-        droppedItems += dropItemArray(world, location, hollowBody.getInventory());
-        droppedItems += dropItemArray(world, location, hollowBody.getArmor());
+        droppedItems += dropItemArray(world, location, hollowBody.getInventory(), droppedStacks);
+        droppedItems += dropItemArray(world, location, hollowBody.getArmor(), droppedStacks);
         if (hollowBody.getOffhand() != null && hollowBody.getOffhand().getType() != Material.AIR) {
             world.dropItemNaturally(location, hollowBody.getOffhand());
+            if (droppedStacks != null) droppedStacks.add(DeathAudit.stack(hollowBody.getOffhand()));
             droppedItems++;
         }
 
@@ -273,7 +337,8 @@ public class CitizensToolkit {
         plugin.log("Dropped " + droppedItems + " items from " + hollowBody.getPlayerName() + "'s Hollow Body");
     }
 
-    private int dropItemArray(org.bukkit.World world, Location location, ItemStack[] items) {
+    private int dropItemArray(org.bukkit.World world, Location location, ItemStack[] items,
+                              List<Map<String, Object>> droppedStacks) {
         if (items == null) {
             return 0;
         }
@@ -281,6 +346,7 @@ public class CitizensToolkit {
         for (ItemStack item : items) {
             if (item != null && item.getType() != Material.AIR) {
                 world.dropItemNaturally(location, item);
+                if (droppedStacks != null) droppedStacks.add(DeathAudit.stack(item));
                 dropped++;
             }
         }
@@ -328,7 +394,52 @@ public class CitizensToolkit {
                 plugin.log("Hollow Body NPC for " + hollowBody.getPlayerName()
                         + " despawned (timeout) - pending reconnect state kept (killed="
                         + hollowBody.isWasKilled() + ")");
+                emitHollowBodyDespawned(hollowBody, "timeout");
             }
+        }
+    }
+
+    /**
+     * Records a combat-log body whose NPC was removed while the owner's reconnect state is kept
+     * ({@code reason} is {@code timeout} or {@code event_end}): owner, NPC, where it was spawned
+     * (the code holds no later position), whether it had been killed, and how many stacks and items
+     * the body still holds for the owner's next join. Built from the hollow body already in hand;
+     * Citizens swallows destroy errors in {@link #removeNPC}, so the row records the state change.
+     */
+    private void emitHollowBodyDespawned(HollowBody hollowBody, String reason) {
+        try {
+            int heldStacks = 0;
+            int heldItems = 0;
+            for (ItemStack[] items : new ItemStack[][]{hollowBody.getInventory(), hollowBody.getArmor()}) {
+                if (items == null) continue;
+                for (ItemStack item : items) {
+                    if (item == null || item.getType() == Material.AIR) continue;
+                    heldStacks++;
+                    heldItems += item.getAmount();
+                }
+            }
+            ItemStack offhand = hollowBody.getOffhand();
+            if (offhand != null && offhand.getType() != Material.AIR) {
+                heldStacks++;
+                heldItems += offhand.getAmount();
+            }
+
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("player_name", hollowBody.getPlayerName());
+            metadata.put("npc_id", hollowBody.getNpcId());
+            MysterriaAuditEmitter.putLocation(metadata, hollowBody.getSpawnLocation());
+            metadata.put("despawn_reason", reason);
+            metadata.put("was_killed", hollowBody.isWasKilled());
+            metadata.put("lifetime_seconds", (System.currentTimeMillis() - hollowBody.getSpawnTime()) / 1000L);
+            metadata.put("items_already_dropped", hollowBody.isItemsDropped());
+            metadata.put("held_stack_count", heldStacks);
+            metadata.put("held_item_count", heldItems);
+            metadata.put("reconnect_state_kept", true);
+
+            DeathAudit.emit(plugin, "incursion.hollow_body_despawned", AuditOutcome.COMMITTED, AuditRisk.NORMAL,
+                    null, hollowBody.getPlayerId(), null, reason, metadata);
+        } catch (RuntimeException | LinkageError failure) {
+            MysterriaAuditEmitter.recordFailure();
         }
     }
 
@@ -347,6 +458,7 @@ public class CitizensToolkit {
                 npcIdToPlayerId.remove(hollowBody.getNpcId());
                 hollowBody.markNpcRemoved();
                 despawnedCount++;
+                emitHollowBodyDespawned(hollowBody, "event_end");
             }
         }
 
